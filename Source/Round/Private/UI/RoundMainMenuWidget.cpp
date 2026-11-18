@@ -343,7 +343,7 @@ void URoundMainMenuWidget::FindSessions()
     SessionSearch = MakeShared<FOnlineSessionSearch>();
     SessionSearch->MaxSearchResults = 100;
     SessionSearch->bIsLanQuery = UsesLanSessions();
-    SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+    SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
 
     if (FindSessionsCompleteHandle.IsValid())
     {
@@ -468,7 +468,7 @@ void URoundMainMenuWidget::HandleCreateSessionClicked()
     Settings.bUsesPresence = true;
     Settings.bAllowJoinViaPresence = true;
     Settings.bUseLobbiesIfAvailable = true;
-    Settings.Set(SEARCH_PRESENCE, true, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+    Settings.Set(SEARCH_LOBBIES, true, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
     const URoundGameInstance* GameInstance = GetRoundGameInstance();
     const FString RoomName = GameInstance && !GameInstance->RoomName.IsEmpty() ? GameInstance->RoomName : TEXT("Test Room");
     Settings.Set(RoomNameSetting, RoomName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);

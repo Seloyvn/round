@@ -27,6 +27,8 @@
 #include "WidgetBlueprint.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "UObject/UnrealType.h"
+#include "UObject/SavePackage.h"
+#include "Misc/PackageName.h"
 
 namespace
 {
@@ -134,8 +136,11 @@ bool SaveBlueprint(UWidgetBlueprint* Blueprint)
     FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
     FKismetEditorUtilities::CompileBlueprint(Blueprint);
     Blueprint->MarkPackageDirty();
-    return UPackage::SavePackage(Blueprint->GetPackage(), Blueprint, RF_Public | RF_Standalone,
-        *FPackageName::LongPackageNameToFilename(Blueprint->GetOutermost()->GetName(), FPackageName::GetAssetPackageExtension()));
+    const FString Filename = FPackageName::LongPackageNameToFilename(
+        Blueprint->GetOutermost()->GetName(), FPackageName::GetAssetPackageExtension());
+    FSavePackageArgs SaveArgs;
+    SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+    return UPackage::SavePackage(Blueprint->GetPackage(), Blueprint, *Filename, SaveArgs);
 }
 
 bool RebuildMainMenu()
@@ -427,7 +432,7 @@ bool RebuildSkillMenu()
     UWidgetBlueprint* StartPositionBlueprint = LoadObject<UWidgetBlueprint>(nullptr, TEXT("/Game/TopDown/UI/UI_StartPosition.UI_StartPosition"));
     if (StartPositionBlueprint && StartPositionBlueprint->GeneratedClass)
     {
-        const TSubclassOf<UWidget> StartPositionClass = Cast<UClass>(StartPositionBlueprint->GeneratedClass);
+        const TSubclassOf<URoundStartPositionWidget> StartPositionClass = Cast<UClass>(StartPositionBlueprint->GeneratedClass);
         URoundStartPositionWidget* StartPosition = Tree->ConstructWidget<URoundStartPositionWidget>(
             StartPositionClass, TEXT("UI_StartPosition_0"));
         if (FBoolProperty* VariableProperty = FindFProperty<FBoolProperty>(StartPosition->GetClass(), TEXT("bIsVariable")))

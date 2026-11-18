@@ -5,6 +5,10 @@
 #include <cstdint>
 #include <vector>
 
+#ifndef ROUNDCORE_API
+#define ROUNDCORE_API
+#endif
+
 namespace roundcore
 {
 struct MatchSetup
@@ -13,10 +17,11 @@ struct MatchSetup
     GameState initialState;
 };
 
-class Game
+class ROUNDCORE_API Game
 {
 public:
     ActionResult Reset(MatchSetup setup);
+    ActionResult ValidateAction(const GameAction& action) const;
     ActionResult ApplyAction(const GameAction& action);
     std::vector<GameAction> LegalActions(EntityId actorId) const;
 

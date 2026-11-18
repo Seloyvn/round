@@ -120,7 +120,9 @@ Current progress:
 - Legal move actions are generated in stable tile-ID order.
 - Successful moves atomically update occupancy and emit movement plus initiative events.
 - Unreal now compiles the same implementation file through a dedicated `RoundCore` runtime module; it does not contain a second gameplay implementation.
-- Unreal conversion, comparison mode, and presentation-event consumption remain to be implemented before authority can switch.
+- A live-board adapter exports sorted tiles, terrain movement rules, blocking objects, resolved character movement costs, health, initiative, teams, occupancy, and the active character into Core state.
+- `IsCoreMoveLegal` rebuilds a snapshot on demand, compares Core legality with the Actor result, and logs any mismatch without changing gameplay.
+- Cached synchronization, authoritative execution, and presentation-event consumption remain to be implemented before authority can switch.
 
 ### Phase 2 — Initiative and decisions
 

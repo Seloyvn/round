@@ -116,12 +116,7 @@ ActionResult Game::Reset(MatchSetup setup)
 
 ActionResult Game::ApplyAction(const GameAction& action)
 {
-    if (action.type != ActionType::Move)
-    {
-        return Failure("unsupported_action", "This action has not been migrated to RoundCore yet.");
-    }
-
-    const ActionResult validation = ValidateMove(action);
+    const ActionResult validation = ValidateAction(action);
     if (!validation.success)
     {
         return validation;
@@ -148,6 +143,15 @@ ActionResult Game::ApplyAction(const GameAction& action)
     result.events.push_back(GameEvent{EventType::CharacterMoved, character->id, InvalidEntityId, destination->id, {}, cost});
     result.events.push_back(GameEvent{EventType::InitiativeChanged, character->id, character->id, destination->id, {}, -cost});
     return result;
+}
+
+ActionResult Game::ValidateAction(const GameAction& action) const
+{
+    if (action.type == ActionType::Move)
+    {
+        return ValidateMove(action);
+    }
+    return Failure("unsupported_action", "This action has not been migrated to RoundCore yet.");
 }
 
 std::vector<GameAction> Game::LegalActions(const EntityId actorId) const

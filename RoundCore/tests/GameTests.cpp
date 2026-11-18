@@ -67,6 +67,9 @@ int main()
     move.type = ActionType::Move;
     move.actorId = 10;
     move.targetTileId = 3;
+    Require(first.ValidateAction(move).success, "legal movement should validate without executing");
+    Require(first.State().characters[0].tileId == 1 && first.State().step == 0,
+        "validation must not mutate match state");
     const ActionResult moveResult = first.ApplyAction(move);
     Require(moveResult.success, "a legal adjacent move should execute");
     Require(first.State().characters[0].tileId == 3, "movement should update the character tile");

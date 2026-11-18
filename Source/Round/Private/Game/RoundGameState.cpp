@@ -35,6 +35,7 @@
 #include "Effects/RoundSlowEffect.h"
 #include "Game/RoundGameInstance.h"
 #include "Game/RoundPlayerPawn.h"
+#include "Core/RoundCoreMatchAdapter.h"
 #include "Algo/Reverse.h"
 #include "Algo/Sort.h"
 #include "Engine/StaticMesh.h"
@@ -1034,6 +1035,8 @@ ARoundGameState::ARoundGameState()
     bReplicates = true;
     TeamActorClass = ARoundTeamActor::StaticClass();
 }
+
+ARoundGameState::~ARoundGameState() = default;
 
 void ARoundGameState::BeginPlay()
 {
@@ -3737,9 +3740,46 @@ URoundObjectiveRewardData* ARoundGameState::ChooseObjectiveRewardData() const
     return Fallback;
 }
 
+bool ARoundGameState::IsCoreMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const
+{
+    if (!Character || !TargetTile)
+    {
+        return false;
+    }
+
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+
+    FString SnapshotReason;
+    if (!CoreMatchAdapter->Rebuild(*this, SnapshotReason))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RoundCore movement snapshot failed: %s"), *SnapshotReason);
+        return false;
+    }
+
+    FString CoreReason;
+    const bool bCoreLegal = CoreMatchAdapter->IsMoveLegal(Character, TargetTile, CoreReason);
+    const bool bActorLegal = Character->CanMoveTo(const_cast<ARoundGridTile*>(TargetTile));
+    if (bCoreLegal != bActorLegal)
+    {
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("RoundCore movement mismatch Character=%s Target=%s Actor=%s Core=%s Reason=%s"),
+            *GetNameSafe(Character),
+            *GetNameSafe(TargetTile),
+            bActorLegal ? TEXT("legal") : TEXT("illegal"),
+            bCoreLegal ? TEXT("legal") : TEXT("illegal"),
+            *CoreReason);
+    }
+    return bCoreLegal;
+}
+
 bool ARoundGameState::IsSimMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const
 {
-    return Character && TargetTile && Character->CanMoveTo(const_cast<ARoundGridTile*>(TargetTile));
+    return IsCoreMoveLegal(Character, TargetTile);
 }
 
 bool ARoundGameState::IsSimAttackLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const

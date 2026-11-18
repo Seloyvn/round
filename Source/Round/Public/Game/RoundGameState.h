@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
 #include "RoundTypes.h"
+#include "Core/RoundCoreMatchAdapter.h"
 #include "RoundGameState.generated.h"
 
 class ARoundCharacter;
@@ -292,6 +293,7 @@ class ROUND_API ARoundGameState : public AGameStateBase
 
 public:
     ARoundGameState();
+    virtual ~ARoundGameState() override;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -485,7 +487,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round")
     bool AdvanceTurn();
 
-    UFUNCTION(BlueprintCallable, Category = "Round|Sim")
+    UFUNCTION(BlueprintCallable, Category = "Round|Core")
+    bool IsCoreMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
+
+    UFUNCTION(BlueprintCallable, Category = "Round|Deprecated", meta = (DeprecatedFunction, DeprecationMessage = "Use IsCoreMoveLegal. This now forwards to the authoritative-core comparison adapter."))
     bool IsSimMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
 
     UFUNCTION(BlueprintCallable, Category = "Round|Sim")
@@ -680,6 +685,7 @@ private:
     bool bObjectiveCycleInitialized = false;
     mutable FRandomStream MatchRandomStream;
     mutable bool bMatchRandomStreamInitialized = false;
+    mutable TUniquePtr<FRoundCoreMatchAdapter> CoreMatchAdapter;
     UFUNCTION()
     void OnRep_MatchRandomSeed();
 
