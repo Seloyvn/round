@@ -113,6 +113,15 @@ Exit condition: `RoundCore` builds without Unreal and contract tests pass.
 
 Exit condition: human movement and standalone movement tests use the same Core rule; no Actor-side movement rule remains.
 
+Current progress:
+
+- Core validates one-field movement against active character, adjacency, occupancy, blocking objects, terrain, movement blocks, and initiative.
+- Core derives deterministic movement costs using fixed-point terrain multipliers.
+- Legal move actions are generated in stable tile-ID order.
+- Successful moves atomically update occupancy and emit movement plus initiative events.
+- Unreal now compiles the same implementation file through a dedicated `RoundCore` runtime module; it does not contain a second gameplay implementation.
+- Unreal conversion, comparison mode, and presentation-event consumption remain to be implemented before authority can switch.
+
 ### Phase 2 — Initiative and decisions
 
 - Move initiative, active-character selection, waiting, end-turn behavior, and delayed-action scheduling.

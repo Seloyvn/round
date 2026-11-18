@@ -14,6 +14,7 @@ struct TileState
     HexCoord coord;
     DefinitionId terrainId;
     EntityId occupantId = InvalidEntityId;
+    bool blocksMovement = false;
 };
 
 struct AbilityState
@@ -31,6 +32,7 @@ struct CharacterState
     std::int32_t health = 0;
     std::int32_t initiative = 0;
     bool alive = true;
+    bool movementBlocked = false;
     std::vector<AbilityState> abilities;
 };
 

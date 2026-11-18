@@ -41,7 +41,10 @@ struct TerrainDefinition
     bool walkable = true;
     bool blocksVision = false;
     bool stopsMovement = false;
-    std::int32_t movementCost = 0;
+    // Minimum cost of entering this terrain after applying its multiplier.
+    std::int32_t movementCost = 1;
+    // Fixed point keeps movement deterministic across compilers and platforms.
+    std::int32_t movementCostMultiplierBasisPoints = 10000;
     std::unordered_map<std::string, double> values;
 };
 

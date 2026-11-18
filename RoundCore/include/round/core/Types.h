@@ -67,4 +67,13 @@ struct HexCoord
         return !(left == right);
     }
 };
+
+constexpr std::int32_t HexDistance(const HexCoord& left, const HexCoord& right) noexcept
+{
+    const std::int32_t dq = left.q - right.q;
+    const std::int32_t dr = left.r - right.r;
+    const std::int32_t ds = (left.q + left.r) - (right.q + right.r);
+    const auto absolute = [](const std::int32_t value) constexpr { return value < 0 ? -value : value; };
+    return (absolute(dq) + absolute(dr) + absolute(ds)) / 2;
+}
 }

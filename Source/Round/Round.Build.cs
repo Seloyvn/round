@@ -31,7 +31,8 @@ public class Round : ModuleRules
             "Json",
             "JsonUtilities",
             "OnlineSubsystem",
-            "OnlineSubsystemUtils"
+            "OnlineSubsystemUtils",
+            "RoundCore"
         });
 
         if (Target.bBuildEditor)
