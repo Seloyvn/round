@@ -122,7 +122,9 @@ Current progress:
 - Unreal now compiles the same implementation file through a dedicated `RoundCore` runtime module; it does not contain a second gameplay implementation.
 - A live-board adapter exports sorted tiles, terrain movement rules, blocking objects, resolved character movement costs, health, initiative, teams, occupancy, and the active character into Core state.
 - `IsCoreMoveLegal` rebuilds a snapshot on demand, compares Core legality with the Actor result, and logs any mismatch without changing gameplay.
-- Cached synchronization, authoritative execution, and presentation-event consumption remain to be implemented before authority can switch.
+- Normal one-field `MoveToTile` now validates and executes position plus initiative changes in Core. Unreal mirrors the result, runs still-unmigrated enter/movement reactions, records presentation data, and resynchronizes Core afterward.
+- Multi-field human movement is decomposed into the same validated Core step action for both host and network clients; the server no longer executes a separate Actor-side movement rule.
+- Cached legal-action synchronization and migration of terrain/effect reactions remain before the complete movement slice can remove all Actor-side movement compatibility code.
 
 ### Phase 2 — Initiative and decisions
 

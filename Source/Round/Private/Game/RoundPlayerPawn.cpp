@@ -126,31 +126,6 @@ void AssignServerTeamIfMissing(ARoundPlayerPawn* PlayerPawn)
     }
 }
 
-FRoundActionResult ExecuteServerValidatedMove(ARoundCharacter* Character, ARoundGridTile* TargetTile)
-{
-    FRoundActionResult Result;
-    if (!Character || !TargetTile)
-    {
-        Result.Reason = TEXT("Invalid move target.");
-        return Result;
-    }
-
-    TArray<ARoundGridTile*> ServerPath;
-    int32 ServerPathCost = 0;
-    if (!Character->TryBuildMovePath(TargetTile, ServerPath, ServerPathCost, true))
-    {
-        Result.Reason = TEXT("Tile is not reachable.");
-        return Result;
-    }
-    if (ServerPath.Num() != 1)
-    {
-        Result.Reason = TEXT("Move action only allows adjacent tiles.");
-        return Result;
-    }
-
-    return Character->MoveAlongPath(ServerPath);
-}
-
 void ApplyPendingHandSelectionToAbility(ARoundCharacter* Character, const int32 AbilityIndex, const TArray<int32>& HandIndices)
 {
     if (!Character || !Character->GrantedAbilities.IsValidIndex(AbilityIndex) || !Character->GrantedAbilities[AbilityIndex])
@@ -1011,7 +986,7 @@ void ARoundPlayerPawn::ServerExecuteAction_Implementation(ARoundCharacter* Chara
     {
     case ERoundActionType::Move:
     {
-            const FRoundActionResult Result = ExecuteServerValidatedMove(Character, Field);
+            const FRoundActionResult Result = Character->MoveToTile(Field);
             if (Result.bSuccess)
             {
                 SelectedAction = ERoundActionType::None;
@@ -1058,25 +1033,8 @@ void ARoundPlayerPawn::ServerExecuteMoveAlongPath_Implementation(ARoundCharacter
         return;
     }
 
-    FRoundActionResult LastResult;
-    bool bMoved = false;
-    for (ARoundGridTile* StepTile : Path)
-    {
-        if (!StepTile)
-        {
-            break;
-        }
-
-        LastResult = ExecuteServerValidatedMove(Character, StepTile);
-        if (!LastResult.bSuccess)
-        {
-            break;
-        }
-
-        bMoved = true;
-    }
-
-    if (bMoved)
+    const FRoundActionResult Result = Character->MoveAlongPath(Path);
+    if (Result.bSuccess)
     {
         SelectedAction = ERoundActionType::None;
         SelectedAbilityIndex = INDEX_NONE;

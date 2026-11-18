@@ -490,6 +490,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round|Core")
     bool IsCoreMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
 
+    FRoundActionResult ExecuteCoreMove(ARoundCharacter* Character, ARoundGridTile* TargetTile);
+    FRoundActionResult ExecuteCoreMovePath(ARoundCharacter* Character, const TArray<ARoundGridTile*>& Path);
+
     UFUNCTION(BlueprintCallable, Category = "Round|Deprecated", meta = (DeprecatedFunction, DeprecationMessage = "Use IsCoreMoveLegal. This now forwards to the authoritative-core comparison adapter."))
     bool IsSimMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
 

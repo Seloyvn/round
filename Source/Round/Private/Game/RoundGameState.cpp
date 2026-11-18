@@ -3782,6 +3782,86 @@ bool ARoundGameState::IsSimMoveLegal(const ARoundCharacter* Character, const ARo
     return IsCoreMoveLegal(Character, TargetTile);
 }
 
+FRoundActionResult ARoundGameState::ExecuteCoreMove(ARoundCharacter* Character, ARoundGridTile* TargetTile)
+{
+    return ExecuteCoreMovePath(Character, {TargetTile});
+}
+
+FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Character, const TArray<ARoundGridTile*>& Path)
+{
+    FRoundActionResult Result;
+    if (!HasAuthority() || !Character || Path.IsEmpty() || !Character->Attributes || !Character->CurrentTile)
+    {
+        Result.Reason = TEXT("Invalid Core movement context.");
+        return Result;
+    }
+
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+
+    FString CoreReason;
+    if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
+    {
+        Result.Reason = FString::Printf(TEXT("Core snapshot failed: %s"), *CoreReason);
+        return Result;
+    }
+
+    const FVector2D StartPosition = Character->CurrentTile->GridPosition;
+    TArray<FVector2D> TraversedPositions;
+    int32 TotalMovementCost = 0;
+
+    for (int32 Index = 0; Index < Path.Num(); ++Index)
+    {
+        ARoundGridTile* TargetTile = Path[Index];
+        if (!TargetTile)
+        {
+            CoreReason = TEXT("Movement path contains an invalid tile.");
+            break;
+        }
+
+        int32 MovementCost = 0;
+        int32 CoreInitiative = 0;
+        if (!CoreMatchAdapter->ExecuteMove(Character, TargetTile, MovementCost, CoreInitiative, CoreReason))
+        {
+            break;
+        }
+
+        // Apply the migrated result first. SetField remains the presentation
+        // bridge for effects/terrain that have not moved to Core yet.
+        Character->Attributes->SetCurrentInitiativeValue(CoreInitiative);
+        Character->SetField(TargetTile, Index == Path.Num() - 1);
+        TraversedPositions.Add(TargetTile->GridPosition);
+        TotalMovementCost += MovementCost;
+
+        FString ResyncReason;
+        if (!CoreMatchAdapter->Rebuild(*this, ResyncReason))
+        {
+            UE_LOG(LogTemp, Error, TEXT("RoundCore post-move resync failed: %s"), *ResyncReason);
+            CoreReason = ResyncReason;
+            break;
+        }
+        if (TargetTile->TerrainStopsMovement())
+        {
+            break;
+        }
+    }
+
+    if (TraversedPositions.IsEmpty())
+    {
+        Result.Reason = CoreReason.IsEmpty() ? TEXT("Tile is not reachable.") : CoreReason;
+        return Result;
+    }
+
+    RecordMovement(Character, StartPosition, TraversedPositions, TotalMovementCost);
+    Result.bSuccess = true;
+    Result.Reason = TraversedPositions.Num() == Path.Num()
+        ? TEXT("Movement executed by RoundCore.")
+        : FString::Printf(TEXT("Movement interrupted by RoundCore: %s"), *CoreReason);
+    return Result;
+}
+
 bool ARoundGameState::IsSimAttackLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const
 {
     return Character

@@ -2,6 +2,7 @@
 
 #include "Actors/RoundAbilityActor.h"
 #include "Actors/RoundGridTile.h"
+#include "Actors/RoundFieldObjectActor.h"
 #include "Actors/RoundEffectActor.h"
 #include "Actors/RoundCharacter5.h"
 #include "Actors/RoundCharacter3.h"
@@ -1021,7 +1022,7 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
     }
 
     ARoundCharacter* TargetCharacter = TargetTile->OccupyingCharacter;
-    AActor* TargetBoardObject = TargetTile->OccupyingFieldObject;
+    AActor* TargetBoardObject = TargetTile->OccupyingFieldObject.Get();
     if (!TargetBoardObject || !TargetBoardObject->GetClass()->ImplementsInterface(URoundBoardDamageableInterface::StaticClass()) || !IRoundBoardDamageableInterface::Execute_CanReceiveBoardDamage(TargetBoardObject))
     {
         TargetBoardObject = TargetTile->TerrainObject;
@@ -1145,21 +1146,7 @@ FRoundActionResult ARoundCharacter::MoveToTile(ARoundGridTile* TargetTile)
         return Result;
     }
 
-    TArray<ARoundGridTile*> MovePath;
-    int32 PathCost = 0;
-    if (!TryBuildMovePath(TargetTile, MovePath, PathCost))
-    {
-        Result.Reason = TEXT("Tile is not reachable.");
-        return Result;
-    }
-    if (MovePath.Num() != 1)
-    {
-        Result.Reason = TEXT("Move action only allows adjacent tiles.");
-        return Result;
-    }
-
-    Result = MoveAlongPath(MovePath);
-    return Result;
+    return RoundGameState->ExecuteCoreMove(this, TargetTile);
 }
 
 FRoundActionResult ARoundCharacter::MoveAlongPath(const TArray<ARoundGridTile*>& Path)
@@ -1177,81 +1164,14 @@ FRoundActionResult ARoundCharacter::MoveAlongPath(const TArray<ARoundGridTile*>&
         return Result;
     }
 
-    const ARoundGameState* RoundGameState = GetRoundGameState();
+    ARoundGameState* RoundGameState = GetRoundGameState();
     if (!RoundGameState)
     {
         Result.Reason = TEXT("Missing game state.");
         return Result;
     }
 
-    const FVector2D StartPosition = CurrentTile ? CurrentTile->GridPosition : FVector2D::ZeroVector;
-    TArray<ARoundGridTile*> TraversedPath;
-    int32 TotalCost = 0;
-
-    for (ARoundGridTile* StepTile : Path)
-    {
-        ARoundGridTile* StepOrigin = CurrentTile;
-        if (!StepTile || !StepOrigin || StepTile == StepOrigin)
-        {
-            break;
-        }
-
-        const TArray<ARoundGridTile*> Neighbors = RoundGameState->GetNeighborFields(StepOrigin);
-        if (!Neighbors.Contains(StepTile))
-        {
-            break;
-        }
-
-        if (!StepTile->IsMoveable() || (StepTile->OccupyingCharacter && StepTile->OccupyingCharacter != this))
-        {
-            break;
-        }
-
-        const int32 StepCost = StepTile->GetTerrainMoveCost(GetMoveCost());
-        if (StepCost == MAX_int32)
-        {
-            break;
-        }
-
-        if (!Attributes->SpendInitiative(StepCost))
-        {
-            break;
-        }
-
-        TraversedPath.Add(StepTile);
-        TotalCost += StepCost;
-        SetField(StepTile, TraversedPath.Num() == Path.Num());
-        if (StepTile->TerrainStopsMovement())
-        {
-            break;
-        }
-    }
-
-    if (TraversedPath.Num() == 0 || TotalCost <= 0)
-    {
-        Result.Reason = TEXT("Tile is not reachable.");
-        return Result;
-    }
-
-    Result.bSuccess = true;
-    Result.Reason = TraversedPath.Num() == Path.Num()
-        ? TEXT("Movement executed.")
-        : TEXT("Movement interrupted.");
-    if (ARoundGameState* MutableGameState = GetRoundGameState())
-    {
-        TArray<FVector2D> TraversedPositions;
-        TraversedPositions.Reserve(TraversedPath.Num());
-        for (ARoundGridTile* TraversedTile : TraversedPath)
-        {
-            if (TraversedTile)
-            {
-                TraversedPositions.Add(TraversedTile->GridPosition);
-            }
-        }
-
-        MutableGameState->RecordMovement(this, StartPosition, TraversedPositions, TotalCost);
-    }
-    return Result;
+    return RoundGameState->ExecuteCoreMovePath(this, Path);
 }
 
 void ARoundCharacter::SetField(ARoundGridTile* NewTile, bool bUpdateUI)

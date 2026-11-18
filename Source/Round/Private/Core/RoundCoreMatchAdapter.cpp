@@ -199,3 +199,53 @@ bool FRoundCoreMatchAdapter::IsMoveLegal(
         : FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
     return Result.success;
 }
+
+bool FRoundCoreMatchAdapter::ExecuteMove(
+    const ARoundCharacter* Character,
+    const ARoundGridTile* TargetTile,
+    int32& OutMovementCost,
+    int32& OutInitiative,
+    FString& OutReason)
+{
+    OutMovementCost = 0;
+    OutInitiative = 0;
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    const roundcore::EntityId* TileId = TileIds.Find(TargetTile);
+    if (!CharacterId || !TileId)
+    {
+        OutReason = TEXT("Character or target tile is not part of the Core snapshot.");
+        return false;
+    }
+
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::Move;
+    Action.actorId = *CharacterId;
+    Action.targetTileId = *TileId;
+    const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (!Result.success)
+    {
+        OutReason = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+        return false;
+    }
+
+    for (const roundcore::GameEvent& Event : Result.events)
+    {
+        if (Event.type == roundcore::EventType::CharacterMoved && Event.sourceId == *CharacterId)
+        {
+            OutMovementCost = static_cast<int32>(Event.amount);
+            break;
+        }
+    }
+    for (const roundcore::CharacterState& State : CoreGame.State().characters)
+    {
+        if (State.id == *CharacterId)
+        {
+            OutInitiative = State.initiative;
+            OutReason = TEXT("Movement executed by RoundCore.");
+            return true;
+        }
+    }
+
+    OutReason = TEXT("RoundCore executed movement but returned no character state.");
+    return false;
+}

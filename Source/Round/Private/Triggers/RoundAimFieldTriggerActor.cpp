@@ -13,6 +13,7 @@
 #include "Effects/RoundSnipeMarkEffect.h"
 #include "Effects/RoundAimTrackingEffect.h"
 #include "Data/RoundAbilityData.h"
+#include "Game/RoundGameState.h"
 #include "Net/UnrealNetwork.h"
 
 namespace

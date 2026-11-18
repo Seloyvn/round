@@ -14,6 +14,12 @@ class ROUND_API FRoundCoreMatchAdapter
 public:
     bool Rebuild(const ARoundGameState& GameState, FString& OutReason);
     bool IsMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile, FString& OutReason) const;
+    bool ExecuteMove(
+        const ARoundCharacter* Character,
+        const ARoundGridTile* TargetTile,
+        int32& OutMovementCost,
+        int32& OutInitiative,
+        FString& OutReason);
 
     const roundcore::Game& GetGame() const { return CoreGame; }
 
