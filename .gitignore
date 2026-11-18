@@ -1,0 +1,35 @@
+# Unreal generated output
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Local IDE and tool state
+.vs/
+.dotnet/
+*.sln
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Generated exports and temporary files
+currentexport/
+*.tmp
+
+# Compiled output
+*.obj
+*.pch
+*.dll
+*.lib
+*.exe
+
+# Plugin build output
+Plugins/**/Binaries/
+Plugins/**/Intermediate/
+
+# Unreal map build data
+*_BuiltData.uasset
+
+# Marketplace demonstration level; game assets from the pack remain versioned
+Content/Stylized_PBR_Nature/Maps/Stylized_Nature_ExampleScene.umap
