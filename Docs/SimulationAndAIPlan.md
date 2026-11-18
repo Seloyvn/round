@@ -1,5 +1,7 @@
 # Simulation And AI Plan
 
+> Historical note (2026-11-18): this document describes an earlier parallel-simulation approach. The listed `Source/Round/.../Sim` implementation is no longer present. The active migration plan is [CoreMigrationPlan.md](./CoreMigrationPlan.md). The new plan does not add a shadow simulation: `RoundCore` becomes the single gameplay implementation used by Unreal and training.
+
 ## Goal
 
 Build a high-performance AI training stack for Round without duplicating gameplay logic between Python and C++ and without breaking the existing Unreal game.

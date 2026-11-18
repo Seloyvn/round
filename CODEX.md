@@ -4,10 +4,11 @@ This file captures project-specific conventions and decisions for working in thi
 
 ## Core Architecture
 
-- Runtime actor logic is authoritative.
-- Do not reintroduce the old sim-based gameplay path.
-- Characters, abilities, effects, auras, terrain, and objectives should execute through actor logic.
-- UI and presentation should reflect runtime actor state.
+- The standalone, Unreal-independent `RoundCore` is the target authority for gameplay state and rules.
+- Do not create a separate approximate training simulation. The training executable and Unreal must call the same `RoundCore` implementation.
+- Migrate rules in vertical slices. Until a rule is migrated, its Actor implementation may remain authoritative. After migration, Actors submit commands and present Core events instead of executing that rule again.
+- Unreal owns presentation, input, networking adapters, asset authoring, and Actor lifetime. `RoundCore` owns migrated gameplay state, validation, deterministic resolution, and results.
+- Balance and design values remain editor-authored and are exported into versioned Core definitions; they must not be hardcoded into the standalone rules.
 
 ## Data and Registries
 
