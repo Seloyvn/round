@@ -62,11 +62,11 @@ const TileState* FindTile(const GameState& state, const EntityId id)
     return found == state.tiles.end() ? nullptr : &*found;
 }
 
-GameAction ChooseAction(const Game& game)
+std::size_t ChooseAction(const DecisionSnapshot& observation)
 {
-    const GameState& state = game.State();
+    const GameState& state = observation.state;
     const EntityId actorId = state.activeCharacterId;
-    const std::vector<GameAction> actions = game.LegalActions(actorId);
+    const std::vector<GameAction>& actions = observation.legalActions;
 
     const auto attack = std::find_if(actions.begin(), actions.end(), [](const GameAction& action)
     {
@@ -74,15 +74,16 @@ GameAction ChooseAction(const Game& game)
     });
     if (attack != actions.end())
     {
-        return *attack;
+        return static_cast<std::size_t>(std::distance(actions.begin(), attack));
     }
 
     const CharacterState* actor = FindCharacter(state, actorId);
     const TileState* actorTile = actor ? FindTile(state, actor->tileId) : nullptr;
-    GameAction bestMove;
+    std::size_t bestMove = actions.size();
     std::int32_t bestDistance = std::numeric_limits<std::int32_t>::max();
-    for (const GameAction& action : actions)
+    for (std::size_t actionIndex = 0; actionIndex < actions.size(); ++actionIndex)
     {
+        const GameAction& action = actions[actionIndex];
         if (action.type != ActionType::Move || !actor || !actorTile)
         {
             continue;
@@ -107,11 +108,11 @@ GameAction ChooseAction(const Game& game)
             if (distance < bestDistance)
             {
                 bestDistance = distance;
-                bestMove = action;
+                bestMove = actionIndex;
             }
         }
     }
-    if (bestMove.actorId != InvalidEntityId)
+    if (bestMove < actions.size())
     {
         return bestMove;
     }
@@ -120,7 +121,9 @@ GameAction ChooseAction(const Game& game)
     {
         return action.type == ActionType::EndTurn;
     });
-    return endTurn != actions.end() ? *endTurn : GameAction{};
+    return endTurn != actions.end()
+        ? static_cast<std::size_t>(std::distance(actions.begin(), endTurn))
+        : actions.size();
 }
 }
 
@@ -138,10 +141,9 @@ int main()
 
         for (std::uint32_t decision = 0; decision < 1000 && !game.IsTerminal(); ++decision)
         {
-            const GameAction action = ChooseAction(game);
-            const ActionResult result = action.type == ActionType::EndTurn
-                ? game.ApplyDecision(action)
-                : game.ApplyAction(action);
+            const DecisionSnapshot observation = game.ObserveDecision();
+            const std::size_t actionIndex = ChooseAction(observation);
+            const ActionResult result = game.ApplyDecisionIndex(actionIndex);
             if (!result.success)
             {
                 std::cerr << "Self-play action failed for seed " << seed

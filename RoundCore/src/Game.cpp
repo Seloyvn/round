@@ -213,6 +213,28 @@ ActionResult Game::ApplyDecision(const GameAction& action, const std::uint32_t m
     return combined;
 }
 
+ActionResult Game::ApplyDecisionIndex(const std::size_t legalActionIndex,
+    const std::uint32_t maximumInitiativeTicks)
+{
+    const std::vector<GameAction> actions = LegalActions(state_.activeCharacterId);
+    if (legalActionIndex >= actions.size())
+    {
+        return Failure("legal_action_index_out_of_range", "The selected legal action index does not exist.");
+    }
+    return ApplyDecision(actions[legalActionIndex], maximumInitiativeTicks);
+}
+
+DecisionSnapshot Game::ObserveDecision() const
+{
+    DecisionSnapshot snapshot;
+    snapshot.state = state_;
+    if (!IsTerminal() && state_.activeCharacterId != InvalidEntityId)
+    {
+        snapshot.legalActions = LegalActions(state_.activeCharacterId);
+    }
+    return snapshot;
+}
+
 ActionResult Game::ApplyBasicAttack(const GameAction& action)
 {
     CharacterState* attacker = FindCharacter(action.actorId);

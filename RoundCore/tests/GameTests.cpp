@@ -60,6 +60,14 @@ int main()
     Require(second.Reset(ValidSetup()).success, "same setup should reset a second game");
     Require(first.StateHash() == second.StateHash(), "same setup and seed should produce the same state hash");
 
+    const DecisionSnapshot initialObservation = first.ObserveDecision();
+    Require(initialObservation.state.activeCharacterId == 10 && initialObservation.legalActions.size() == 3,
+        "decision observations should snapshot state together with its legal action set");
+    const ActionResult invalidDecisionIndex = first.ApplyDecisionIndex(initialObservation.legalActions.size());
+    Require(!invalidDecisionIndex.success
+            && invalidDecisionIndex.errorCode == "legal_action_index_out_of_range",
+        "decision action indices outside the current legal set must be rejected");
+
     const std::vector<GameAction> legalMoves = first.LegalActions(10);
     Require(legalMoves.size() == 3,
         "legal actions should include movement, basic attack, and end turn choices");

@@ -207,6 +207,7 @@ Current progress:
 
 - `ApplyDecision` advances an end-turn command through one-point initiative ticks until the next decision owner is available, while the lower-level one-tick API remains available to Unreal during migration.
 - A standalone self-play smoke executable uses only Core legal actions and commands to complete 500 rendered-free matches per test run.
+- `ObserveDecision` snapshots state together with its legal action set, and `ApplyDecisionIndex` gives trainers an index-based step interface without bypassing Core validation.
 - Observations, cloning, vectorization, larger content packages, random agents, and performance benchmarks remain.
 
 ### Phase 9 — Python and training

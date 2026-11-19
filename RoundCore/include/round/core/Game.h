@@ -2,6 +2,7 @@
 
 #include "round/core/Actions.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -17,6 +18,12 @@ struct MatchSetup
     GameState initialState;
 };
 
+struct DecisionSnapshot
+{
+    GameState state;
+    std::vector<GameAction> legalActions;
+};
+
 class ROUNDCORE_API Game
 {
 public:
@@ -24,7 +31,9 @@ public:
     ActionResult ValidateAction(const GameAction& action) const;
     ActionResult ApplyAction(const GameAction& action);
     ActionResult ApplyDecision(const GameAction& action, std::uint32_t maximumInitiativeTicks = 10000);
+    ActionResult ApplyDecisionIndex(std::size_t legalActionIndex, std::uint32_t maximumInitiativeTicks = 10000);
     std::vector<GameAction> LegalActions(EntityId actorId) const;
+    DecisionSnapshot ObserveDecision() const;
 
     const ContentDefinitions& Definitions() const noexcept;
     const GameState& State() const noexcept;
