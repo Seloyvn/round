@@ -490,6 +490,12 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round|Core")
     bool IsCoreMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
 
+    bool PreviewCoreBasicAttack(
+        const ARoundCharacter* Character,
+        const ARoundCharacter* TargetCharacter,
+        FRoundCoreBasicAttackPreview& OutPreview,
+        FString& OutReason) const;
+
     bool GetCoreVisionFields(const ARoundCharacter* Character, TArray<ARoundGridTile*>& OutVisibleFields) const;
 
     UFUNCTION(Exec, BlueprintCallable, Category = "Round|Core|Training")

@@ -3780,6 +3780,23 @@ bool ARoundGameState::IsCoreMoveLegal(const ARoundCharacter* Character, const AR
     return bCoreLegal;
 }
 
+bool ARoundGameState::PreviewCoreBasicAttack(
+    const ARoundCharacter* Character,
+    const ARoundCharacter* TargetCharacter,
+    FRoundCoreBasicAttackPreview& OutPreview,
+    FString& OutReason) const
+{
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+    if (!CoreMatchAdapter->Rebuild(*this, OutReason))
+    {
+        return false;
+    }
+    return CoreMatchAdapter->PreviewBasicAttack(Character, TargetCharacter, OutPreview, OutReason);
+}
+
 bool ARoundGameState::GetCoreVisionFields(
     const ARoundCharacter* Character,
     TArray<ARoundGridTile*>& OutVisibleFields) const

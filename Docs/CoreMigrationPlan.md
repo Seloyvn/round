@@ -156,6 +156,7 @@ Current progress:
 - Core resolves fixed-point critical hits, the existing defense curve, health, death, occupancy release, terminal state, and winner events deterministically.
 - Unreal exports effective attack range, attack cost, crit chance, and crit multiplier, while preserving the Core random stream across live-state resynchronization.
 - Actor effects, terrain/aura damage modifiers, death prevention, board-object attacks, and presentation consumption remain Actor-owned, so live attack execution has not switched yet.
+- Live character attacks now resolve a non-mutating clone of the current Core snapshot before Actor execution and compare initiative cost, applied damage, death, match end, and critical state afterward. Mismatches are logged as `RoundCoreAttackParity` and provide the concrete parity cases needed to migrate shared modifiers without changing current gameplay.
 
 ### Phase 4 — Shared effects and terrain
 

@@ -286,6 +286,58 @@ bool FRoundCoreMatchAdapter::IsBasicAttackLegal(
     return Result.success;
 }
 
+bool FRoundCoreMatchAdapter::PreviewBasicAttack(
+    const ARoundCharacter* Character,
+    const ARoundCharacter* TargetCharacter,
+    FRoundCoreBasicAttackPreview& OutPreview,
+    FString& OutReason) const
+{
+    OutPreview = {};
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    if (!CharacterId || !TargetId)
+    {
+        OutReason = TEXT("Attacker or target is not part of the Core snapshot.");
+        return false;
+    }
+
+    roundcore::Game PreviewGame = CoreGame.Clone();
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::BasicAttack;
+    Action.actorId = *CharacterId;
+    Action.targetEntityId = *TargetId;
+    const roundcore::ActionResult Result = PreviewGame.ApplyAction(Action);
+    if (!Result.success)
+    {
+        OutReason = FString::Printf(
+            TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+        return false;
+    }
+
+    OutPreview.bCritical = Result.message.find("Critical") != std::string::npos;
+    for (const roundcore::GameEvent& Event : Result.events)
+    {
+        if (Event.type == roundcore::EventType::InitiativeChanged && Event.sourceId == *CharacterId)
+        {
+            OutPreview.InitiativeCost += FMath::Max(0, -static_cast<int32>(Event.amount));
+        }
+        else if (Event.type == roundcore::EventType::DamageApplied && Event.targetId == *TargetId)
+        {
+            OutPreview.Damage += FMath::Max(0, static_cast<int32>(Event.amount));
+        }
+        else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
+        {
+            OutPreview.bTargetDied = true;
+        }
+        else if (Event.type == roundcore::EventType::MatchEnded)
+        {
+            OutPreview.bMatchEnded = true;
+        }
+    }
+    OutReason = TEXT("Basic attack preview resolved by RoundCore clone.");
+    return true;
+}
+
 bool FRoundCoreMatchAdapter::GetVisibleTiles(
     const ARoundCharacter* Character,
     TArray<ARoundGridTile*>& OutVisibleTiles,
