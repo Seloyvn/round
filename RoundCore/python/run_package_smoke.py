@@ -7,7 +7,7 @@ import random
 from pathlib import Path
 
 import roundcore_python as rc
-from roundcore_training import RewardConfig, SelfPlayEnvironment
+from roundcore_training import RewardConfig, SelfPlayEnvironment, choose_tactical_action
 
 
 def main() -> int:
@@ -16,6 +16,7 @@ def main() -> int:
     parser.add_argument("--max-decisions", type=int, default=100_000)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--replay", type=Path)
+    parser.add_argument("--policy", choices=("random", "tactical"), default="tactical")
     args = parser.parse_args()
 
     rewards = RewardConfig(0.01, -0.01, 0.01, -0.01, 1.0, -1.0, 10.0, -10.0, -0.001)
@@ -25,10 +26,13 @@ def main() -> int:
     totals = {"TeamA": 0.0, "TeamB": 0.0}
 
     for decision in range(args.max_decisions):
-        actions = environment.legal_actions()
+        decision_snapshot = environment.decision()
+        actions = decision_snapshot.legal_actions
         if not actions:
             raise RuntimeError("RoundCore returned no legal action for a running match")
-        output = environment.step(generator.randrange(len(actions)))
+        action_index = (choose_tactical_action(decision_snapshot)
+                        if args.policy == "tactical" else generator.randrange(len(actions)))
+        output = environment.step(action_index)
         key = "TeamA" if output.acting_team == rc.Team.TEAM_A else "TeamB"
         totals[key] += output.reward
         observation = output.observation

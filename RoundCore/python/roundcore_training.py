@@ -129,6 +129,9 @@ class SelfPlayEnvironment:
         team = self._acting_team()
         return self._game.observe_team_decision(team).legal_actions
 
+    def decision(self) -> rc.DecisionSnapshot:
+        return self._game.observe_team_decision(self._acting_team())
+
     def step(self, action_index: int) -> StepOutput:
         if self._recorder is None:
             raise RuntimeError("reset must be called before step")
@@ -172,6 +175,47 @@ def choose_aggressive_action(actions: list[rc.GameAction]) -> int:
     if not actions:
         raise ValueError("cannot choose from an empty legal-action list")
     return min(range(len(actions)), key=lambda index: (priorities[actions[index].type], index))
+
+
+def choose_tactical_action(decision: rc.DecisionSnapshot) -> int:
+    """Deterministic baseline that attacks, approaches visible enemies, or explores toward map center."""
+    actions = decision.legal_actions
+    if not actions:
+        raise ValueError("cannot choose from an empty legal-action list")
+    for action_type in (rc.ActionType.USE_ABILITY, rc.ActionType.BASIC_ATTACK):
+        for index, action in enumerate(actions):
+            if action.type == action_type:
+                return index
+
+    active_id = decision.state.active_character_id
+    active = next(character for character in decision.state.characters if character.id == active_id)
+    tiles = {tile.id: tile for tile in decision.state.tiles}
+    enemies = [
+        character for character in decision.state.characters
+        if character.alive and character.team != active.team and character.team != rc.Team.NEUTRAL
+    ]
+    enemy_tiles = [tiles[character.tile_id] for character in enemies if character.tile_id in tiles]
+
+    move_indices = [index for index, action in enumerate(actions) if action.type == rc.ActionType.MOVE]
+    if move_indices:
+        def score(index: int) -> tuple[int, int]:
+            destination = tiles[actions[index].target_tile_id]
+            if enemy_tiles:
+                distance = min(_hex_distance(
+                    destination.coord.q, destination.coord.r, enemy.coord.q, enemy.coord.r) for enemy in enemy_tiles)
+            else:
+                distance = _hex_distance(destination.coord.q, destination.coord.r, 0, 0)
+            return distance, index
+
+        return min(move_indices, key=score)
+    return choose_aggressive_action(actions)
+
+
+def _hex_distance(first_q: int, first_r: int, second_q: int, second_r: int) -> int:
+    delta_q = first_q - second_q
+    delta_r = first_r - second_r
+    delta_s = (first_q + first_r) - (second_q + second_r)
+    return (abs(delta_q) + abs(delta_r) + abs(delta_s)) // 2
 
 
 def replay_and_verify(game: rc.Game, trace: ReplayTrace) -> None:

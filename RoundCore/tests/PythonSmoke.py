@@ -10,6 +10,7 @@ from roundcore_training import (
     RewardConfig,
     SelfPlayEnvironment,
     choose_aggressive_action,
+    choose_tactical_action,
     compute_reward,
     encode_batch,
     infer_batch_shape,
@@ -116,7 +117,7 @@ assert acting_team == rc.Team.TEAM_A
 assert self_play_observation.legal_actions
 self_play_actions = self_play.legal_actions()
 assert any(action.type == rc.ActionType.USE_ABILITY for action in self_play_actions)
-self_play_step = self_play.step(choose_aggressive_action(self_play_actions))
+self_play_step = self_play.step(choose_tactical_action(self_play.decision()))
 assert self_play_step.terminated
 assert self_play_step.acting_team == rc.Team.TEAM_A
 assert self_play.replay.transitions

@@ -60,6 +60,7 @@ int main()
     packageAbility.range = 3;
     packageAbility.amount = 19;
     packageAbility.defenseIgnore = 4;
+    packageAbility.values = {{"BehindDistance", 2.0}, {"DamageMultiplier", 1.5}};
     packageSource.definitions.abilities.emplace(packageAbility.id, packageAbility);
     packageSource.definitions.characters.at("Tank").abilityIds.push_back(packageAbility.id);
     packageSource.initialState.characters[0].abilities.push_back(AbilityState{packageAbility.id, 0, 8, 1, 1, false});
@@ -72,7 +73,9 @@ int main()
         "a match package round trip must preserve deterministic initial state");
     const AbilityDefinition& loadedPackageAbility = packageGame.Definitions().abilities.at("PackageBolt");
     Require(loadedPackageAbility.operation == AbilityOperation::DirectDamage
-            && loadedPackageAbility.initiativeCost == 7 && loadedPackageAbility.amount == 19,
+            && loadedPackageAbility.initiativeCost == 7 && loadedPackageAbility.amount == 19
+            && loadedPackageAbility.values.at("BehindDistance") == 2.0
+            && loadedPackageAbility.values.at("DamageMultiplier") == 1.5,
         "a match package must preserve executable ability contracts");
     std::vector<std::uint8_t> invalidPackage = packageBytes;
     invalidPackage[0] = 0;

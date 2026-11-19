@@ -23,4 +23,4 @@ To verify a real exported setup without rendering, build the Python module and r
 python RoundCore/build-python/Release/run_package_smoke.py Saved/Training/roundcore_match.rndcore --replay Saved/Training/smoke_replay.json
 ```
 
-The smoke runner deliberately selects random legal actions. Reaching its decision limit indicates that the exported ruleset still contains a gameplay dependency that prevents a complete standalone match; it is a migration diagnostic, not a learning algorithm.
+The smoke runner defaults to a deterministic tactical baseline that attacks when possible, approaches visible enemies, and otherwise explores toward the map center. Use `--policy random` for a random-valid stress test. Reaching the decision limit indicates either an incomplete standalone ruleset or an unsuitable policy; the runner is a migration diagnostic and evaluation baseline, not a learning algorithm.

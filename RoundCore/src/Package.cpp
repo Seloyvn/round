@@ -100,10 +100,13 @@ public:
 
     std::uint32_t Count()
     {
+        const std::size_t countOffset = offset_;
         const std::uint32_t count = Integer<std::uint32_t>();
         if (count > MaximumCollectionSize)
         {
-            throw std::invalid_argument("Match package collection exceeds its safety limit.");
+            throw std::invalid_argument(
+                "Match package collection exceeds its safety limit at byte "
+                + std::to_string(countOffset) + ": " + std::to_string(count) + ".");
         }
         return count;
     }
@@ -149,7 +152,11 @@ std::unordered_map<std::string, double> ReadValues(Reader& reader)
     std::unordered_map<std::string, double> result;
     for (std::uint32_t index = 0, count = reader.Count(); index < count; ++index)
     {
-        result.emplace(reader.String(), reader.Double());
+        // Function-argument evaluation order is not guaranteed. The binary
+        // format always stores the key before the value, so read explicitly.
+        std::string key = reader.String();
+        const double value = reader.Double();
+        result.emplace(std::move(key), value);
     }
     return result;
 }

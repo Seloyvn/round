@@ -243,6 +243,7 @@ Current progress:
 - Both explicit omniscient observations and visibility-filtered team observations are available; training policies should use the team-filtered API.
 - `SelfPlayEnvironment` loads an Unreal-exported package, advances to a decision boundary, returns only the acting team's filtered numeric observation, accepts a legal-action index, calculates event-based reward, and records deterministic replay hashes.
 - A package smoke runner can execute a real exported setup without rendering and reports when an unmigrated mechanic prevents the match from completing.
+- The first real 5v5 Unreal export (721 tiles, 50 abilities, 19 terrain definitions) loads successfully and completes headlessly in 420 decisions with the deterministic tactical baseline.
 - Content-package loading, larger match coverage, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training
