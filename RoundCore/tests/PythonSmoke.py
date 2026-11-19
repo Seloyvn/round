@@ -23,6 +23,7 @@ def build_match(seed: int) -> rc.MatchSetup:
     stats.max_health = 10
     stats.attack = 10
     stats.max_initiative = 20
+    stats.vision_range = 5
     stats.attack_range = 1
     stats.move_cost = 2
     stats.attack_cost = 5
@@ -108,6 +109,8 @@ schema = rc.build_observation_schema(build_match(99).definitions)
 numeric = environments.observe_numeric(schema)
 assert len(numeric) == 8
 assert all(observation.content_version == "python-smoke-v1" for observation in numeric)
+filtered_numeric = environments.observe_team_numeric([rc.Team.TEAM_A] * 8, schema)
+assert len(filtered_numeric) == 8
 shape = infer_batch_shape(numeric)
 batch = encode_batch(numeric, shape)
 assert batch["global"].shape == (8, rc.GLOBAL_STRIDE)

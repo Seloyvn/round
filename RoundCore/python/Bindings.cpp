@@ -133,7 +133,8 @@ PYBIND11_MODULE(roundcore_python, module)
     py::class_<Game>(module, "Game")
         .def(py::init<>()).def("reset", &Game::Reset).def("apply_decision_index", &Game::ApplyDecisionIndex,
             py::arg("legal_action_index"), py::arg("maximum_initiative_ticks") = 10000)
-        .def("observe_decision", &Game::ObserveDecision).def("observe_numeric", &Game::ObserveNumeric)
+        .def("observe_decision", &Game::ObserveDecision).def("observe_team_decision", &Game::ObserveTeamDecision)
+        .def("observe_numeric", &Game::ObserveNumeric).def("observe_team_numeric", &Game::ObserveTeamNumeric)
         .def("visible_tile_ids", &Game::VisibleTileIds).def("team_visible_tile_ids", &Game::TeamVisibleTileIds)
         .def("is_terminal", &Game::IsTerminal).def("state_hash", &Game::StateHash)
         .def("content_version", [](const Game& game) { return game.Definitions().contentVersion; });
@@ -142,5 +143,6 @@ PYBIND11_MODULE(roundcore_python, module)
     py::class_<VectorEnvironment>(module, "VectorEnvironment")
         .def(py::init<>()).def("reset", &VectorEnvironment::Reset).def("step", &VectorEnvironment::Step)
         .def("observe", &VectorEnvironment::Observe).def("observe_numeric", &VectorEnvironment::ObserveNumeric)
+        .def("observe_team_numeric", &VectorEnvironment::ObserveTeamNumeric)
         .def("size", &VectorEnvironment::Size);
 }

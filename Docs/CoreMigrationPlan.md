@@ -191,7 +191,9 @@ Current progress:
 - Core computes deterministic per-character and per-team visible tile IDs from character vision range, source-terrain range modifiers, accumulated terrain vision cost, and blocking terrain.
 - Blocking terrain remains visible while tiles behind it are hidden, matching the current Unreal rule.
 - Unreal exports the live terrain vision values into the same Core definitions.
-- Team-filtered observations, Actor/Core comparison logging, and removal of Actor-side line-of-sight authority remain.
+- Team-filtered structured and numeric observations now remove hidden tiles and enemies, suppress seed/random prediction inputs, and expose legal actions only to the active team.
+- Basic attacks require team visibility in Core, preventing legal-action masks from leaking hidden targets.
+- Actor/Core comparison logging and removal of Actor-side line-of-sight authority remain.
 
 ### Phase 7 — Data export
 
@@ -222,8 +224,8 @@ Current progress:
 - The optional `roundcore_python` module exposes Core definitions, setup, observations, indexed decisions, and vector environments without linking Python into Unreal.
 - `roundcore_training.encode_batch` converts variable-length observations into fixed NumPy tensors and explicit masks using caller-configured capacities.
 - Configurable Python reward calculation consumes Core events without becoming a second gameplay implementation, and replay traces verify every indexed decision against before/after state hashes.
-- The numeric observation is deliberately marked omniscient until Core visibility can filter hidden state correctly.
-- Partial-information observations, content-package loading, larger match coverage, and formal performance benchmarks remain.
+- Both explicit omniscient observations and visibility-filtered team observations are available; training policies should use the team-filtered API.
+- Content-package loading, larger match coverage, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training
 

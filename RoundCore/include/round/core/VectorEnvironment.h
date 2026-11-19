@@ -20,6 +20,9 @@ public:
     VectorStepResult Step(const std::vector<std::size_t>& legalActionIndices);
     std::vector<DecisionSnapshot> Observe() const;
     std::vector<NumericObservation> ObserveNumeric(const ObservationSchema& schema) const;
+    std::vector<NumericObservation> ObserveTeamNumeric(
+        const std::vector<Team>& perspectives,
+        const ObservationSchema& schema) const;
 
     std::size_t Size() const noexcept;
     const Game& At(std::size_t environmentIndex) const;

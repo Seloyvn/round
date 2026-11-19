@@ -35,7 +35,7 @@ struct NumericObservation
 
     std::uint32_t schemaVersion = 1;
     std::string contentVersion;
-    // Omniscient until visibility and hidden-information rules are Core-authoritative.
+    // The caller chooses an omniscient or team-filtered Game snapshot before encoding.
     std::vector<std::int64_t> global;
     std::vector<std::int64_t> tiles;
     std::vector<std::int64_t> characters;

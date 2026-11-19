@@ -78,6 +78,10 @@ int main()
     const ObservationSchema schema = BuildObservationSchema(environments.At(0).Definitions());
     const std::vector<NumericObservation> numeric = environments.ObserveNumeric(schema);
     Require(numeric.size() == environmentCount, "numeric vector observations should preserve batch size");
+    const std::vector<NumericObservation> filtered = environments.ObserveTeamNumeric(
+        std::vector<Team>(environmentCount, Team::TeamA), schema);
+    Require(filtered.size() == environmentCount,
+        "team-filtered numeric vector observations should preserve batch size");
 
     std::cout << "RoundCore vector environment tests passed\n";
     return EXIT_SUCCESS;

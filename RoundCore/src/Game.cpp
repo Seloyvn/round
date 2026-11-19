@@ -236,6 +236,44 @@ DecisionSnapshot Game::ObserveDecision() const
     return snapshot;
 }
 
+DecisionSnapshot Game::ObserveTeamDecision(const Team perspective) const
+{
+    DecisionSnapshot snapshot;
+    snapshot.state = state_;
+    snapshot.state.matchId = 0;
+    snapshot.state.seed = 0;
+    snapshot.state.randomState = 0;
+
+    const std::vector<EntityId> visibleTileIds = TeamVisibleTileIds(perspective);
+    const auto isVisibleTile = [&visibleTileIds](const EntityId tileId)
+    {
+        return std::binary_search(visibleTileIds.begin(), visibleTileIds.end(), tileId);
+    };
+    snapshot.state.tiles.erase(
+        std::remove_if(snapshot.state.tiles.begin(), snapshot.state.tiles.end(),
+            [&isVisibleTile](const TileState& tile) { return !isVisibleTile(tile.id); }),
+        snapshot.state.tiles.end());
+    snapshot.state.characters.erase(
+        std::remove_if(snapshot.state.characters.begin(), snapshot.state.characters.end(),
+            [perspective, &isVisibleTile](const CharacterState& character)
+            {
+                return character.team != perspective && !isVisibleTile(character.tileId);
+            }),
+        snapshot.state.characters.end());
+
+    const auto active = std::find_if(snapshot.state.characters.begin(), snapshot.state.characters.end(),
+        [this](const CharacterState& character) { return character.id == state_.activeCharacterId; });
+    if (active == snapshot.state.characters.end())
+    {
+        snapshot.state.activeCharacterId = InvalidEntityId;
+    }
+    if (!IsTerminal() && active != snapshot.state.characters.end() && active->team == perspective)
+    {
+        snapshot.legalActions = LegalActions(active->id);
+    }
+    return snapshot;
+}
+
 NumericObservation Game::ObserveNumeric(const ObservationSchema& schema) const
 {
     if (schema.schemaVersion != definitions_.schemaVersion
@@ -244,6 +282,17 @@ NumericObservation Game::ObserveNumeric(const ObservationSchema& schema) const
         throw std::invalid_argument("Observation schema does not match the loaded Core content package.");
     }
     const DecisionSnapshot observation = ObserveDecision();
+    return EncodeOmniscientObservation(observation.state, observation.legalActions, schema);
+}
+
+NumericObservation Game::ObserveTeamNumeric(const Team perspective, const ObservationSchema& schema) const
+{
+    if (schema.schemaVersion != definitions_.schemaVersion
+        || schema.contentVersion != definitions_.contentVersion)
+    {
+        throw std::invalid_argument("Observation schema does not match the loaded Core content package.");
+    }
+    const DecisionSnapshot observation = ObserveTeamDecision(perspective);
     return EncodeOmniscientObservation(observation.state, observation.legalActions, schema);
 }
 
@@ -365,6 +414,11 @@ ActionResult Game::ValidateBasicAttack(const GameAction& action) const
     if (HexDistance(attackerTile->coord, targetTile->coord) > std::max(0, definition.stats.attackRange))
     {
         return Failure("target_out_of_range", "The target is outside basic attack range.");
+    }
+    const std::vector<EntityId> visibleTiles = TeamVisibleTileIds(attacker->team);
+    if (!std::binary_search(visibleTiles.begin(), visibleTiles.end(), targetTile->id))
+    {
+        return Failure("target_not_visible", "The target is not visible to the attacking team.");
     }
     if (attacker->initiative < std::max(0, definition.stats.attackCost))
     {

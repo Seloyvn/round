@@ -58,6 +58,23 @@ std::vector<NumericObservation> VectorEnvironment::ObserveNumeric(const Observat
     return observations;
 }
 
+std::vector<NumericObservation> VectorEnvironment::ObserveTeamNumeric(
+    const std::vector<Team>& perspectives,
+    const ObservationSchema& schema) const
+{
+    if (perspectives.size() != games_.size())
+    {
+        throw std::invalid_argument("VectorEnvironment requires exactly one observation perspective per environment.");
+    }
+    std::vector<NumericObservation> observations;
+    observations.reserve(games_.size());
+    for (std::size_t index = 0; index < games_.size(); ++index)
+    {
+        observations.push_back(games_[index].ObserveTeamNumeric(perspectives[index], schema));
+    }
+    return observations;
+}
+
 std::size_t VectorEnvironment::Size() const noexcept
 {
     return games_.size();

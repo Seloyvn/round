@@ -69,6 +69,35 @@ int main()
     Require(first.TeamVisibleTileIds(Team::TeamA) == visibleTiles,
         "team visibility should combine its living characters in stable tile order");
 
+    MatchSetup hiddenSetup = ValidSetup();
+    hiddenSetup.definitions.characters.at("Tank").stats.attackRange = 5;
+    hiddenSetup.initialState.characters[1].tileId = 6;
+    Game hidden;
+    Require(hidden.Reset(std::move(hiddenSetup)).success, "hidden-information setup should reset");
+    const DecisionSnapshot teamObservation = hidden.ObserveTeamDecision(Team::TeamA);
+    Require(teamObservation.state.seed == 0 && teamObservation.state.randomState == 0
+            && teamObservation.state.matchId == 0,
+        "team observations must not expose deterministic random prediction inputs");
+    Require(std::none_of(teamObservation.state.tiles.begin(), teamObservation.state.tiles.end(),
+            [](const TileState& tile) { return tile.id == 6; }),
+        "team observations must omit hidden tiles");
+    Require(std::none_of(teamObservation.state.characters.begin(), teamObservation.state.characters.end(),
+            [](const CharacterState& character) { return character.id == 20; }),
+        "team observations must omit enemies behind vision blockers");
+    GameAction hiddenAttack;
+    hiddenAttack.type = ActionType::BasicAttack;
+    hiddenAttack.actorId = 10;
+    hiddenAttack.targetEntityId = 20;
+    const ActionResult hiddenAttackResult = hidden.ValidateAction(hiddenAttack);
+    Require(!hiddenAttackResult.success && hiddenAttackResult.errorCode == "target_not_visible",
+        "hidden enemies must not be legal basic-attack targets even when they are in numeric range");
+    const ObservationSchema hiddenSchema = BuildObservationSchema(hidden.Definitions());
+    const NumericObservation hiddenNumeric = hidden.ObserveTeamNumeric(Team::TeamA, hiddenSchema);
+    Require(hiddenNumeric.tiles.size() / NumericObservation::TileStride == teamObservation.state.tiles.size()
+            && hiddenNumeric.characters.size() / NumericObservation::CharacterStride
+                == teamObservation.state.characters.size(),
+        "numeric team observations must retain the same visibility filtering");
+
     const DecisionSnapshot initialObservation = first.ObserveDecision();
     Require(initialObservation.state.activeCharacterId == 10 && initialObservation.legalActions.size() == 3,
         "decision observations should snapshot state together with its legal action set");

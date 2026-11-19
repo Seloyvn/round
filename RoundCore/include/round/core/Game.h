@@ -37,7 +37,9 @@ public:
     std::vector<EntityId> VisibleTileIds(EntityId characterId) const;
     std::vector<EntityId> TeamVisibleTileIds(Team team) const;
     DecisionSnapshot ObserveDecision() const;
+    DecisionSnapshot ObserveTeamDecision(Team perspective) const;
     NumericObservation ObserveNumeric(const ObservationSchema& schema) const;
+    NumericObservation ObserveTeamNumeric(Team perspective, const ObservationSchema& schema) const;
     Game Clone() const;
 
     const ContentDefinitions& Definitions() const noexcept;
