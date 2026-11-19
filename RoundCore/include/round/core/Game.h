@@ -34,6 +34,8 @@ public:
     ActionResult ApplyDecision(const GameAction& action, std::uint32_t maximumInitiativeTicks = 10000);
     ActionResult ApplyDecisionIndex(std::size_t legalActionIndex, std::uint32_t maximumInitiativeTicks = 10000);
     std::vector<GameAction> LegalActions(EntityId actorId) const;
+    std::vector<EntityId> VisibleTileIds(EntityId characterId) const;
+    std::vector<EntityId> TeamVisibleTileIds(Team team) const;
     DecisionSnapshot ObserveDecision() const;
     NumericObservation ObserveNumeric(const ObservationSchema& schema) const;
     Game Clone() const;

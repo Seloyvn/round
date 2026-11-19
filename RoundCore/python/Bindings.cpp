@@ -61,7 +61,9 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("stops_movement", &TerrainDefinition::stopsMovement)
         .def_readwrite("movement_cost", &TerrainDefinition::movementCost)
         .def_readwrite("movement_cost_multiplier_basis_points", &TerrainDefinition::movementCostMultiplierBasisPoints)
-        .def_readwrite("values", &TerrainDefinition::values);
+        .def_readwrite("values", &TerrainDefinition::values)
+        .def_readwrite("vision_cost", &TerrainDefinition::visionCost)
+        .def_readwrite("vision_range_modifier", &TerrainDefinition::visionRangeModifier);
     py::class_<ContentDefinitions>(module, "ContentDefinitions")
         .def(py::init<>()).def_readwrite("schema_version", &ContentDefinitions::schemaVersion)
         .def_readwrite("content_version", &ContentDefinitions::contentVersion)
@@ -132,6 +134,7 @@ PYBIND11_MODULE(roundcore_python, module)
         .def(py::init<>()).def("reset", &Game::Reset).def("apply_decision_index", &Game::ApplyDecisionIndex,
             py::arg("legal_action_index"), py::arg("maximum_initiative_ticks") = 10000)
         .def("observe_decision", &Game::ObserveDecision).def("observe_numeric", &Game::ObserveNumeric)
+        .def("visible_tile_ids", &Game::VisibleTileIds).def("team_visible_tile_ids", &Game::TeamVisibleTileIds)
         .def("is_terminal", &Game::IsTerminal).def("state_hash", &Game::StateHash)
         .def("content_version", [](const Game& game) { return game.Definitions().contentVersion; });
     py::class_<VectorStepResult>(module, "VectorStepResult")

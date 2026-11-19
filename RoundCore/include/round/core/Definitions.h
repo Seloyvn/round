@@ -48,6 +48,8 @@ struct TerrainDefinition
     // Fixed point keeps movement deterministic across compilers and platforms.
     std::int32_t movementCostMultiplierBasisPoints = 10000;
     std::unordered_map<std::string, double> values;
+    std::int32_t visionCost = 1;
+    std::int32_t visionRangeModifier = 0;
 };
 
 struct ContentDefinitions

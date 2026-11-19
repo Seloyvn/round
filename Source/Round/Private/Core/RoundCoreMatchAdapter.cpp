@@ -86,14 +86,18 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         const int32 MultiplierBasisPoints = TerrainActor
             ? FMath::Max(0, FMath::RoundToInt(TerrainActor->GetTerrainMoveCostMultiplier() * 10000.0f))
             : 0;
+        const int32 VisionCost = FMath::Max(0, Tile->GetTerrainVisionCost());
+        const int32 VisionRangeModifier = Tile->GetTerrainVisionRangeModifier();
         const FString TerrainKey = FString::Printf(
-            TEXT("Terrain:%d:%d:%d:%d:%d:%d"),
+            TEXT("Terrain:%d:%d:%d:%d:%d:%d:%d:%d"),
             static_cast<int32>(Tile->TerrainType),
             bWalkable ? 1 : 0,
             bBlocksVision ? 1 : 0,
             bStopsMovement ? 1 : 0,
             BaseMoveCost,
-            MultiplierBasisPoints);
+            MultiplierBasisPoints,
+            VisionCost,
+            VisionRangeModifier);
         const std::string TerrainId = ToCoreString(TerrainKey);
 
         if (Setup.definitions.terrains.find(TerrainId) == Setup.definitions.terrains.end())
@@ -105,6 +109,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             Definition.stopsMovement = bStopsMovement;
             Definition.movementCost = BaseMoveCost;
             Definition.movementCostMultiplierBasisPoints = MultiplierBasisPoints;
+            Definition.visionCost = VisionCost;
+            Definition.visionRangeModifier = VisionRangeModifier;
             Setup.definitions.terrains.emplace(TerrainId, std::move(Definition));
         }
 

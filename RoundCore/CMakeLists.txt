@@ -5,6 +5,7 @@ add_library(RoundCore STATIC
     src/Game.cpp
     src/Observation.cpp
     src/VectorEnvironment.cpp
+    src/Visibility.cpp
 )
 
 target_include_directories(RoundCore PUBLIC include)

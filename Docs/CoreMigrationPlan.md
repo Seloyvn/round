@@ -186,6 +186,13 @@ Exit condition: every playable non-Puppet character is fully Core-driven, follow
 
 Exit condition: observation tests prove that hidden enemies and state are not exposed.
 
+Current progress:
+
+- Core computes deterministic per-character and per-team visible tile IDs from character vision range, source-terrain range modifiers, accumulated terrain vision cost, and blocking terrain.
+- Blocking terrain remains visible while tiles behind it are hidden, matching the current Unreal rule.
+- Unreal exports the live terrain vision values into the same Core definitions.
+- Team-filtered observations, Actor/Core comparison logging, and removal of Actor-side line-of-sight authority remain.
+
 ### Phase 7 — Data export
 
 - Add an editor commandlet/exporter that converts registries and DataAssets into a versioned binary Core content package.

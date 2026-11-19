@@ -27,7 +27,8 @@ MatchSetup ValidSetup()
         TileState{2, HexCoord{1, 0}, "Meadow", InvalidEntityId, false},
         TileState{3, HexCoord{0, 1}, "Rubble", InvalidEntityId, false},
         TileState{4, HexCoord{2, 0}, "Meadow", InvalidEntityId, false},
-        TileState{5, HexCoord{-1, 0}, "Mountain", InvalidEntityId, false}};
+        TileState{5, HexCoord{-1, 0}, "Mountain", InvalidEntityId, false},
+        TileState{6, HexCoord{-2, 0}, "Meadow", InvalidEntityId, false}};
     setup.initialState.characters = {
         CharacterState{10, "Tank", Team::TeamA, 1, 100, 100, true, {}},
         CharacterState{20, "Tank", Team::TeamB, 2, 100, 100, true, {}}};
@@ -59,6 +60,14 @@ int main()
     Game second;
     Require(second.Reset(ValidSetup()).success, "same setup should reset a second game");
     Require(first.StateHash() == second.StateHash(), "same setup and seed should produce the same state hash");
+
+    const std::vector<EntityId> visibleTiles = first.VisibleTileIds(10);
+    Require(std::find(visibleTiles.begin(), visibleTiles.end(), 5) != visibleTiles.end(),
+        "vision-blocking terrain should remain visible itself");
+    Require(std::find(visibleTiles.begin(), visibleTiles.end(), 6) == visibleTiles.end(),
+        "vision-blocking terrain should hide tiles behind it");
+    Require(first.TeamVisibleTileIds(Team::TeamA) == visibleTiles,
+        "team visibility should combine its living characters in stable tile order");
 
     const DecisionSnapshot initialObservation = first.ObserveDecision();
     Require(initialObservation.state.activeCharacterId == 10 && initialObservation.legalActions.size() == 3,
