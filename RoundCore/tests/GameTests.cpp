@@ -192,6 +192,9 @@ int main()
         "unaffordable movement must be rejected without changing state");
 
     MatchSetup turnSetup = ValidSetup();
+    turnSetup.definitions.abilities.emplace("TestAbility", AbilityDefinition{"TestAbility", {}});
+    turnSetup.definitions.abilities.emplace("ChargeAbility", AbilityDefinition{"ChargeAbility", {}});
+    turnSetup.definitions.characters.at("Tank").abilityIds = {"TestAbility", "ChargeAbility"};
     turnSetup.initialState.activeCharacterId = 10;
     turnSetup.initialState.characters[0].initiative = 20;
     turnSetup.initialState.characters[1].initiative = 95;

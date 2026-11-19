@@ -8,6 +8,8 @@ from roundcore_training import (
     ReplayRecorder,
     ReplayTrace,
     RewardConfig,
+    SelfPlayEnvironment,
+    choose_aggressive_action,
     compute_reward,
     encode_batch,
     infer_batch_shape,
@@ -90,6 +92,19 @@ reward = compute_reward(
     RewardConfig(0.1, -0.1, 0.0, 0.0, 2.0, -2.0, 10.0, -10.0, -0.01),
 )
 assert abs(reward - 12.99) < 1e-9
+
+self_play = SelfPlayEnvironment(
+    build_match(101),
+    RewardConfig(0.1, -0.1, 0.0, 0.0, 2.0, -2.0, 10.0, -10.0, -0.01),
+)
+self_play_observation, acting_team = self_play.reset()
+assert acting_team == rc.Team.TEAM_A
+assert self_play_observation.legal_actions
+self_play_actions = self_play.legal_actions()
+self_play_step = self_play.step(choose_aggressive_action(self_play_actions))
+assert self_play_step.terminated
+assert self_play_step.acting_team == rc.Team.TEAM_A
+assert self_play.replay.transitions
 
 recorder = ReplayRecorder("python-smoke-v1", before_hash)
 recorder.record(before_hash, attack_index, game.state_hash())

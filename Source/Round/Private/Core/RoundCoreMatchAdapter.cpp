@@ -177,8 +177,6 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             FMath::RoundToInt(Character->GetCritChance() * 10000.0), 0, 10000);
         Definition.criticalDamageMultiplierBasisPoints = FMath::Max(
             0, FMath::RoundToInt(Character->GetCritModifier() * 10000.0));
-        Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));
-
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -205,7 +203,12 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const std::string AbilityId = ToCoreString(AbilityKey);
             roundcore::AbilityDefinition AbilityDefinition;
             AbilityDefinition.id = AbilityId;
+            for (const TPair<FString, double>& Value : Ability->GetResolvedAbilityValues())
+            {
+                AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
+            }
             Setup.definitions.abilities.emplace(AbilityId, std::move(AbilityDefinition));
+            Definition.abilityIds.push_back(AbilityId);
 
             roundcore::AbilityState AbilityState;
             AbilityState.definitionId = AbilityId;
@@ -217,6 +220,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             CharacterState.abilities.push_back(std::move(AbilityState));
             AbilityActors.Add(AbilityKey, Ability);
         }
+        Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));
         Setup.initialState.characters.push_back(std::move(CharacterState));
     }
 

@@ -35,6 +35,9 @@ if(ROUNDCORE_BUILD_PYTHON)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/python/roundcore_training.py"
             "$<TARGET_FILE_DIR:roundcore_python>/roundcore_training.py"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/python/run_package_smoke.py"
+            "$<TARGET_FILE_DIR:roundcore_python>/run_package_smoke.py"
         DEPENDS roundcore_python)
 endif()
 

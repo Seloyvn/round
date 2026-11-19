@@ -73,6 +73,107 @@ class ReplayRecorder:
         self.trace.transitions.append(ReplayTransition(before_hash, action_index, after_hash))
 
 
+def load_match_package(path: str | Path) -> rc.MatchSetup:
+    """Load the exact resolved match setup exported by Unreal."""
+    return rc.deserialize_match_setup(Path(path).read_bytes())
+
+
+@dataclass(frozen=True)
+class StepOutput:
+    observation: rc.NumericObservation
+    reward: float
+    terminated: bool
+    acting_team: rc.Team
+    result: rc.ActionResult
+
+
+class SelfPlayEnvironment:
+    """Small training facade over the authoritative native RoundCore game.
+
+    The policy always receives the observation filtered for the team that owns
+    the current decision. Actions are indices into that observation's legal
+    action list, so a trainer cannot bypass Core validation.
+    """
+
+    def __init__(self, setup: rc.MatchSetup, reward_config: RewardConfig) -> None:
+        self._setup = setup
+        self._reward_config = reward_config
+        self._schema = rc.build_observation_schema(setup.definitions)
+        self._game = rc.Game()
+        self._recorder: ReplayRecorder | None = None
+
+    @classmethod
+    def from_package(cls, path: str | Path, reward_config: RewardConfig) -> "SelfPlayEnvironment":
+        return cls(load_match_package(path), reward_config)
+
+    @property
+    def replay(self) -> ReplayTrace:
+        if self._recorder is None:
+            raise RuntimeError("reset must be called before reading the replay")
+        return self._recorder.trace
+
+    def reset(self) -> tuple[rc.NumericObservation, rc.Team]:
+        result = self._game.reset(self._setup)
+        if not result.success:
+            raise ValueError(f"RoundCore reset failed: {result.error_code}: {result.message}")
+        while not self._game.is_terminal() and self._game.observe_decision().state.active_character_id == 0:
+            advance = self._game.apply_decision_index(0)
+            if not advance.success:
+                raise RuntimeError(
+                    f"RoundCore could not advance to the first decision: {advance.error_code}: {advance.message}")
+        self._recorder = ReplayRecorder(self._game.content_version(), self._game.state_hash())
+        team = self._acting_team()
+        return self._game.observe_team_numeric(team, self._schema), team
+
+    def legal_actions(self) -> list[rc.GameAction]:
+        team = self._acting_team()
+        return self._game.observe_team_decision(team).legal_actions
+
+    def step(self, action_index: int) -> StepOutput:
+        if self._recorder is None:
+            raise RuntimeError("reset must be called before step")
+        acting_team = self._acting_team()
+        before = self._game.observe_team_decision(acting_team)
+        if action_index < 0 or action_index >= len(before.legal_actions):
+            raise IndexError(f"legal action index {action_index} is outside [0, {len(before.legal_actions)})")
+        before_hash = self._game.state_hash()
+        result = self._game.apply_decision_index(action_index)
+        if not result.success:
+            raise RuntimeError(f"RoundCore rejected a listed legal action: {result.error_code}: {result.message}")
+        after = self._game.observe_team_decision(acting_team)
+        after_hash = self._game.state_hash()
+        self._recorder.record(before_hash, action_index, after_hash)
+        reward = compute_reward(result, before, after, acting_team, self._reward_config)
+        next_team = acting_team if self._game.is_terminal() else self._acting_team()
+        observation = self._game.observe_team_numeric(next_team, self._schema)
+        return StepOutput(observation, reward, self._game.is_terminal(), acting_team, result)
+
+    def _acting_team(self) -> rc.Team:
+        snapshot = self._game.observe_decision()
+        active_id = snapshot.state.active_character_id
+        for character in snapshot.state.characters:
+            if character.id == active_id:
+                return character.team
+        if snapshot.state.status == rc.MatchStatus.COMPLETED:
+            return snapshot.state.winner
+        raise RuntimeError("running match has no active decision team")
+
+
+def choose_aggressive_action(actions: list[rc.GameAction]) -> int:
+    """Deterministic non-learning baseline: ability, attack, move, then end turn."""
+    priorities = {
+        rc.ActionType.USE_ABILITY: 0,
+        rc.ActionType.BASIC_ATTACK: 1,
+        rc.ActionType.MOVE: 2,
+        rc.ActionType.CLAIM_OBJECTIVE: 3,
+        rc.ActionType.WAIT: 4,
+        rc.ActionType.END_TURN: 5,
+    }
+    if not actions:
+        raise ValueError("cannot choose from an empty legal-action list")
+    return min(range(len(actions)), key=lambda index: (priorities[actions[index].type], index))
+
+
 def replay_and_verify(game: rc.Game, trace: ReplayTrace) -> None:
     if game.content_version() != trace.content_version:
         raise ValueError(f"replay content mismatch: {game.content_version()} != {trace.content_version}")

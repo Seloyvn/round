@@ -213,6 +213,46 @@ double ARoundAbilityActor::GetAbilityValueFromKey(const FString& Key) const
     return TryGetAbilityValueFromKey(Key, Value) ? Value : 0.0;
 }
 
+TMap<FString, double> ARoundAbilityActor::GetResolvedAbilityValues() const
+{
+    TSet<FString> Keys;
+    if (AbilityData)
+    {
+        for (const TPair<FString, double>& Entry : AbilityData->Values)
+        {
+            Keys.Add(Entry.Key);
+        }
+        if (AbilityData->SkillProgression)
+        {
+            const TArray<FRoundSkillpointDetails>& Levels = AbilityData->SkillProgression->Levels;
+            for (int32 TierIndex = 0; TierIndex < 4; ++TierIndex)
+            {
+                const int32 Selection = static_cast<int32>((Points >> (TierIndex * 2)) & 0x3);
+                const int32 LevelIndex = (TierIndex * 3) + (Selection - 1);
+                if (Selection <= 0 || !Levels.IsValidIndex(LevelIndex))
+                {
+                    continue;
+                }
+                for (const TPair<FString, double>& Entry : Levels[LevelIndex].Values)
+                {
+                    Keys.Add(Entry.Key);
+                }
+            }
+        }
+    }
+
+    TMap<FString, double> Resolved;
+    for (const FString& Key : Keys)
+    {
+        double Value = 0.0;
+        if (TryGetAbilityValueFromKey(Key, Value))
+        {
+            Resolved.Add(Key, Value);
+        }
+    }
+    return Resolved;
+}
+
 bool ARoundAbilityActor::TryGetAbilityValueFromKey(const FString& Key, double& OutValue) const
 {
     if (!AbilityData)

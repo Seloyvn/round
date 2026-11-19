@@ -210,6 +210,7 @@ Current progress:
 - Standalone C++ and Python load the same package and reject invalid magic, unsupported versions, truncated data, and trailing bytes.
 - A running Unreal match can export its live resolved Core snapshot with `ExportCoreTrainingPackage`; an empty path writes `Saved/Training/roundcore_match.rndcore`.
 - Registry-wide content export before starting a match and a stable content hash remain.
+- Resolved additive ability values and each character's exact ability-definition list are now included in live Unreal exports; runtime packages reject missing, duplicate, undeclared, or invalid ability state before training starts.
 
 ### Phase 8 — Standalone environment
 
@@ -233,6 +234,8 @@ Current progress:
 - `roundcore_training.encode_batch` converts variable-length observations into fixed NumPy tensors and explicit masks using caller-configured capacities.
 - Configurable Python reward calculation consumes Core events without becoming a second gameplay implementation, and replay traces verify every indexed decision against before/after state hashes.
 - Both explicit omniscient observations and visibility-filtered team observations are available; training policies should use the team-filtered API.
+- `SelfPlayEnvironment` loads an Unreal-exported package, advances to a decision boundary, returns only the acting team's filtered numeric observation, accepts a legal-action index, calculates event-based reward, and records deterministic replay hashes.
+- A package smoke runner can execute a real exported setup without rendering and reports when an unmigrated mechanic prevents the match from completing.
 - Content-package loading, larger match coverage, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training

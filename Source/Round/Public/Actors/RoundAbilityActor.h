@@ -42,6 +42,9 @@ public:
     virtual double GetAbilityValueFromKey(const FString& Key) const;
 
     UFUNCTION(BlueprintPure, Category = "Ability")
+    virtual TMap<FString, double> GetResolvedAbilityValues() const;
+
+    UFUNCTION(BlueprintPure, Category = "Ability")
     virtual int32 GetAbilityDurationInitiativeFromKey(const FString& Key) const;
 
     UFUNCTION(BlueprintPure, Category = "Ability")

@@ -50,6 +50,14 @@ ActionResult Game::Reset(MatchSetup setup)
     {
         return Failure("invalid_schema", "Definition and state schema versions must be non-zero.");
     }
+    if (setup.definitions.schemaVersion != setup.initialState.schemaVersion)
+    {
+        return Failure("schema_mismatch", "Definition and state schema versions must match.");
+    }
+    if (setup.definitions.contentVersion.empty())
+    {
+        return Failure("missing_content_version", "A match package must identify its exported content version.");
+    }
 
     std::unordered_set<EntityId> tileIds;
     std::unordered_set<EntityId> characterIds;
@@ -76,6 +84,30 @@ ActionResult Game::Reset(MatchSetup setup)
         if (setup.definitions.characters.find(character.definitionId) == setup.definitions.characters.end())
         {
             return Failure("missing_character_definition", "Every character must reference an exported character definition.");
+        }
+        const CharacterDefinition& characterDefinition = setup.definitions.characters.at(character.definitionId);
+        std::unordered_set<DefinitionId> declaredAbilityIds(
+            characterDefinition.abilityIds.begin(), characterDefinition.abilityIds.end());
+        std::unordered_set<DefinitionId> runtimeAbilityIds;
+        for (const AbilityState& ability : character.abilities)
+        {
+            if (ability.definitionId.empty() || !runtimeAbilityIds.insert(ability.definitionId).second)
+            {
+                return Failure("invalid_character_ability", "A character's runtime ability IDs must be unique and non-empty.");
+            }
+            if (setup.definitions.abilities.find(ability.definitionId) == setup.definitions.abilities.end())
+            {
+                return Failure("missing_ability_definition", "Every runtime ability must reference an exported ability definition.");
+            }
+            if (declaredAbilityIds.find(ability.definitionId) == declaredAbilityIds.end())
+            {
+                return Failure("undeclared_character_ability", "Every runtime ability must be declared by its character definition.");
+            }
+            if (ability.maxCharges < 1 || ability.currentCharges < 0 || ability.currentCharges > ability.maxCharges
+                || ability.cooldownDuration < 0 || ability.cooldownRemaining < 0)
+            {
+                return Failure("invalid_ability_state", "Ability charges and cooldowns must be within valid non-negative bounds.");
+            }
         }
         if (tileIds.find(character.tileId) == tileIds.end())
         {
