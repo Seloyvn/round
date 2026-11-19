@@ -51,13 +51,29 @@ int main()
 {
     using namespace roundcore;
 
-    const std::vector<std::uint8_t> packageBytes = SerializeMatchSetup(ValidSetup());
+    MatchSetup packageSource = ValidSetup();
+    AbilityDefinition packageAbility;
+    packageAbility.id = "PackageBolt";
+    packageAbility.operation = AbilityOperation::DirectDamage;
+    packageAbility.targetRelation = AbilityTargetRelation::Enemy;
+    packageAbility.initiativeCost = 7;
+    packageAbility.range = 3;
+    packageAbility.amount = 19;
+    packageAbility.defenseIgnore = 4;
+    packageSource.definitions.abilities.emplace(packageAbility.id, packageAbility);
+    packageSource.definitions.characters.at("Tank").abilityIds.push_back(packageAbility.id);
+    packageSource.initialState.characters[0].abilities.push_back(AbilityState{packageAbility.id, 0, 8, 1, 1, false});
+    const std::vector<std::uint8_t> packageBytes = SerializeMatchSetup(packageSource);
     const MatchSetup packageSetup = DeserializeMatchSetup(packageBytes);
     Game packageGame;
     Require(packageGame.Reset(packageSetup).success, "a serialized match package should load into Core");
     Game packageReference;
-    Require(packageReference.Reset(ValidSetup()).success && packageGame.StateHash() == packageReference.StateHash(),
+    Require(packageReference.Reset(packageSource).success && packageGame.StateHash() == packageReference.StateHash(),
         "a match package round trip must preserve deterministic initial state");
+    const AbilityDefinition& loadedPackageAbility = packageGame.Definitions().abilities.at("PackageBolt");
+    Require(loadedPackageAbility.operation == AbilityOperation::DirectDamage
+            && loadedPackageAbility.initiativeCost == 7 && loadedPackageAbility.amount == 19,
+        "a match package must preserve executable ability contracts");
     std::vector<std::uint8_t> invalidPackage = packageBytes;
     invalidPackage[0] = 0;
     bool rejectedInvalidPackage = false;
@@ -192,8 +208,10 @@ int main()
         "unaffordable movement must be rejected without changing state");
 
     MatchSetup turnSetup = ValidSetup();
-    turnSetup.definitions.abilities.emplace("TestAbility", AbilityDefinition{"TestAbility", {}});
-    turnSetup.definitions.abilities.emplace("ChargeAbility", AbilityDefinition{"ChargeAbility", {}});
+    AbilityDefinition testAbility; testAbility.id = "TestAbility";
+    AbilityDefinition chargeAbility; chargeAbility.id = "ChargeAbility";
+    turnSetup.definitions.abilities.emplace(testAbility.id, testAbility);
+    turnSetup.definitions.abilities.emplace(chargeAbility.id, chargeAbility);
     turnSetup.definitions.characters.at("Tank").abilityIds = {"TestAbility", "ChargeAbility"};
     turnSetup.initialState.activeCharacterId = 10;
     turnSetup.initialState.characters[0].initiative = 20;
@@ -242,6 +260,34 @@ int main()
         "death should release the target tile in Core state");
     Require(combat.IsTerminal() && combat.State().winner == Team::TeamA,
         "eliminating the last opposing team should complete the match");
+
+    MatchSetup abilitySetup = ValidSetup();
+    AbilityDefinition bolt;
+    bolt.id = "DirectBolt";
+    bolt.operation = AbilityOperation::DirectDamage;
+    bolt.targetRelation = AbilityTargetRelation::Enemy;
+    bolt.initiativeCost = 7;
+    bolt.range = 2;
+    bolt.amount = 21;
+    bolt.defenseIgnore = 5;
+    abilitySetup.definitions.abilities.emplace(bolt.id, bolt);
+    abilitySetup.definitions.characters.at("Tank").abilityIds = {bolt.id};
+    abilitySetup.initialState.characters[0].abilities.push_back(AbilityState{bolt.id, 0, 9, 1, 1, false});
+    Game abilities;
+    Require(abilities.Reset(std::move(abilitySetup)).success, "direct ability setup should reset");
+    const std::vector<GameAction> abilityActions = abilities.LegalActions(10);
+    const auto legalBolt = std::find_if(abilityActions.begin(), abilityActions.end(), [](const GameAction& action)
+    {
+        return action.type == ActionType::UseAbility && action.abilityId == "DirectBolt" && action.targetEntityId == 20;
+    });
+    Require(legalBolt != abilityActions.end(), "a supported exported ability should appear in legal actions");
+    const ActionResult boltResult = abilities.ApplyAction(*legalBolt);
+    Require(boltResult.success && abilities.State().characters[0].initiative == 93,
+        "ability execution should pay its exported initiative cost");
+    Require(abilities.State().characters[0].abilities[0].cooldownRemaining == 9,
+        "ability execution should start its exported cooldown");
+    Require(abilities.State().characters[1].health == 79,
+        "direct damage should use the exported amount and defense ignore");
 
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;

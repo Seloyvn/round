@@ -62,6 +62,9 @@ This file captures project-specific conventions and decisions for working in thi
   - skillpoint adds `AOERange = 1`
   - resolved value becomes `2`
 - `DamageAdd` is not needed under this model; use the actual value key instead.
+- An ability is exposed as executable to standalone training only when its resolved values explicitly set `CoreOperation` (`1` = direct damage, `2` = direct heal).
+- `CoreTargetRelation` may override the operation default (`0` = self, `1` = ally, `2` = enemy, `3` = any character). Direct damage defaults to enemy and direct heal defaults to ally.
+- This marker is a migration contract, not an approximation switch. Only set it when the ability's complete runtime result is represented by the corresponding RoundCore operation. Specialized abilities remain unsupported until their dedicated Core behavior exists.
 
 ## Skillpoint Design
 

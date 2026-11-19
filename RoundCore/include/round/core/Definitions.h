@@ -24,6 +24,13 @@ struct StatBlock
 struct AbilityDefinition
 {
     DefinitionId id;
+    AbilityOperation operation = AbilityOperation::Unsupported;
+    AbilityTargetRelation targetRelation = AbilityTargetRelation::Enemy;
+    std::int32_t initiativeCost = 0;
+    std::int32_t range = 0;
+    std::int32_t amount = 0;
+    std::int32_t defenseIgnore = 0;
+    bool requiresVisibility = true;
     std::unordered_map<std::string, double> values;
 };
 

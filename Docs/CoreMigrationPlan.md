@@ -178,6 +178,13 @@ Character 6 and Puppet remain last because of their known complexity and bugs.
 
 Exit condition: every playable non-Puppet character is fully Core-driven, followed by Character 6/Puppet stabilization.
 
+Current progress:
+
+- The first explicit ability contract supports editor-declared direct damage and direct healing with target relation, range, visibility, initiative cost, cooldown, charges, defense ignore, death, and victory handled by Core.
+- Supported abilities appear in stable legal-action lists and numeric action masks; standalone C++ and Python tests execute the same path.
+- Unreal exports an ability only into this executable subset when its resolved `CoreOperation` value explicitly opts in. Unmarked and specialized abilities remain unavailable to the headless agent rather than being approximated.
+- Unreal execution has not yet switched to this path; parity comparison and selection of the first genuinely simple asset remain before removing its Actor implementation.
+
 ### Phase 6 — Vision and observations
 
 - Move line-of-sight and visibility state into Core.

@@ -56,6 +56,8 @@ private:
     ActionResult ValidateMove(const GameAction& action) const;
     ActionResult ApplyBasicAttack(const GameAction& action);
     ActionResult ValidateBasicAttack(const GameAction& action) const;
+    ActionResult ApplyAbility(const GameAction& action);
+    ActionResult ValidateAbility(const GameAction& action) const;
     ActionResult ApplyEndTurn(const GameAction& action);
     ActionResult ValidateEndTurn(const GameAction& action) const;
     std::uint64_t NextRandom() noexcept;

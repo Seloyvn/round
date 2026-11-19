@@ -34,6 +34,13 @@ PYBIND11_MODULE(roundcore_python, module)
         .value("MOVE", ActionType::Move).value("BASIC_ATTACK", ActionType::BasicAttack)
         .value("USE_ABILITY", ActionType::UseAbility).value("CLAIM_OBJECTIVE", ActionType::ClaimObjective)
         .value("WAIT", ActionType::Wait).value("END_TURN", ActionType::EndTurn);
+    py::enum_<AbilityOperation>(module, "AbilityOperation")
+        .value("UNSUPPORTED", AbilityOperation::Unsupported)
+        .value("DIRECT_DAMAGE", AbilityOperation::DirectDamage)
+        .value("DIRECT_HEAL", AbilityOperation::DirectHeal);
+    py::enum_<AbilityTargetRelation>(module, "AbilityTargetRelation")
+        .value("SELF", AbilityTargetRelation::Self).value("ALLY", AbilityTargetRelation::Ally)
+        .value("ENEMY", AbilityTargetRelation::Enemy).value("ANY_CHARACTER", AbilityTargetRelation::AnyCharacter);
     py::enum_<MatchStatus>(module, "MatchStatus")
         .value("NOT_STARTED", MatchStatus::NotStarted).value("RUNNING", MatchStatus::Running)
         .value("COMPLETED", MatchStatus::Completed);
@@ -58,6 +65,13 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("turn_delay", &StatBlock::turnDelay);
     py::class_<AbilityDefinition>(module, "AbilityDefinition")
         .def(py::init<>()).def_readwrite("id", &AbilityDefinition::id)
+        .def_readwrite("operation", &AbilityDefinition::operation)
+        .def_readwrite("target_relation", &AbilityDefinition::targetRelation)
+        .def_readwrite("initiative_cost", &AbilityDefinition::initiativeCost)
+        .def_readwrite("range", &AbilityDefinition::range)
+        .def_readwrite("amount", &AbilityDefinition::amount)
+        .def_readwrite("defense_ignore", &AbilityDefinition::defenseIgnore)
+        .def_readwrite("requires_visibility", &AbilityDefinition::requiresVisibility)
         .def_readwrite("values", &AbilityDefinition::values);
     py::class_<CharacterDefinition>(module, "CharacterDefinition")
         .def(py::init<>()).def_readwrite("id", &CharacterDefinition::id)

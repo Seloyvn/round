@@ -63,6 +63,43 @@ ActionResult Game::Reset(MatchSetup setup)
     std::unordered_set<EntityId> characterIds;
     std::unordered_set<EntityId> occupiedTileIds;
 
+    for (const auto& entry : setup.definitions.abilities)
+    {
+        const AbilityDefinition& ability = entry.second;
+        if (entry.first.empty() || ability.id != entry.first)
+        {
+            return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
+        }
+        if (ability.operation > AbilityOperation::DirectHeal
+            || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
+        {
+            return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
+        }
+        if (ability.initiativeCost < 0 || ability.range < 0 || ability.amount < 0 || ability.defenseIgnore < 0)
+        {
+            return Failure("invalid_ability_values", "Executable ability values must be non-negative.");
+        }
+    }
+    for (const auto& entry : setup.definitions.characters)
+    {
+        if (entry.first.empty() || entry.second.id != entry.first)
+        {
+            return Failure("invalid_character_definition_id", "Character definition keys and IDs must be equal and non-empty.");
+        }
+        std::unordered_set<DefinitionId> abilityIds;
+        for (const DefinitionId& abilityId : entry.second.abilityIds)
+        {
+            if (!abilityIds.insert(abilityId).second)
+            {
+                return Failure("duplicate_character_ability", "Character ability definition IDs must be unique.");
+            }
+            if (setup.definitions.abilities.find(abilityId) == setup.definitions.abilities.end())
+            {
+                return Failure("missing_declared_ability", "Every declared character ability must have a definition.");
+            }
+        }
+    }
+
     for (const TileState& tile : setup.initialState.tiles)
     {
         if (tile.id == InvalidEntityId || !tileIds.insert(tile.id).second)
@@ -170,6 +207,10 @@ ActionResult Game::ApplyAction(const GameAction& action)
     {
         return ApplyBasicAttack(action);
     }
+    if (action.type == ActionType::UseAbility)
+    {
+        return ApplyAbility(action);
+    }
 
     CharacterState* character = FindCharacter(action.actorId);
     TileState* origin = character ? FindTile(character->tileId) : nullptr;
@@ -207,6 +248,10 @@ ActionResult Game::ValidateAction(const GameAction& action) const
     if (action.type == ActionType::BasicAttack)
     {
         return ValidateBasicAttack(action);
+    }
+    if (action.type == ActionType::UseAbility)
+    {
+        return ValidateAbility(action);
     }
     return Failure("unsupported_action", "This action has not been migrated to RoundCore yet.");
 }
@@ -459,6 +504,178 @@ ActionResult Game::ValidateBasicAttack(const GameAction& action) const
     return ActionResult{true};
 }
 
+ActionResult Game::ValidateAbility(const GameAction& action) const
+{
+    if (state_.status != MatchStatus::Running)
+    {
+        return Failure("match_not_running", "Abilities require a running match.");
+    }
+    const CharacterState* actor = FindCharacter(action.actorId);
+    const CharacterState* target = FindCharacter(action.targetEntityId);
+    if (!actor || !actor->alive || !target || !target->alive)
+    {
+        return Failure("invalid_ability_characters", "Ability actor and target must exist and be alive.");
+    }
+    if (state_.activeCharacterId != actor->id)
+    {
+        return Failure("not_active_character", "Only the active character can use an ability.");
+    }
+    const auto abilityDefinition = definitions_.abilities.find(action.abilityId);
+    if (abilityDefinition == definitions_.abilities.end()
+        || abilityDefinition->second.operation == AbilityOperation::Unsupported)
+    {
+        return Failure("unsupported_ability", "This ability has not been migrated to RoundCore.");
+    }
+    const auto abilityState = std::find_if(actor->abilities.begin(), actor->abilities.end(),
+        [&action](const AbilityState& ability) { return ability.definitionId == action.abilityId; });
+    if (abilityState == actor->abilities.end())
+    {
+        return Failure("ability_not_owned", "The acting character does not own this ability.");
+    }
+    if ((!abilityState->usesCharges && abilityState->cooldownRemaining > 0)
+        || (abilityState->usesCharges && abilityState->currentCharges <= 0))
+    {
+        return Failure("ability_not_ready", "The ability has no ready cooldown or charge.");
+    }
+
+    const AbilityDefinition& definition = abilityDefinition->second;
+    const bool sameTeam = actor->team == target->team;
+    const bool relationMatches = definition.targetRelation == AbilityTargetRelation::AnyCharacter
+        || (definition.targetRelation == AbilityTargetRelation::Self && actor->id == target->id)
+        || (definition.targetRelation == AbilityTargetRelation::Ally && sameTeam)
+        || (definition.targetRelation == AbilityTargetRelation::Enemy && !sameTeam
+            && target->team != Team::Neutral);
+    if (!relationMatches)
+    {
+        return Failure("invalid_ability_relation", "The target does not match the ability's target relation.");
+    }
+    const TileState* actorTile = FindTile(actor->tileId);
+    const TileState* targetTile = FindTile(target->tileId);
+    if (!actorTile || !targetTile)
+    {
+        return Failure("missing_ability_tile", "Ability actor and target must occupy board tiles.");
+    }
+    if (HexDistance(actorTile->coord, targetTile->coord) > std::max(0, definition.range))
+    {
+        return Failure("ability_target_out_of_range", "The target is outside ability range.");
+    }
+    if (definition.requiresVisibility)
+    {
+        const std::vector<EntityId> visibleTiles = TeamVisibleTileIds(actor->team);
+        if (!std::binary_search(visibleTiles.begin(), visibleTiles.end(), targetTile->id))
+        {
+            return Failure("ability_target_not_visible", "The ability target is not visible to the acting team.");
+        }
+    }
+    if (actor->initiative < std::max(0, definition.initiativeCost))
+    {
+        return Failure("insufficient_initiative", "The character cannot afford this ability.");
+    }
+    return ActionResult{true};
+}
+
+ActionResult Game::ApplyAbility(const GameAction& action)
+{
+    CharacterState* actor = FindCharacter(action.actorId);
+    CharacterState* target = FindCharacter(action.targetEntityId);
+    if (!actor || !target)
+    {
+        return Failure("invalid_state", "Validated ability references missing character state.");
+    }
+    AbilityState* abilityState = nullptr;
+    for (AbilityState& candidate : actor->abilities)
+    {
+        if (candidate.definitionId == action.abilityId)
+        {
+            abilityState = &candidate;
+            break;
+        }
+    }
+    if (!abilityState)
+    {
+        return Failure("invalid_state", "Validated ability has no runtime state.");
+    }
+    const AbilityDefinition& definition = definitions_.abilities.at(action.abilityId);
+    const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+    const std::int32_t cost = std::max(0, definition.initiativeCost);
+    actor->initiative -= cost;
+
+    ActionResult result;
+    result.success = true;
+    result.message = "Ability executed.";
+    result.events.push_back(GameEvent{
+        EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, -cost});
+    if (abilityState->usesCharges)
+    {
+        --abilityState->currentCharges;
+        result.events.push_back(GameEvent{
+            EventType::AbilityChargesChanged, actor->id, actor->id, actor->tileId, action.abilityId, -1});
+        if (abilityState->currentCharges < abilityState->maxCharges && abilityState->cooldownRemaining <= 0)
+        {
+            abilityState->cooldownRemaining = abilityState->cooldownDuration;
+            result.events.push_back(GameEvent{
+                EventType::CooldownChanged, actor->id, actor->id, actor->tileId,
+                action.abilityId, abilityState->cooldownDuration});
+        }
+    }
+    else
+    {
+        abilityState->cooldownRemaining = abilityState->cooldownDuration;
+        result.events.push_back(GameEvent{
+            EventType::CooldownChanged, actor->id, actor->id, actor->tileId,
+            action.abilityId, abilityState->cooldownDuration});
+    }
+
+    if (definition.operation == AbilityOperation::DirectHeal)
+    {
+        const std::int32_t maximumHealth = std::max(0, targetDefinition.stats.maxHealth);
+        const std::int32_t healing = std::min(std::max(0, definition.amount), std::max(0, maximumHealth - target->health));
+        target->health += healing;
+        result.events.push_back(GameEvent{
+            EventType::HealingApplied, actor->id, target->id, target->tileId, action.abilityId, healing});
+    }
+    else
+    {
+        const std::int64_t defense = std::max(0, targetDefinition.stats.defense - std::max(0, definition.defenseIgnore));
+        const std::int64_t denominator = 100 + defense;
+        const std::int32_t damage = static_cast<std::int32_t>(std::min<std::int64_t>(
+            std::numeric_limits<std::int32_t>::max(),
+            (static_cast<std::int64_t>(std::max(0, definition.amount)) * 100 + denominator / 2) / denominator));
+        const std::int32_t applied = std::min(target->health, damage);
+        target->health -= applied;
+        result.events.push_back(GameEvent{
+            EventType::DamageApplied, actor->id, target->id, target->tileId, action.abilityId, applied});
+        if (target->health <= 0)
+        {
+            target->health = 0;
+            target->alive = false;
+            if (TileState* tile = FindTile(target->tileId)) tile->occupantId = InvalidEntityId;
+            result.events.push_back(GameEvent{
+                EventType::CharacterDied, actor->id, target->id, target->tileId, action.abilityId, 0});
+
+            Team soleTeam = Team::Neutral;
+            bool multipleTeams = false;
+            for (const CharacterState& character : state_.characters)
+            {
+                if (!character.alive || character.team == Team::Neutral) continue;
+                if (soleTeam == Team::Neutral) soleTeam = character.team;
+                else if (soleTeam != character.team) { multipleTeams = true; break; }
+            }
+            if (!multipleTeams && soleTeam != Team::Neutral)
+            {
+                state_.status = MatchStatus::Completed;
+                state_.winner = soleTeam;
+                state_.activeCharacterId = InvalidEntityId;
+                result.events.push_back(GameEvent{
+                    EventType::MatchEnded, actor->id, InvalidEntityId, InvalidEntityId, action.abilityId,
+                    static_cast<std::int64_t>(soleTeam)});
+            }
+        }
+    }
+    ++state_.step;
+    return result;
+}
+
 std::uint64_t Game::NextRandom() noexcept
 {
     std::uint64_t value = state_.randomState;
@@ -657,6 +874,23 @@ std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
         if (ValidateBasicAttack(action).success)
         {
             actions.push_back(std::move(action));
+        }
+    }
+
+    for (const AbilityState& ability : character->abilities)
+    {
+        for (const CharacterState& target : state_.characters)
+        {
+            GameAction action;
+            action.type = ActionType::UseAbility;
+            action.actorId = actorId;
+            action.targetEntityId = target.id;
+            action.targetTileId = target.tileId;
+            action.abilityId = ability.definitionId;
+            if (ValidateAbility(action).success)
+            {
+                actions.push_back(std::move(action));
+            }
         }
     }
 

@@ -28,6 +28,21 @@ enum class ActionType : std::uint8_t
     EndTurn
 };
 
+enum class AbilityOperation : std::uint8_t
+{
+    Unsupported,
+    DirectDamage,
+    DirectHeal
+};
+
+enum class AbilityTargetRelation : std::uint8_t
+{
+    Self,
+    Ally,
+    Enemy,
+    AnyCharacter
+};
+
 enum class EventType : std::uint8_t
 {
     MatchReset,

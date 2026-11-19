@@ -203,10 +203,31 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const std::string AbilityId = ToCoreString(AbilityKey);
             roundcore::AbilityDefinition AbilityDefinition;
             AbilityDefinition.id = AbilityId;
-            for (const TPair<FString, double>& Value : Ability->GetResolvedAbilityValues())
+            const TMap<FString, double> ResolvedValues = Ability->GetResolvedAbilityValues();
+            for (const TPair<FString, double>& Value : ResolvedValues)
             {
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
+            const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
+            AbilityDefinition.operation = CoreOperation == 1
+                ? roundcore::AbilityOperation::DirectDamage
+                : (CoreOperation == 2 ? roundcore::AbilityOperation::DirectHeal : roundcore::AbilityOperation::Unsupported);
+            AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
+                ? roundcore::AbilityTargetRelation::Ally
+                : roundcore::AbilityTargetRelation::Enemy;
+            if (ResolvedValues.Contains(TEXT("CoreTargetRelation")))
+            {
+                AbilityDefinition.targetRelation = static_cast<roundcore::AbilityTargetRelation>(FMath::Clamp(
+                    FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreTargetRelation"))), 0, 3));
+            }
+            AbilityDefinition.initiativeCost = Ability->GetAbilityCost();
+            AbilityDefinition.range = Ability->GetAbilityRange();
+            AbilityDefinition.amount = AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
+                ? Ability->GetAbilityDamage()
+                : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
+            AbilityDefinition.defenseIgnore = FMath::Max(
+                0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("DefenseIgnore"))));
+            AbilityDefinition.requiresVisibility = Ability->GetAbilityValueFromKey(TEXT("IgnoreVisibility")) <= 0.0;
             Setup.definitions.abilities.emplace(AbilityId, std::move(AbilityDefinition));
             Definition.abilityIds.push_back(AbilityId);
 

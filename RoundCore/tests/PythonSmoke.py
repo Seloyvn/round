@@ -33,11 +33,21 @@ def build_match(seed: int) -> rc.MatchSetup:
     fighter = rc.CharacterDefinition()
     fighter.id = "Fighter"
     fighter.stats = stats
+    fighter.ability_ids = ["DirectBolt"]
+
+    bolt = rc.AbilityDefinition()
+    bolt.id = "DirectBolt"
+    bolt.operation = rc.AbilityOperation.DIRECT_DAMAGE
+    bolt.target_relation = rc.AbilityTargetRelation.ENEMY
+    bolt.initiative_cost = 5
+    bolt.range = 1
+    bolt.amount = 10
 
     definitions = rc.ContentDefinitions()
     definitions.content_version = "python-smoke-v1"
     definitions.terrains = {"Arena": terrain}
     definitions.characters = {"Fighter": fighter}
+    definitions.abilities = {"DirectBolt": bolt}
 
     first_tile = rc.TileState()
     first_tile.id = 1
@@ -54,6 +64,10 @@ def build_match(seed: int) -> rc.MatchSetup:
     first.tile_id = 1
     first.health = 10
     first.initiative = 20
+    first_bolt = rc.AbilityState()
+    first_bolt.definition_id = "DirectBolt"
+    first_bolt.cooldown_duration = 5
+    first.abilities = [first_bolt]
     second = rc.CharacterState()
     second.id = 200
     second.definition_id = "Fighter"
@@ -101,6 +115,7 @@ self_play_observation, acting_team = self_play.reset()
 assert acting_team == rc.Team.TEAM_A
 assert self_play_observation.legal_actions
 self_play_actions = self_play.legal_actions()
+assert any(action.type == rc.ActionType.USE_ABILITY for action in self_play_actions)
 self_play_step = self_play.step(choose_aggressive_action(self_play_actions))
 assert self_play_step.terminated
 assert self_play_step.acting_team == rc.Team.TEAM_A
