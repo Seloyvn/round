@@ -132,7 +132,8 @@ PYBIND11_MODULE(roundcore_python, module)
         .def(py::init<>()).def("reset", &Game::Reset).def("apply_decision_index", &Game::ApplyDecisionIndex,
             py::arg("legal_action_index"), py::arg("maximum_initiative_ticks") = 10000)
         .def("observe_decision", &Game::ObserveDecision).def("observe_numeric", &Game::ObserveNumeric)
-        .def("is_terminal", &Game::IsTerminal).def("state_hash", &Game::StateHash);
+        .def("is_terminal", &Game::IsTerminal).def("state_hash", &Game::StateHash)
+        .def("content_version", [](const Game& game) { return game.Definitions().contentVersion; });
     py::class_<VectorStepResult>(module, "VectorStepResult")
         .def_readonly("results", &VectorStepResult::results).def_readonly("observations", &VectorStepResult::observations);
     py::class_<VectorEnvironment>(module, "VectorEnvironment")

@@ -214,8 +214,9 @@ Current progress:
 - `VectorEnvironment` resets, observes, and steps independent Core matches in batches while preserving per-environment results and legal actions.
 - The optional `roundcore_python` module exposes Core definitions, setup, observations, indexed decisions, and vector environments without linking Python into Unreal.
 - `roundcore_training.encode_batch` converts variable-length observations into fixed NumPy tensors and explicit masks using caller-configured capacities.
+- Configurable Python reward calculation consumes Core events without becoming a second gameplay implementation, and replay traces verify every indexed decision against before/after state hashes.
 - The numeric observation is deliberately marked omniscient until Core visibility can filter hidden state correctly.
-- Partial-information observations, reward/replay tooling, larger content packages, and formal performance benchmarks remain.
+- Partial-information observations, content-package loading, larger match coverage, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training
 

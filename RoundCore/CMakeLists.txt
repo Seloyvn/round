@@ -29,10 +29,11 @@ if(ROUNDCORE_BUILD_PYTHON)
     find_package(pybind11 CONFIG REQUIRED PATHS "${ROUNDCORE_PYBIND11_CMAKE_DIR}" NO_DEFAULT_PATH)
     pybind11_add_module(roundcore_python MODULE python/Bindings.cpp)
     target_link_libraries(roundcore_python PRIVATE RoundCore)
-    add_custom_command(TARGET roundcore_python POST_BUILD
+    add_custom_target(roundcore_python_helpers ALL
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/python/roundcore_training.py"
-            "$<TARGET_FILE_DIR:roundcore_python>/roundcore_training.py")
+            "$<TARGET_FILE_DIR:roundcore_python>/roundcore_training.py"
+        DEPENDS roundcore_python)
 endif()
 
 if(ROUNDCORE_BUILD_TESTS)
