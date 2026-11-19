@@ -1,4 +1,5 @@
 #include "round/core/VectorEnvironment.h"
+#include "round/core/Package.h"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -15,6 +16,17 @@ PYBIND11_MODULE(roundcore_python, module)
     module.attr("ABILITY_STRIDE") = NumericObservation::AbilityStride;
     module.attr("ACTION_STRIDE") = NumericObservation::ActionStride;
     module.attr("ACTION_SELECTION_STRIDE") = NumericObservation::ActionSelectionStride;
+    module.attr("MATCH_PACKAGE_VERSION") = MatchPackageVersion;
+    module.def("serialize_match_setup", [](const MatchSetup& setup)
+    {
+        const std::vector<std::uint8_t> bytes = SerializeMatchSetup(setup);
+        return py::bytes(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    });
+    module.def("deserialize_match_setup", [](const py::bytes& data)
+    {
+        const std::string bytes = data;
+        return DeserializeMatchSetup(std::vector<std::uint8_t>(bytes.begin(), bytes.end()));
+    });
 
     py::enum_<Team>(module, "Team")
         .value("NEUTRAL", Team::Neutral).value("TEAM_A", Team::TeamA).value("TEAM_B", Team::TeamB);

@@ -36,6 +36,7 @@
 #include "Game/RoundGameInstance.h"
 #include "Game/RoundPlayerPawn.h"
 #include "Core/RoundCoreMatchAdapter.h"
+#include "round/core/Package.h"
 #include "Algo/Reverse.h"
 #include "Algo/Sort.h"
 #include "Engine/StaticMesh.h"
@@ -65,6 +66,8 @@
 #include "Components/AudioComponent.h"
 #include "Sound/SoundBase.h"
 #include "UObject/SavePackage.h"
+
+#include <exception>
 
 DEFINE_LOG_CATEGORY_STATIC(LogRoundAuraRuntime, Log, All);
 
@@ -3797,6 +3800,46 @@ bool ARoundGameState::GetCoreVisionFields(
         UE_LOG(LogTemp, Error, TEXT("RoundCore visibility failed for %s: %s"), *GetNameSafe(Character), *CoreReason);
         return false;
     }
+    return true;
+}
+
+bool ARoundGameState::ExportCoreTrainingPackage(const FString& FilePath)
+{
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+    FString CoreReason;
+    if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
+    {
+        UE_LOG(LogTemp, Error, TEXT("RoundCore training package export failed: %s"), *CoreReason);
+        return false;
+    }
+
+    const FString ResolvedPath = FilePath.IsEmpty()
+        ? FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Training"), TEXT("roundcore_match.rndcore"))
+        : FPaths::ConvertRelativePathToFull(FilePath);
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(ResolvedPath), true);
+    try
+    {
+        roundcore::MatchSetup Setup;
+        Setup.definitions = CoreMatchAdapter->GetGame().Definitions();
+        Setup.initialState = CoreMatchAdapter->GetGame().State();
+        const std::vector<std::uint8_t> Serialized = roundcore::SerializeMatchSetup(Setup);
+        TArray<uint8> Bytes;
+        Bytes.Append(Serialized.data(), static_cast<int32>(Serialized.size()));
+        if (!FFileHelper::SaveArrayToFile(Bytes, *ResolvedPath))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Could not write RoundCore training package to %s."), *ResolvedPath);
+            return false;
+        }
+    }
+    catch (const std::exception& Error)
+    {
+        UE_LOG(LogTemp, Error, TEXT("RoundCore training package serialization failed: %s"), UTF8_TO_TCHAR(Error.what()));
+        return false;
+    }
+    UE_LOG(LogTemp, Display, TEXT("Exported RoundCore training package to %s."), *ResolvedPath);
     return true;
 }
 

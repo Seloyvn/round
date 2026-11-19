@@ -492,6 +492,9 @@ public:
 
     bool GetCoreVisionFields(const ARoundCharacter* Character, TArray<ARoundGridTile*>& OutVisibleFields) const;
 
+    UFUNCTION(Exec, BlueprintCallable, Category = "Round|Core|Training")
+    bool ExportCoreTrainingPackage(const FString& FilePath);
+
     FRoundActionResult ExecuteCoreMove(ARoundCharacter* Character, ARoundGridTile* TargetTile);
     FRoundActionResult ExecuteCoreMovePath(ARoundCharacter* Character, const TArray<ARoundGridTile*>& Path);
     ARoundCharacter* AdvanceCoreTurn(ARoundCharacter* EndingCharacter);

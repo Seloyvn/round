@@ -6,6 +6,7 @@ add_library(RoundCore STATIC
     src/Observation.cpp
     src/VectorEnvironment.cpp
     src/Visibility.cpp
+    src/Package.cpp
 )
 
 target_include_directories(RoundCore PUBLIC include)

@@ -204,6 +204,13 @@ Current progress:
 
 Exit condition: Unreal and standalone tests load definitions with identical content hashes.
 
+Current progress:
+
+- A versioned, portable binary match package serializes resolved Core definitions and complete resumable state with deterministic ordering and bounded input validation.
+- Standalone C++ and Python load the same package and reject invalid magic, unsupported versions, truncated data, and trailing bytes.
+- A running Unreal match can export its live resolved Core snapshot with `ExportCoreTrainingPackage`; an empty path writes `Saved/Training/roundcore_match.rndcore`.
+- Registry-wide content export before starting a match and a stable content hash remain.
+
 ### Phase 8 — Standalone environment
 
 - Implement `reset`, `legal_actions`, `observe`, `step`, `terminal`, `winner`, `clone`, and state hashing.

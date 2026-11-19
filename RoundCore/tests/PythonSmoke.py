@@ -74,7 +74,9 @@ def build_match(seed: int) -> rc.MatchSetup:
 
 
 game = rc.Game()
-assert game.reset(build_match(1)).success
+serialized_setup = rc.serialize_match_setup(build_match(1))
+assert serialized_setup[:4] == b"RNDC"
+assert game.reset(rc.deserialize_match_setup(serialized_setup)).success
 observation = game.observe_decision()
 attack_index = next(i for i, action in enumerate(observation.legal_actions)
                     if action.type == rc.ActionType.BASIC_ATTACK)

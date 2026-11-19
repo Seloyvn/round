@@ -1,8 +1,10 @@
 #include "round/core/Game.h"
+#include "round/core/Package.h"
 
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -48,6 +50,20 @@ void Require(const bool condition, const std::string& message)
 int main()
 {
     using namespace roundcore;
+
+    const std::vector<std::uint8_t> packageBytes = SerializeMatchSetup(ValidSetup());
+    const MatchSetup packageSetup = DeserializeMatchSetup(packageBytes);
+    Game packageGame;
+    Require(packageGame.Reset(packageSetup).success, "a serialized match package should load into Core");
+    Game packageReference;
+    Require(packageReference.Reset(ValidSetup()).success && packageGame.StateHash() == packageReference.StateHash(),
+        "a match package round trip must preserve deterministic initial state");
+    std::vector<std::uint8_t> invalidPackage = packageBytes;
+    invalidPackage[0] = 0;
+    bool rejectedInvalidPackage = false;
+    try { static_cast<void>(DeserializeMatchSetup(invalidPackage)); }
+    catch (const std::invalid_argument&) { rejectedInvalidPackage = true; }
+    Require(rejectedInvalidPackage, "invalid match package headers must be rejected");
 
     Game first;
     const ActionResult firstReset = first.Reset(ValidSetup());
