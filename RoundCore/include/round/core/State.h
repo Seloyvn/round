@@ -33,6 +33,9 @@ struct CharacterState
     std::int32_t initiative = 0;
     bool alive = true;
     bool movementBlocked = false;
+    bool canTakeTurn = true;
+    std::int32_t initiativeGainPerTick = 1;
+    std::int32_t delayedActionInitiative = 0;
     std::vector<AbilityState> abilities;
 };
 
@@ -45,6 +48,7 @@ struct GameState
     MatchStatus status = MatchStatus::NotStarted;
     Team winner = Team::Neutral;
     EntityId activeCharacterId = InvalidEntityId;
+    std::uint64_t globalInitiative = 0;
     std::vector<TileState> tiles;
     std::vector<CharacterState> characters;
 };

@@ -20,6 +20,12 @@ public:
         int32& OutMovementCost,
         int32& OutInitiative,
         FString& OutReason);
+    bool ExecuteTurnStep(
+        const ARoundCharacter* EndingCharacter,
+        TArray<TPair<ARoundCharacter*, int32>>& OutInitiatives,
+        ARoundCharacter*& OutActiveCharacter,
+        int32& OutGlobalInitiativeAdvance,
+        FString& OutReason);
 
     const roundcore::Game& GetGame() const { return CoreGame; }
 
@@ -27,4 +33,5 @@ private:
     roundcore::Game CoreGame;
     TMap<const ARoundGridTile*, roundcore::EntityId> TileIds;
     TMap<const ARoundCharacter*, roundcore::EntityId> CharacterIds;
+    TMap<roundcore::EntityId, ARoundCharacter*> CharacterActors;
 };

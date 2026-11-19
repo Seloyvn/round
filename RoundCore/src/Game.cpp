@@ -122,6 +122,11 @@ ActionResult Game::ApplyAction(const GameAction& action)
         return validation;
     }
 
+    if (action.type == ActionType::EndTurn)
+    {
+        return ApplyEndTurn(action);
+    }
+
     CharacterState* character = FindCharacter(action.actorId);
     TileState* origin = character ? FindTile(character->tileId) : nullptr;
     TileState* destination = FindTile(action.targetTileId);
@@ -151,7 +156,111 @@ ActionResult Game::ValidateAction(const GameAction& action) const
     {
         return ValidateMove(action);
     }
+    if (action.type == ActionType::EndTurn)
+    {
+        return ValidateEndTurn(action);
+    }
     return Failure("unsupported_action", "This action has not been migrated to RoundCore yet.");
+}
+
+ActionResult Game::ApplyEndTurn(const GameAction&)
+{
+    state_.activeCharacterId = InvalidEntityId;
+
+    CharacterState* selected = nullptr;
+    std::int32_t highestInitiative = std::numeric_limits<std::int32_t>::min();
+    for (CharacterState& character : state_.characters)
+    {
+        if (!character.alive || !character.canTakeTurn)
+        {
+            continue;
+        }
+        const auto definition = definitions_.characters.find(character.definitionId);
+        if (definition == definitions_.characters.end())
+        {
+            continue;
+        }
+
+        const std::int32_t effectiveInitiative = character.initiative - character.delayedActionInitiative;
+        if (effectiveInitiative < definition->second.stats.maxInitiative)
+        {
+            continue;
+        }
+        if (!selected || effectiveInitiative > highestInitiative
+            || (effectiveInitiative == highestInitiative && character.id < selected->id))
+        {
+            selected = &character;
+            highestInitiative = effectiveInitiative;
+        }
+    }
+
+    ActionResult result;
+    result.success = true;
+    if (selected)
+    {
+        const CharacterDefinition& definition = definitions_.characters.at(selected->definitionId);
+        const std::int32_t delay = std::max(0, definition.stats.turnDelay);
+        if (delay > 0)
+        {
+            selected->initiative = std::max(0, selected->initiative - delay);
+            result.events.push_back(GameEvent{
+                EventType::InitiativeChanged, selected->id, selected->id, selected->tileId, {}, -delay});
+        }
+        state_.activeCharacterId = selected->id;
+        result.events.push_back(GameEvent{
+            EventType::ActiveCharacterChanged, selected->id, selected->id, selected->tileId, {}, 0});
+        result.message = "Next active character selected.";
+    }
+    else
+    {
+        for (CharacterState& character : state_.characters)
+        {
+            if (!character.alive)
+            {
+                continue;
+            }
+            const std::int32_t gain = std::max(0, character.initiativeGainPerTick);
+            character.initiative += gain;
+            if (gain > 0)
+            {
+                result.events.push_back(GameEvent{
+                    EventType::InitiativeChanged, character.id, character.id, character.tileId, {}, gain});
+            }
+        }
+        ++state_.globalInitiative;
+        result.events.push_back(GameEvent{
+            EventType::GlobalInitiativeAdvanced, InvalidEntityId, InvalidEntityId, InvalidEntityId, {}, 1});
+        result.message = "Global initiative advanced.";
+    }
+    ++state_.step;
+    return result;
+}
+
+ActionResult Game::ValidateEndTurn(const GameAction& action) const
+{
+    if (state_.status != MatchStatus::Running)
+    {
+        return Failure("match_not_running", "Turn advancement requires a running match.");
+    }
+    if (state_.activeCharacterId == InvalidEntityId)
+    {
+        if (action.actorId != InvalidEntityId)
+        {
+            return Failure("unexpected_actor", "Turn continuation without an active character must not specify an actor.");
+        }
+        return ActionResult{true};
+    }
+
+    const CharacterState* character = FindCharacter(action.actorId);
+    if (!character || !character->alive)
+    {
+        return Failure("invalid_actor", "The ending character must exist and be alive.");
+    }
+    if (state_.activeCharacterId != character->id)
+    {
+        return Failure("not_active_character", "Only the active character can end its turn.");
+    }
+    return ActionResult{true};
 }
 
 std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
@@ -317,6 +426,7 @@ std::uint64_t Game::StateHash() const noexcept
     HashValue(hash, state_.status);
     HashValue(hash, state_.winner);
     HashValue(hash, state_.activeCharacterId);
+    HashValue(hash, state_.globalInitiative);
 
     for (const TileState& tile : state_.tiles)
     {
@@ -337,6 +447,9 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.initiative);
         HashValue(hash, character.alive);
         HashValue(hash, character.movementBlocked);
+        HashValue(hash, character.canTakeTurn);
+        HashValue(hash, character.initiativeGainPerTick);
+        HashValue(hash, character.delayedActionInitiative);
         for (const AbilityState& ability : character.abilities)
         {
             HashString(hash, ability.definitionId);

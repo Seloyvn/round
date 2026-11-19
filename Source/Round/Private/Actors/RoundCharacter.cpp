@@ -1663,7 +1663,9 @@ int32 ARoundCharacter::ModifyInitiativeGainFromEffects(int32 Amount) const
 
 void ARoundCharacter::BeginTurn()
 {
-    if (HasAuthority() && Attributes)
+    const bool bSkipTurnDelay = bCoreTurnDelayAlreadyApplied;
+    bCoreTurnDelayAlreadyApplied = false;
+    if (HasAuthority() && Attributes && !bSkipTurnDelay)
     {
         const int32 TurnDelayCost = GetTurnDelay();
         if (TurnDelayCost > 0)
@@ -1685,6 +1687,13 @@ void ARoundCharacter::BeginTurn()
     {
         TerrainActor->OnCharacterTurnStarted(this);
     }
+}
+
+void ARoundCharacter::BeginTurnFromCore()
+{
+    bCoreTurnDelayAlreadyApplied = true;
+    BeginTurn();
+    bCoreTurnDelayAlreadyApplied = false;
 }
 
 void ARoundCharacter::AdvanceGlobalInitiative(int32 Amount)
@@ -1882,7 +1891,7 @@ void ARoundCharacter::EndTurn()
         }
     }
 
-    RoundGameState->SetNextTurn();
+    RoundGameState->AdvanceCoreTurn(this);
     RoundGameState->OnBoardStateChanged.Broadcast();
 }
 

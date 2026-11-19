@@ -35,11 +35,13 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     OutReason.Reset();
     TileIds.Reset();
     CharacterIds.Reset();
+    CharacterActors.Reset();
 
     roundcore::MatchSetup Setup;
     Setup.definitions.contentVersion = "unreal-live-v1";
     Setup.initialState.matchId = static_cast<roundcore::MatchId>(static_cast<uint32>(GameState.GetMatchRandomSeed()));
     Setup.initialState.seed = static_cast<uint32>(GameState.GetMatchRandomSeed());
+    Setup.initialState.globalInitiative = static_cast<uint64>(FMath::Max(0, GameState.GetRecordedGlobalInitiativeElapsed()));
 
     TArray<ARoundGridTile*> SortedTiles = GameState.GetFields();
     SortedTiles.RemoveAll([](const ARoundGridTile* Tile) { return !IsValid(Tile); });
@@ -132,6 +134,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     {
         const roundcore::EntityId CharacterId = NextCharacterId++;
         CharacterIds.Add(Character, CharacterId);
+        CharacterActors.Add(CharacterId, const_cast<ARoundCharacter*>(Character));
 
         const FString DefinitionKey = FString::Printf(TEXT("CharacterInstance:%u:%s"), CharacterId, *Character->CharacterRowName.ToString());
         const std::string DefinitionId = ToCoreString(DefinitionKey);
@@ -147,7 +150,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         Definition.stats.attackRange = Stats.AttackRange;
         Definition.stats.moveCost = Character->GetMoveCost();
         Definition.stats.attackCost = Stats.AttackCost;
-        Definition.stats.turnDelay = Stats.TurnDelay;
+        Definition.stats.turnDelay = Character->GetTurnDelay();
         Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));
 
         roundcore::CharacterState CharacterState;
@@ -159,10 +162,17 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         CharacterState.initiative = Character->Attributes->CurrentInitiative;
         CharacterState.alive = Character->IsAlive();
         CharacterState.movementBlocked = Character->HasMovementBlock();
+        CharacterState.canTakeTurn = !Character->CharacterRowName.ToString().Contains(TEXT("Puppet"), ESearchCase::IgnoreCase)
+            && !GameState.IsCharacterBlockedByObjectiveChannel(Character);
+        CharacterState.initiativeGainPerTick = Character->ModifyInitiativeGainFromEffects(1);
+        CharacterState.delayedActionInitiative = FMath::Max(0, Character->NativeDelayedActionInitiative);
         Setup.initialState.characters.push_back(std::move(CharacterState));
     }
 
-    if (const ARoundCharacter* ActiveCharacter = GameState.GetActiveCharacter())
+    // During Core-driven initiative advancement there is intentionally no
+    // active character. GetActiveCharacter() falls back to the UI turn-order
+    // index, so only the replicated authoritative pointer may seed Core here.
+    if (const ARoundCharacter* ActiveCharacter = GameState.CurrentTurnCharacter)
     {
         Setup.initialState.activeCharacterId = CharacterIds.FindRef(ActiveCharacter);
     }
@@ -173,6 +183,59 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         OutReason = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
         return false;
     }
+    return true;
+}
+
+bool FRoundCoreMatchAdapter::ExecuteTurnStep(
+    const ARoundCharacter* EndingCharacter,
+    TArray<TPair<ARoundCharacter*, int32>>& OutInitiatives,
+    ARoundCharacter*& OutActiveCharacter,
+    int32& OutGlobalInitiativeAdvance,
+    FString& OutReason)
+{
+    OutInitiatives.Reset();
+    OutActiveCharacter = nullptr;
+    OutGlobalInitiativeAdvance = 0;
+
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::EndTurn;
+    if (EndingCharacter)
+    {
+        const roundcore::EntityId* CharacterId = CharacterIds.Find(EndingCharacter);
+        if (!CharacterId)
+        {
+            OutReason = TEXT("Ending character is not part of the Core snapshot.");
+            return false;
+        }
+        Action.actorId = *CharacterId;
+    }
+
+    const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (!Result.success)
+    {
+        OutReason = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+        return false;
+    }
+
+    for (const roundcore::GameEvent& Event : Result.events)
+    {
+        if (Event.type == roundcore::EventType::GlobalInitiativeAdvanced)
+        {
+            OutGlobalInitiativeAdvance += static_cast<int32>(Event.amount);
+        }
+    }
+    for (const roundcore::CharacterState& State : CoreGame.State().characters)
+    {
+        if (ARoundCharacter* const* Character = CharacterActors.Find(State.id))
+        {
+            OutInitiatives.Emplace(*Character, State.initiative);
+        }
+    }
+    if (ARoundCharacter* const* Active = CharacterActors.Find(CoreGame.State().activeCharacterId))
+    {
+        OutActiveCharacter = *Active;
+    }
+    OutReason = UTF8_TO_TCHAR(Result.message.c_str());
     return true;
 }
 

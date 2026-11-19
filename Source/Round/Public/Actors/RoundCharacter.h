@@ -186,6 +186,7 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Round")
     virtual void BeginTurn();
+    void BeginTurnFromCore();
 
     UFUNCTION(BlueprintCallable, Category = "Round")
     virtual void AdvanceGlobalInitiative(int32 Amount = 1);
@@ -262,4 +263,5 @@ protected:
 
     UPROPERTY(Transient)
     TMap<FString, double> CharacterPassiveValues;
+    bool bCoreTurnDelayAlreadyApplied = false;
 };

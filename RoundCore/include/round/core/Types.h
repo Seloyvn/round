@@ -39,6 +39,7 @@ enum class EventType : std::uint8_t
     EffectAdded,
     EffectRemoved,
     TerrainChanged,
+    GlobalInitiativeAdvanced,
     CharacterDied,
     ActiveCharacterChanged,
     ObjectiveChanged,

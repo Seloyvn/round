@@ -134,6 +134,13 @@ Current progress:
 
 Exit condition: a standalone match can advance indefinitely through valid move/wait/end-turn commands.
 
+Current progress:
+
+- Core owns deterministic active-character selection, effective initiative thresholds, turn-delay payment, and one-point global initiative advancement.
+- Turn advancement deliberately yields after every global initiative point so unmigrated effect, cooldown, terrain, and objective reactions can run in Unreal before Core is resynchronized.
+- Actor `EndTurn` reactions still run, but next-turn selection itself is delegated to Core and the selected Actor starts through a compatibility hook that does not charge turn delay twice.
+- Standalone waiting and fully Core-owned cooldown/effect progression remain to be migrated.
+
 ### Phase 3 — Combat backbone
 
 - Basic attacks, range, visibility requirements, damage types, defense, critical hits, death, and victory.

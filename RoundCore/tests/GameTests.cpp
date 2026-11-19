@@ -107,6 +107,31 @@ int main()
     Require(!unaffordable.success && unaffordable.errorCode == "insufficient_initiative",
         "unaffordable movement must be rejected without changing state");
 
+    MatchSetup turnSetup = ValidSetup();
+    turnSetup.initialState.activeCharacterId = 10;
+    turnSetup.initialState.characters[0].initiative = 20;
+    turnSetup.initialState.characters[1].initiative = 95;
+    Game turns;
+    Require(turns.Reset(std::move(turnSetup)).success, "turn test setup should reset");
+
+    GameAction endTurn;
+    endTurn.type = ActionType::EndTurn;
+    endTurn.actorId = 10;
+    const ActionResult tickResult = turns.ApplyAction(endTurn);
+    Require(tickResult.success && turns.State().activeCharacterId == InvalidEntityId,
+        "ending a turn should advance exactly one global initiative tick when nobody is ready");
+    Require(turns.State().globalInitiative == 1 && turns.State().characters[1].initiative == 96,
+        "global initiative should advance deterministically by exported per-character gains");
+
+    endTurn.actorId = InvalidEntityId;
+    for (int index = 0; index < 5; ++index)
+    {
+        Require(turns.ApplyAction(endTurn).success, "turn selection continuation should succeed without an active actor");
+    }
+    Require(turns.State().activeCharacterId == 20, "the first ready character should become active");
+    Require(turns.State().characters[1].initiative == 90,
+        "selecting a character should apply its configured turn delay in Core");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

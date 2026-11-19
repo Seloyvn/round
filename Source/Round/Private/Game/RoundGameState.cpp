@@ -3862,6 +3862,123 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
     return Result;
 }
 
+ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharacter)
+{
+    if (!HasAuthority() || !EndingCharacter || CurrentTurnCharacter != EndingCharacter)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("RoundCore turn advance rejected invalid ending character %s."), *GetNameSafe(EndingCharacter));
+        return nullptr;
+    }
+
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+
+    FString CoreReason;
+    if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
+    {
+        UE_LOG(LogTemp, Error, TEXT("RoundCore turn snapshot failed: %s"), *CoreReason);
+        return nullptr;
+    }
+
+    const ARoundCharacter* CoreEndingCharacter = EndingCharacter;
+    for (int32 Safety = 0; Safety < 10000; ++Safety)
+    {
+        TArray<TPair<ARoundCharacter*, int32>> CoreInitiatives;
+        ARoundCharacter* NextCharacter = nullptr;
+        int32 GlobalAdvance = 0;
+        if (!CoreMatchAdapter->ExecuteTurnStep(
+                CoreEndingCharacter,
+                CoreInitiatives,
+                NextCharacter,
+                GlobalAdvance,
+                CoreReason))
+        {
+            UE_LOG(LogTemp, Error, TEXT("RoundCore turn step failed: %s"), *CoreReason);
+            CurrentTurnCharacter = nullptr;
+            OnTurnChanged.Broadcast(nullptr);
+            OnBoardStateChanged.Broadcast();
+            return nullptr;
+        }
+
+        CoreEndingCharacter = nullptr;
+        CurrentTurnCharacter = nullptr;
+        for (const TPair<ARoundCharacter*, int32>& Entry : CoreInitiatives)
+        {
+            if (Entry.Key && Entry.Key->Attributes)
+            {
+                Entry.Key->Attributes->SetCurrentInitiativeValue(Entry.Value);
+            }
+        }
+
+        if (GlobalAdvance > 0)
+        {
+            for (ARoundCharacter* Character : RegisteredCharacters)
+            {
+                if (!Character || !Character->IsAlive() || !Character->Attributes)
+                {
+                    continue;
+                }
+
+                Character->AdvanceGlobalInitiative(GlobalAdvance);
+                for (ARoundAbilityActor* AbilityActor : Character->GrantedAbilities)
+                {
+                    if (AbilityActor)
+                    {
+                        AbilityActor->ReduceCooldown(GlobalAdvance);
+                    }
+                }
+            }
+
+            for (ARoundGridTile* Field : Fields)
+            {
+                if (ARoundTerrainActor* TerrainActor = Field ? Cast<ARoundTerrainActor>(Field->TerrainObject) : nullptr)
+                {
+                    TerrainActor->AdvanceTerrainInitiative(GlobalAdvance);
+                }
+            }
+
+            MatchGlobalInitiativeElapsed += GlobalAdvance;
+            AdvanceObjectivesByInitiative(GlobalAdvance);
+
+            if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
+            {
+                UE_LOG(LogTemp, Error, TEXT("RoundCore initiative resync failed: %s"), *CoreReason);
+                return nullptr;
+            }
+            continue;
+        }
+
+        if (!NextCharacter)
+        {
+            UE_LOG(LogTemp, Error, TEXT("RoundCore turn step produced neither initiative progress nor an active character."));
+            return nullptr;
+        }
+
+        CurrentTurnCharacter = NextCharacter;
+        ++MatchTurnCounter;
+        NextCharacter->BeginTurnFromCore();
+        RecordTurnStarted(NextCharacter);
+
+        if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
+        {
+            UE_LOG(LogTemp, Error, TEXT("RoundCore turn-start resync failed: %s"), *CoreReason);
+        }
+
+        RebuildTurnOrder();
+        OnTurnChanged.Broadcast(CurrentTurnCharacter);
+        OnBoardStateChanged.Broadcast();
+        return CurrentTurnCharacter;
+    }
+
+    UE_LOG(LogTemp, Error, TEXT("RoundCore turn advance exceeded the safety limit."));
+    CurrentTurnCharacter = nullptr;
+    OnTurnChanged.Broadcast(nullptr);
+    OnBoardStateChanged.Broadcast();
+    return nullptr;
+}
+
 bool ARoundGameState::IsSimAttackLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const
 {
     return Character
