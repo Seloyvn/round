@@ -23,6 +23,7 @@ public:
     ActionResult Reset(MatchSetup setup);
     ActionResult ValidateAction(const GameAction& action) const;
     ActionResult ApplyAction(const GameAction& action);
+    ActionResult ApplyDecision(const GameAction& action, std::uint32_t maximumInitiativeTicks = 10000);
     std::vector<GameAction> LegalActions(EntityId actorId) const;
 
     const ContentDefinitions& Definitions() const noexcept;

@@ -20,4 +20,8 @@ if(ROUNDCORE_BUILD_TESTS)
     add_executable(RoundCoreTests tests/GameTests.cpp)
     target_link_libraries(RoundCoreTests PRIVATE RoundCore)
     add_test(NAME RoundCoreTests COMMAND RoundCoreTests)
+
+    add_executable(RoundCoreSelfPlaySmoke tests/SelfPlaySmoke.cpp)
+    target_link_libraries(RoundCoreSelfPlaySmoke PRIVATE RoundCore)
+    add_test(NAME RoundCoreSelfPlaySmoke COMMAND RoundCoreSelfPlaySmoke)
 endif()

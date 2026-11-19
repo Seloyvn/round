@@ -1,6 +1,7 @@
 #include "round/core/Game.h"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <unordered_set>
 #include <utility>
@@ -175,6 +176,41 @@ ActionResult Game::ValidateAction(const GameAction& action) const
         return ValidateBasicAttack(action);
     }
     return Failure("unsupported_action", "This action has not been migrated to RoundCore yet.");
+}
+
+ActionResult Game::ApplyDecision(const GameAction& action, const std::uint32_t maximumInitiativeTicks)
+{
+    ActionResult combined = ApplyAction(action);
+    if (!combined.success || action.type != ActionType::EndTurn)
+    {
+        return combined;
+    }
+
+    std::uint32_t ticks = 0;
+    while (!IsTerminal() && state_.activeCharacterId == InvalidEntityId)
+    {
+        if (ticks++ >= maximumInitiativeTicks)
+        {
+            combined.success = false;
+            combined.errorCode = "initiative_safety_limit";
+            combined.message = "No character became active before the initiative safety limit.";
+            return combined;
+        }
+
+        GameAction continuation;
+        continuation.type = ActionType::EndTurn;
+        ActionResult step = ApplyAction(continuation);
+        if (!step.success)
+        {
+            return step;
+        }
+        combined.events.insert(
+            combined.events.end(),
+            std::make_move_iterator(step.events.begin()),
+            std::make_move_iterator(step.events.end()));
+        combined.message = std::move(step.message);
+    }
+    return combined;
 }
 
 ActionResult Game::ApplyBasicAttack(const GameAction& action)

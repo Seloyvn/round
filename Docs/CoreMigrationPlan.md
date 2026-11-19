@@ -203,6 +203,12 @@ Exit condition: Unreal and standalone tests load definitions with identical cont
 
 Exit condition: random agents complete thousands of deterministic matches without Unreal.
 
+Current progress:
+
+- `ApplyDecision` advances an end-turn command through one-point initiative ticks until the next decision owner is available, while the lower-level one-tick API remains available to Unreal during migration.
+- A standalone self-play smoke executable uses only Core legal actions and commands to complete 500 rendered-free matches per test run.
+- Observations, cloning, vectorization, larger content packages, random agents, and performance benchmarks remain.
+
 ### Phase 9 — Python and training
 
 - Bind the standalone library directly to Python, preferably with `pybind11` outside the Unreal module.
