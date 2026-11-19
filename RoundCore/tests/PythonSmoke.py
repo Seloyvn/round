@@ -3,6 +3,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve()))
 import roundcore_python as rc
+from roundcore_training import BatchShape, encode_batch, infer_batch_shape
 
 
 def build_match(seed: int) -> rc.MatchSetup:
@@ -84,4 +85,16 @@ schema = rc.build_observation_schema(build_match(99).definitions)
 numeric = environments.observe_numeric(schema)
 assert len(numeric) == 8
 assert all(observation.content_version == "python-smoke-v1" for observation in numeric)
+shape = infer_batch_shape(numeric)
+batch = encode_batch(numeric, shape)
+assert batch["global"].shape == (8, rc.GLOBAL_STRIDE)
+assert batch["tiles"].shape == (8, 2, rc.TILE_STRIDE)
+assert batch["tile_mask"].all()
+assert not batch["action_mask"].any()  # All matches above are terminal.
+try:
+    encode_batch(numeric, BatchShape(1, 2, 0, 0, 0))
+except ValueError as error:
+    assert "tiles needs 2 records" in str(error)
+else:
+    raise AssertionError("batch capacity overflow must be rejected")
 print("RoundCore Python smoke test passed")

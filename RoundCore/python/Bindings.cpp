@@ -9,6 +9,12 @@ using namespace roundcore;
 PYBIND11_MODULE(roundcore_python, module)
 {
     module.doc() = "Standalone Python bindings for the authoritative RoundCore rules";
+    module.attr("GLOBAL_STRIDE") = NumericObservation::GlobalStride;
+    module.attr("TILE_STRIDE") = NumericObservation::TileStride;
+    module.attr("CHARACTER_STRIDE") = NumericObservation::CharacterStride;
+    module.attr("ABILITY_STRIDE") = NumericObservation::AbilityStride;
+    module.attr("ACTION_STRIDE") = NumericObservation::ActionStride;
+    module.attr("ACTION_SELECTION_STRIDE") = NumericObservation::ActionSelectionStride;
 
     py::enum_<Team>(module, "Team")
         .value("NEUTRAL", Team::Neutral).value("TEAM_A", Team::TeamA).value("TEAM_B", Team::TeamB);
