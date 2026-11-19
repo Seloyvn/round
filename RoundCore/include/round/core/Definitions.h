@@ -33,6 +33,8 @@ struct CharacterDefinition
     StatBlock stats;
     std::vector<DefinitionId> abilityIds;
     std::unordered_map<std::string, double> passiveValues;
+    std::int32_t criticalChanceBasisPoints = 0;
+    std::int32_t criticalDamageMultiplierBasisPoints = 15000;
 };
 
 struct TerrainDefinition

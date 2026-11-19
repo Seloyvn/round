@@ -1,5 +1,6 @@
 #include "round/core/Game.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -60,8 +61,11 @@ int main()
     Require(first.StateHash() == second.StateHash(), "same setup and seed should produce the same state hash");
 
     const std::vector<GameAction> legalMoves = first.LegalActions(10);
-    Require(legalMoves.size() == 1 && legalMoves[0].targetTileId == 3,
-        "legal actions should contain only affordable, adjacent, unoccupied, walkable tiles");
+    Require(legalMoves.size() == 3,
+        "legal actions should include movement, basic attack, and end turn choices");
+    Require(std::any_of(legalMoves.begin(), legalMoves.end(), [](const GameAction& action)
+        { return action.type == ActionType::Move && action.targetTileId == 3; }),
+        "legal movement choices should contain only affordable, adjacent, unoccupied, walkable tiles");
 
     GameAction move;
     move.type = ActionType::Move;
@@ -131,6 +135,23 @@ int main()
     Require(turns.State().activeCharacterId == 20, "the first ready character should become active");
     Require(turns.State().characters[1].initiative == 90,
         "selecting a character should apply its configured turn delay in Core");
+
+    MatchSetup combatSetup = ValidSetup();
+    combatSetup.initialState.characters[1].health = 10;
+    Game combat;
+    Require(combat.Reset(std::move(combatSetup)).success, "combat setup should reset");
+    GameAction attack;
+    attack.type = ActionType::BasicAttack;
+    attack.actorId = 10;
+    attack.targetEntityId = 20;
+    const ActionResult attackResult = combat.ApplyAction(attack);
+    Require(attackResult.success, "an affordable adjacent attack against an enemy should execute");
+    Require(!combat.State().characters[1].alive && combat.State().characters[1].health == 0,
+        "lethal basic attack damage should kill its target");
+    Require(combat.State().tiles[1].occupantId == InvalidEntityId,
+        "death should release the target tile in Core state");
+    Require(combat.IsTerminal() && combat.State().winner == Team::TeamA,
+        "eliminating the last opposing team should complete the match");
 
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;

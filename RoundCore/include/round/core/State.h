@@ -44,6 +44,7 @@ struct GameState
     std::uint32_t schemaVersion = 1;
     MatchId matchId = 0;
     std::uint64_t seed = 0;
+    std::uint64_t randomState = 0;
     std::uint64_t step = 0;
     MatchStatus status = MatchStatus::NotStarted;
     Team winner = Team::Neutral;

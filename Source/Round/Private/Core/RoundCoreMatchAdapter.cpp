@@ -37,10 +37,22 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     CharacterIds.Reset();
     CharacterActors.Reset();
 
+    const int32 MatchSeed = GameState.GetMatchRandomSeed();
+    if (LastMatchSeed == MatchSeed)
+    {
+        PreservedRandomState = CoreGame.State().randomState;
+    }
+    else
+    {
+        PreservedRandomState = 0;
+        LastMatchSeed = MatchSeed;
+    }
+
     roundcore::MatchSetup Setup;
     Setup.definitions.contentVersion = "unreal-live-v1";
     Setup.initialState.matchId = static_cast<roundcore::MatchId>(static_cast<uint32>(GameState.GetMatchRandomSeed()));
-    Setup.initialState.seed = static_cast<uint32>(GameState.GetMatchRandomSeed());
+    Setup.initialState.seed = static_cast<uint32>(MatchSeed);
+    Setup.initialState.randomState = PreservedRandomState;
     Setup.initialState.globalInitiative = static_cast<uint64>(FMath::Max(0, GameState.GetRecordedGlobalInitiativeElapsed()));
 
     TArray<ARoundGridTile*> SortedTiles = GameState.GetFields();
@@ -147,10 +159,14 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         Definition.stats.defense = Stats.Defense;
         Definition.stats.maxInitiative = Stats.MaxInitiative;
         Definition.stats.visionRange = Stats.VisionRange;
-        Definition.stats.attackRange = Stats.AttackRange;
+        Definition.stats.attackRange = Character->GetAttackRange();
         Definition.stats.moveCost = Character->GetMoveCost();
-        Definition.stats.attackCost = Stats.AttackCost;
+        Definition.stats.attackCost = Character->GetAttackCost();
         Definition.stats.turnDelay = Character->GetTurnDelay();
+        Definition.criticalChanceBasisPoints = FMath::Clamp(
+            FMath::RoundToInt(Character->GetCritChance() * 10000.0), 0, 10000);
+        Definition.criticalDamageMultiplierBasisPoints = FMath::Max(
+            0, FMath::RoundToInt(Character->GetCritModifier() * 10000.0));
         Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));
 
         roundcore::CharacterState CharacterState;
@@ -184,6 +200,30 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         return false;
     }
     return true;
+}
+
+bool FRoundCoreMatchAdapter::IsBasicAttackLegal(
+    const ARoundCharacter* Character,
+    const ARoundCharacter* TargetCharacter,
+    FString& OutReason) const
+{
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    if (!CharacterId || !TargetId)
+    {
+        OutReason = TEXT("Attacker or target is not part of the Core snapshot.");
+        return false;
+    }
+
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::BasicAttack;
+    Action.actorId = *CharacterId;
+    Action.targetEntityId = *TargetId;
+    const roundcore::ActionResult Result = CoreGame.ValidateAction(Action);
+    OutReason = Result.success
+        ? TEXT("Basic attack is legal in RoundCore.")
+        : FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+    return Result.success;
 }
 
 bool FRoundCoreMatchAdapter::ExecuteTurnStep(

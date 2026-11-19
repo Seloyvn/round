@@ -14,6 +14,7 @@ class ROUND_API FRoundCoreMatchAdapter
 public:
     bool Rebuild(const ARoundGameState& GameState, FString& OutReason);
     bool IsMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile, FString& OutReason) const;
+    bool IsBasicAttackLegal(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter, FString& OutReason) const;
     bool ExecuteMove(
         const ARoundCharacter* Character,
         const ARoundGridTile* TargetTile,
@@ -34,4 +35,6 @@ private:
     TMap<const ARoundGridTile*, roundcore::EntityId> TileIds;
     TMap<const ARoundCharacter*, roundcore::EntityId> CharacterIds;
     TMap<roundcore::EntityId, ARoundCharacter*> CharacterActors;
+    int32 LastMatchSeed = 0;
+    std::uint64_t PreservedRandomState = 0;
 };

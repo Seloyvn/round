@@ -105,6 +105,12 @@ ActionResult Game::Reset(MatchSetup setup)
     setup.initialState.status = MatchStatus::Running;
     setup.initialState.winner = Team::Neutral;
     setup.initialState.step = 0;
+    if (setup.initialState.randomState == 0)
+    {
+        setup.initialState.randomState = setup.initialState.seed != 0
+            ? setup.initialState.seed
+            : 0x9e3779b97f4a7c15ull;
+    }
     definitions_ = std::move(setup.definitions);
     state_ = std::move(setup.initialState);
 
@@ -125,6 +131,10 @@ ActionResult Game::ApplyAction(const GameAction& action)
     if (action.type == ActionType::EndTurn)
     {
         return ApplyEndTurn(action);
+    }
+    if (action.type == ActionType::BasicAttack)
+    {
+        return ApplyBasicAttack(action);
     }
 
     CharacterState* character = FindCharacter(action.actorId);
@@ -160,7 +170,142 @@ ActionResult Game::ValidateAction(const GameAction& action) const
     {
         return ValidateEndTurn(action);
     }
+    if (action.type == ActionType::BasicAttack)
+    {
+        return ValidateBasicAttack(action);
+    }
     return Failure("unsupported_action", "This action has not been migrated to RoundCore yet.");
+}
+
+ActionResult Game::ApplyBasicAttack(const GameAction& action)
+{
+    CharacterState* attacker = FindCharacter(action.actorId);
+    CharacterState* target = FindCharacter(action.targetEntityId);
+    if (!attacker || !target)
+    {
+        return Failure("invalid_state", "Validated attack references missing character state.");
+    }
+
+    const CharacterDefinition& attackerDefinition = definitions_.characters.at(attacker->definitionId);
+    const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+    const std::int32_t attackCost = std::max(0, attackerDefinition.stats.attackCost);
+    attacker->initiative -= attackCost;
+
+    std::int64_t damage = std::max(0, attackerDefinition.stats.attack);
+    const std::int32_t criticalChance = std::clamp(attackerDefinition.criticalChanceBasisPoints, 0, 10000);
+    const bool critical = criticalChance > 0
+        && static_cast<std::int32_t>(NextRandom() % 10000ull) < criticalChance;
+    if (critical)
+    {
+        const std::int64_t multiplier = std::max(0, attackerDefinition.criticalDamageMultiplierBasisPoints);
+        damage = (damage * multiplier + 5000) / 10000;
+    }
+
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense);
+    const std::int64_t denominator = 100 + defense;
+    const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
+        std::numeric_limits<std::int32_t>::max(),
+        (damage * 100 + denominator / 2) / denominator));
+    const std::int32_t appliedDamage = std::min(target->health, finalDamage);
+    target->health -= appliedDamage;
+
+    ActionResult result;
+    result.success = true;
+    result.message = critical ? "Critical basic attack executed." : "Basic attack executed.";
+    result.events.push_back(GameEvent{
+        EventType::InitiativeChanged, attacker->id, attacker->id, attacker->tileId, {}, -attackCost});
+    result.events.push_back(GameEvent{
+        EventType::DamageApplied, attacker->id, target->id, target->tileId, "Physical", appliedDamage});
+
+    if (target->health <= 0)
+    {
+        target->health = 0;
+        target->alive = false;
+        if (TileState* targetTile = FindTile(target->tileId))
+        {
+            targetTile->occupantId = InvalidEntityId;
+        }
+        result.events.push_back(GameEvent{
+            EventType::CharacterDied, attacker->id, target->id, target->tileId, {}, 0});
+
+        Team soleTeam = Team::Neutral;
+        bool multipleTeams = false;
+        for (const CharacterState& character : state_.characters)
+        {
+            if (!character.alive || character.team == Team::Neutral)
+            {
+                continue;
+            }
+            if (soleTeam == Team::Neutral)
+            {
+                soleTeam = character.team;
+            }
+            else if (soleTeam != character.team)
+            {
+                multipleTeams = true;
+                break;
+            }
+        }
+        if (!multipleTeams && soleTeam != Team::Neutral)
+        {
+            state_.status = MatchStatus::Completed;
+            state_.winner = soleTeam;
+            state_.activeCharacterId = InvalidEntityId;
+            result.events.push_back(GameEvent{
+                EventType::MatchEnded, attacker->id, InvalidEntityId, InvalidEntityId, {}, static_cast<std::int64_t>(soleTeam)});
+        }
+    }
+
+    ++state_.step;
+    return result;
+}
+
+ActionResult Game::ValidateBasicAttack(const GameAction& action) const
+{
+    if (state_.status != MatchStatus::Running)
+    {
+        return Failure("match_not_running", "Basic attacks require a running match.");
+    }
+    const CharacterState* attacker = FindCharacter(action.actorId);
+    const CharacterState* target = FindCharacter(action.targetEntityId);
+    if (!attacker || !attacker->alive || !target || !target->alive)
+    {
+        return Failure("invalid_attack_characters", "Attacker and target must exist and be alive.");
+    }
+    if (state_.activeCharacterId != attacker->id)
+    {
+        return Failure("not_active_character", "Only the active character can attack.");
+    }
+    if (attacker->team == Team::Neutral || attacker->team == target->team)
+    {
+        return Failure("target_not_enemy", "A basic attack requires an enemy character.");
+    }
+    const TileState* attackerTile = FindTile(attacker->tileId);
+    const TileState* targetTile = FindTile(target->tileId);
+    if (!attackerTile || !targetTile)
+    {
+        return Failure("missing_attack_tile", "Attacker and target must occupy board tiles.");
+    }
+    const CharacterDefinition& definition = definitions_.characters.at(attacker->definitionId);
+    if (HexDistance(attackerTile->coord, targetTile->coord) > std::max(0, definition.stats.attackRange))
+    {
+        return Failure("target_out_of_range", "The target is outside basic attack range.");
+    }
+    if (attacker->initiative < std::max(0, definition.stats.attackCost))
+    {
+        return Failure("insufficient_initiative", "The character cannot afford this basic attack.");
+    }
+    return ActionResult{true};
+}
+
+std::uint64_t Game::NextRandom() noexcept
+{
+    std::uint64_t value = state_.randomState;
+    value ^= value >> 12;
+    value ^= value << 25;
+    value ^= value >> 27;
+    state_.randomState = value;
+    return value * 2685821657736338717ull;
 }
 
 ActionResult Game::ApplyEndTurn(const GameAction&)
@@ -266,6 +411,17 @@ ActionResult Game::ValidateEndTurn(const GameAction& action) const
 std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
 {
     std::vector<GameAction> actions;
+    if (actorId == InvalidEntityId)
+    {
+        GameAction continuation;
+        continuation.type = ActionType::EndTurn;
+        if (ValidateEndTurn(continuation).success)
+        {
+            actions.push_back(continuation);
+        }
+        return actions;
+    }
+
     const CharacterState* character = FindCharacter(actorId);
     if (!character)
     {
@@ -295,8 +451,36 @@ std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
         }
     }
 
+    for (const CharacterState& target : state_.characters)
+    {
+        GameAction action;
+        action.type = ActionType::BasicAttack;
+        action.actorId = actorId;
+        action.targetEntityId = target.id;
+        if (ValidateBasicAttack(action).success)
+        {
+            actions.push_back(std::move(action));
+        }
+    }
+
+    GameAction endTurn;
+    endTurn.type = ActionType::EndTurn;
+    endTurn.actorId = actorId;
+    if (ValidateEndTurn(endTurn).success)
+    {
+        actions.push_back(endTurn);
+    }
+
     std::sort(actions.begin(), actions.end(), [](const GameAction& left, const GameAction& right)
     {
+        if (left.type != right.type)
+        {
+            return left.type < right.type;
+        }
+        if (left.targetEntityId != right.targetEntityId)
+        {
+            return left.targetEntityId < right.targetEntityId;
+        }
         return left.targetTileId < right.targetTileId;
     });
     return actions;
@@ -422,6 +606,7 @@ std::uint64_t Game::StateHash() const noexcept
     HashValue(hash, state_.schemaVersion);
     HashValue(hash, state_.matchId);
     HashValue(hash, state_.seed);
+    HashValue(hash, state_.randomState);
     HashValue(hash, state_.step);
     HashValue(hash, state_.status);
     HashValue(hash, state_.winner);

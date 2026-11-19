@@ -149,6 +149,13 @@ Current progress:
 
 Exit condition: a standalone minimal match can end with a deterministic winner and Unreal displays the same match.
 
+Current progress:
+
+- Core validates character basic attacks by active actor, enemy team, range, and initiative cost.
+- Core resolves fixed-point critical hits, the existing defense curve, health, death, occupancy release, terminal state, and winner events deterministically.
+- Unreal exports effective attack range, attack cost, crit chance, and crit multiplier, while preserving the Core random stream across live-state resynchronization.
+- Actor effects, terrain/aura damage modifiers, death prevention, board-object attacks, and presentation consumption remain Actor-owned, so live attack execution has not switched yet.
+
 ### Phase 4 — Shared effects and terrain
 
 - Cooldowns, durations in initiative, buffs, debuffs, auras, delayed effects, terrain effects, devices, traps, and objectives.

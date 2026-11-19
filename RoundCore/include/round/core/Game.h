@@ -37,8 +37,11 @@ private:
     CharacterState* FindCharacter(EntityId characterId) noexcept;
     std::int32_t MovementCost(const CharacterState& character, const TileState& destination) const noexcept;
     ActionResult ValidateMove(const GameAction& action) const;
+    ActionResult ApplyBasicAttack(const GameAction& action);
+    ActionResult ValidateBasicAttack(const GameAction& action) const;
     ActionResult ApplyEndTurn(const GameAction& action);
     ActionResult ValidateEndTurn(const GameAction& action) const;
+    std::uint64_t NextRandom() noexcept;
 
     ContentDefinitions definitions_;
     GameState state_;
