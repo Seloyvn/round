@@ -34,6 +34,7 @@ public:
     ActionResult ApplyDecisionIndex(std::size_t legalActionIndex, std::uint32_t maximumInitiativeTicks = 10000);
     std::vector<GameAction> LegalActions(EntityId actorId) const;
     DecisionSnapshot ObserveDecision() const;
+    Game Clone() const;
 
     const ContentDefinitions& Definitions() const noexcept;
     const GameState& State() const noexcept;

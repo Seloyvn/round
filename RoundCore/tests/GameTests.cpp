@@ -68,6 +68,11 @@ int main()
             && invalidDecisionIndex.errorCode == "legal_action_index_out_of_range",
         "decision action indices outside the current legal set must be rejected");
 
+    Game cloned = first.Clone();
+    Require(cloned.StateHash() == first.StateHash(), "a cloned game should initially be identical");
+    Require(cloned.ApplyDecisionIndex(0).success, "a cloned game should accept its own legal action indices");
+    Require(cloned.StateHash() != first.StateHash(), "advancing a clone must not mutate its source game");
+
     const std::vector<GameAction> legalMoves = first.LegalActions(10);
     Require(legalMoves.size() == 3,
         "legal actions should include movement, basic attack, and end turn choices");

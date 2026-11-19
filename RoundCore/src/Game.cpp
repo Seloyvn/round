@@ -235,6 +235,11 @@ DecisionSnapshot Game::ObserveDecision() const
     return snapshot;
 }
 
+Game Game::Clone() const
+{
+    return *this;
+}
+
 ActionResult Game::ApplyBasicAttack(const GameAction& action)
 {
     CharacterState* attacker = FindCharacter(action.actorId);
