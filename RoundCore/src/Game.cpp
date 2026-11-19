@@ -371,6 +371,42 @@ ActionResult Game::ApplyEndTurn(const GameAction&)
                 result.events.push_back(GameEvent{
                     EventType::InitiativeChanged, character.id, character.id, character.tileId, {}, gain});
             }
+
+
+            for (AbilityState& ability : character.abilities)
+            {
+                const std::int32_t previousCooldown = ability.cooldownRemaining;
+                const std::int32_t previousCharges = ability.currentCharges;
+                ability.cooldownRemaining = std::max(0, ability.cooldownRemaining - 1);
+                if (ability.usesCharges && ability.cooldownRemaining <= 0 && ability.currentCharges < ability.maxCharges)
+                {
+                    ability.currentCharges = std::min(ability.maxCharges, ability.currentCharges + 1);
+                    if (ability.currentCharges < ability.maxCharges)
+                    {
+                        ability.cooldownRemaining = std::max(0, ability.cooldownDuration);
+                    }
+                }
+                if (ability.cooldownRemaining != previousCooldown)
+                {
+                    result.events.push_back(GameEvent{
+                        EventType::CooldownChanged,
+                        character.id,
+                        character.id,
+                        character.tileId,
+                        ability.definitionId,
+                        ability.cooldownRemaining - previousCooldown});
+                }
+                if (ability.currentCharges != previousCharges)
+                {
+                    result.events.push_back(GameEvent{
+                        EventType::AbilityChargesChanged,
+                        character.id,
+                        character.id,
+                        character.tileId,
+                        ability.definitionId,
+                        ability.currentCharges - previousCharges});
+                }
+            }
         }
         ++state_.globalInitiative;
         result.events.push_back(GameEvent{
@@ -639,6 +675,10 @@ std::uint64_t Game::StateHash() const noexcept
         {
             HashString(hash, ability.definitionId);
             HashValue(hash, ability.cooldownRemaining);
+            HashValue(hash, ability.cooldownDuration);
+            HashValue(hash, ability.currentCharges);
+            HashValue(hash, ability.maxCharges);
+            HashValue(hash, ability.usesCharges);
         }
     }
     return hash;

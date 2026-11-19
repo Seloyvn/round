@@ -3886,11 +3886,13 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
     for (int32 Safety = 0; Safety < 10000; ++Safety)
     {
         TArray<TPair<ARoundCharacter*, int32>> CoreInitiatives;
+        TArray<FRoundCoreAbilityRuntimeUpdate> CoreAbilityUpdates;
         ARoundCharacter* NextCharacter = nullptr;
         int32 GlobalAdvance = 0;
         if (!CoreMatchAdapter->ExecuteTurnStep(
                 CoreEndingCharacter,
                 CoreInitiatives,
+                CoreAbilityUpdates,
                 NextCharacter,
                 GlobalAdvance,
                 CoreReason))
@@ -3911,6 +3913,14 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                 Entry.Key->Attributes->SetCurrentInitiativeValue(Entry.Value);
             }
         }
+        for (const FRoundCoreAbilityRuntimeUpdate& Update : CoreAbilityUpdates)
+        {
+            if (Update.Ability)
+            {
+                Update.Ability->SetCooldown(Update.Cooldown);
+                Update.Ability->CurrentCharges = Update.Charges;
+            }
+        }
 
         if (GlobalAdvance > 0)
         {
@@ -3922,13 +3932,6 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                 }
 
                 Character->AdvanceGlobalInitiative(GlobalAdvance);
-                for (ARoundAbilityActor* AbilityActor : Character->GrantedAbilities)
-                {
-                    if (AbilityActor)
-                    {
-                        AbilityActor->ReduceCooldown(GlobalAdvance);
-                    }
-                }
             }
 
             for (ARoundGridTile* Field : Fields)

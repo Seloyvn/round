@@ -6,6 +6,14 @@
 class ARoundCharacter;
 class ARoundGameState;
 class ARoundGridTile;
+class ARoundAbilityActor;
+
+struct FRoundCoreAbilityRuntimeUpdate
+{
+    ARoundAbilityActor* Ability = nullptr;
+    int32 Cooldown = 0;
+    int32 Charges = 0;
+};
 
 // Converts the live Unreal board to the standard-C++ state used by gameplay,
 // training and deterministic tests. This adapter contains no gameplay rules.
@@ -24,6 +32,7 @@ public:
     bool ExecuteTurnStep(
         const ARoundCharacter* EndingCharacter,
         TArray<TPair<ARoundCharacter*, int32>>& OutInitiatives,
+        TArray<FRoundCoreAbilityRuntimeUpdate>& OutAbilityUpdates,
         ARoundCharacter*& OutActiveCharacter,
         int32& OutGlobalInitiativeAdvance,
         FString& OutReason);
@@ -35,6 +44,7 @@ private:
     TMap<const ARoundGridTile*, roundcore::EntityId> TileIds;
     TMap<const ARoundCharacter*, roundcore::EntityId> CharacterIds;
     TMap<roundcore::EntityId, ARoundCharacter*> CharacterActors;
+    TMap<FString, ARoundAbilityActor*> AbilityActors;
     int32 LastMatchSeed = 0;
     std::uint64_t PreservedRandomState = 0;
 };

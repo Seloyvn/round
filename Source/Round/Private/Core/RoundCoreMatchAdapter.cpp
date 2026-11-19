@@ -1,6 +1,7 @@
 #include "Core/RoundCoreMatchAdapter.h"
 
 #include "Actors/RoundCharacter.h"
+#include "Actors/RoundAbilityActor.h"
 #include "Actors/RoundGridTile.h"
 #include "Actors/RoundTerrainActor.h"
 #include "Components/RoundAttributeSetComponent.h"
@@ -36,6 +37,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     TileIds.Reset();
     CharacterIds.Reset();
     CharacterActors.Reset();
+    AbilityActors.Reset();
 
     const int32 MatchSeed = GameState.GetMatchRandomSeed();
     if (LastMatchSeed == MatchSeed)
@@ -182,6 +184,31 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             && !GameState.IsCharacterBlockedByObjectiveChannel(Character);
         CharacterState.initiativeGainPerTick = Character->ModifyInitiativeGainFromEffects(1);
         CharacterState.delayedActionInitiative = FMath::Max(0, Character->NativeDelayedActionInitiative);
+        for (int32 AbilityIndex = 0; AbilityIndex < Character->GrantedAbilities.Num(); ++AbilityIndex)
+        {
+            ARoundAbilityActor* Ability = Character->GrantedAbilities[AbilityIndex];
+            if (!Ability)
+            {
+                continue;
+            }
+
+            const FString AbilityKey = FString::Printf(
+                TEXT("AbilityInstance:%u:%d:%s"), CharacterId, AbilityIndex, *Ability->RowName.ToString());
+            const std::string AbilityId = ToCoreString(AbilityKey);
+            roundcore::AbilityDefinition AbilityDefinition;
+            AbilityDefinition.id = AbilityId;
+            Setup.definitions.abilities.emplace(AbilityId, std::move(AbilityDefinition));
+
+            roundcore::AbilityState AbilityState;
+            AbilityState.definitionId = AbilityId;
+            AbilityState.cooldownRemaining = FMath::Max(0, Ability->CurrentCooldown);
+            AbilityState.cooldownDuration = FMath::Max(0, Ability->GetAbilityCooldown());
+            AbilityState.currentCharges = FMath::Max(0, Ability->CurrentCharges);
+            AbilityState.maxCharges = FMath::Max(1, Ability->GetAbilityMaxCharges());
+            AbilityState.usesCharges = Ability->UsesCharges();
+            CharacterState.abilities.push_back(std::move(AbilityState));
+            AbilityActors.Add(AbilityKey, Ability);
+        }
         Setup.initialState.characters.push_back(std::move(CharacterState));
     }
 
@@ -229,11 +256,13 @@ bool FRoundCoreMatchAdapter::IsBasicAttackLegal(
 bool FRoundCoreMatchAdapter::ExecuteTurnStep(
     const ARoundCharacter* EndingCharacter,
     TArray<TPair<ARoundCharacter*, int32>>& OutInitiatives,
+    TArray<FRoundCoreAbilityRuntimeUpdate>& OutAbilityUpdates,
     ARoundCharacter*& OutActiveCharacter,
     int32& OutGlobalInitiativeAdvance,
     FString& OutReason)
 {
     OutInitiatives.Reset();
+    OutAbilityUpdates.Reset();
     OutActiveCharacter = nullptr;
     OutGlobalInitiativeAdvance = 0;
 
@@ -269,6 +298,17 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
         if (ARoundCharacter* const* Character = CharacterActors.Find(State.id))
         {
             OutInitiatives.Emplace(*Character, State.initiative);
+        }
+        for (const roundcore::AbilityState& AbilityState : State.abilities)
+        {
+            const FString AbilityKey = UTF8_TO_TCHAR(AbilityState.definitionId.c_str());
+            if (ARoundAbilityActor* const* Ability = AbilityActors.Find(AbilityKey))
+            {
+                FRoundCoreAbilityRuntimeUpdate& Update = OutAbilityUpdates.AddDefaulted_GetRef();
+                Update.Ability = *Ability;
+                Update.Cooldown = AbilityState.cooldownRemaining;
+                Update.Charges = AbilityState.currentCharges;
+            }
         }
     }
     if (ARoundCharacter* const* Active = CharacterActors.Find(CoreGame.State().activeCharacterId))

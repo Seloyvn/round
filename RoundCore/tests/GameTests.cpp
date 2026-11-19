@@ -115,6 +115,8 @@ int main()
     turnSetup.initialState.activeCharacterId = 10;
     turnSetup.initialState.characters[0].initiative = 20;
     turnSetup.initialState.characters[1].initiative = 95;
+    turnSetup.initialState.characters[1].abilities.push_back(AbilityState{"TestAbility", 3, 5, 1, 1, false});
+    turnSetup.initialState.characters[1].abilities.push_back(AbilityState{"ChargeAbility", 1, 5, 0, 2, true});
     Game turns;
     Require(turns.Reset(std::move(turnSetup)).success, "turn test setup should reset");
 
@@ -126,6 +128,11 @@ int main()
         "ending a turn should advance exactly one global initiative tick when nobody is ready");
     Require(turns.State().globalInitiative == 1 && turns.State().characters[1].initiative == 96,
         "global initiative should advance deterministically by exported per-character gains");
+    Require(turns.State().characters[1].abilities[0].cooldownRemaining == 2,
+        "global initiative should reduce ability cooldowns in Core");
+    Require(turns.State().characters[1].abilities[1].currentCharges == 1
+            && turns.State().characters[1].abilities[1].cooldownRemaining == 5,
+        "charge abilities should restore a charge and restart cooldown until fully charged");
 
     endTurn.actorId = InvalidEntityId;
     for (int index = 0; index < 5; ++index)

@@ -21,6 +21,10 @@ struct AbilityState
 {
     DefinitionId definitionId;
     std::int32_t cooldownRemaining = 0;
+    std::int32_t cooldownDuration = 0;
+    std::int32_t currentCharges = 1;
+    std::int32_t maxCharges = 1;
+    bool usesCharges = false;
 };
 
 struct CharacterState
