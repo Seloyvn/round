@@ -35,6 +35,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
 {
     OutReason.Reset();
     TileIds.Reset();
+    TileActors.Reset();
     CharacterIds.Reset();
     CharacterActors.Reset();
     AbilityActors.Reset();
@@ -77,6 +78,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     {
         const roundcore::EntityId TileId = NextTileId++;
         TileIds.Add(Tile, TileId);
+        TileActors.Add(TileId, const_cast<ARoundGridTile*>(Tile));
 
         const ARoundTerrainActor* TerrainActor = Cast<ARoundTerrainActor>(Tile->TerrainObject);
         const bool bWalkable = Tile->IsMoveable();
@@ -257,6 +259,29 @@ bool FRoundCoreMatchAdapter::IsBasicAttackLegal(
         ? TEXT("Basic attack is legal in RoundCore.")
         : FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
     return Result.success;
+}
+
+bool FRoundCoreMatchAdapter::GetVisibleTiles(
+    const ARoundCharacter* Character,
+    TArray<ARoundGridTile*>& OutVisibleTiles,
+    FString& OutReason) const
+{
+    OutVisibleTiles.Reset();
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    if (!CharacterId)
+    {
+        OutReason = TEXT("Character is not part of the Core snapshot.");
+        return false;
+    }
+    for (const roundcore::EntityId TileId : CoreGame.VisibleTileIds(*CharacterId))
+    {
+        if (ARoundGridTile* const* Tile = TileActors.Find(TileId))
+        {
+            OutVisibleTiles.Add(*Tile);
+        }
+    }
+    OutReason = TEXT("Visibility resolved by RoundCore.");
+    return true;
 }
 
 bool FRoundCoreMatchAdapter::ExecuteTurnStep(

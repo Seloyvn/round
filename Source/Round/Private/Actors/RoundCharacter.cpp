@@ -1540,41 +1540,12 @@ TArray<ARoundGridTile*> ARoundCharacter::GetVisionFields() const
         return VisionFields;
     }
 
-    const int32 BaseVisionRange = Attributes ? Attributes->BaseStats.VisionRange : 4;
-    const int32 VisionRange = FMath::Max(0, BaseVisionRange + CurrentTile->GetTerrainVisionRangeModifier());
     ARoundGameState* GameState = GetWorld() ? GetWorld()->GetGameState<ARoundGameState>() : nullptr;
-    for (ARoundGridTile* Candidate : CurrentTile->GetDistanceFields(VisionRange))
+    if (!GameState || !GameState->GetCoreVisionFields(this, VisionFields))
     {
-        if (!Candidate || !GameState)
-        {
-            continue;
-        }
-
-        bool bOccluded = false;
-        int32 VisionCost = 0;
-        const TArray<ARoundGridTile*> Line = GameState->GetFieldsBetween(CurrentTile, Candidate, true);
-        // Blocking terrain remains visible itself, but hides every field behind it.
-        for (int32 LineIndex = 1; LineIndex < Line.Num(); ++LineIndex)
-        {
-            if (!Line[LineIndex]) continue;
-            VisionCost += Line[LineIndex]->GetTerrainVisionCost();
-            if (VisionCost > VisionRange)
-            {
-                bOccluded = true;
-                break;
-            }
-            if (LineIndex + 1 < Line.Num() && Line[LineIndex]->bBlocksVision)
-            {
-                bOccluded = true;
-                break;
-            }
-        }
-        if (!bOccluded)
-        {
-            VisionFields.AddUnique(Candidate);
-        }
+        VisionFields.Reset();
+        VisionFields.Add(CurrentTile);
     }
-    VisionFields.AddUnique(CurrentTile);
     return VisionFields;
 }
 

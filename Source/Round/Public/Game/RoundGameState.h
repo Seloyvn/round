@@ -490,6 +490,8 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round|Core")
     bool IsCoreMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
 
+    bool GetCoreVisionFields(const ARoundCharacter* Character, TArray<ARoundGridTile*>& OutVisibleFields) const;
+
     FRoundActionResult ExecuteCoreMove(ARoundCharacter* Character, ARoundGridTile* TargetTile);
     FRoundActionResult ExecuteCoreMovePath(ARoundCharacter* Character, const TArray<ARoundGridTile*>& Path);
     ARoundCharacter* AdvanceCoreTurn(ARoundCharacter* EndingCharacter);

@@ -3777,6 +3777,29 @@ bool ARoundGameState::IsCoreMoveLegal(const ARoundCharacter* Character, const AR
     return bCoreLegal;
 }
 
+bool ARoundGameState::GetCoreVisionFields(
+    const ARoundCharacter* Character,
+    TArray<ARoundGridTile*>& OutVisibleFields) const
+{
+    OutVisibleFields.Reset();
+    if (!Character)
+    {
+        return false;
+    }
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+    FString CoreReason;
+    if (!CoreMatchAdapter->Rebuild(*this, CoreReason)
+        || !CoreMatchAdapter->GetVisibleTiles(Character, OutVisibleFields, CoreReason))
+    {
+        UE_LOG(LogTemp, Error, TEXT("RoundCore visibility failed for %s: %s"), *GetNameSafe(Character), *CoreReason);
+        return false;
+    }
+    return true;
+}
+
 bool ARoundGameState::IsSimMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const
 {
     return IsCoreMoveLegal(Character, TargetTile);

@@ -23,6 +23,10 @@ public:
     bool Rebuild(const ARoundGameState& GameState, FString& OutReason);
     bool IsMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile, FString& OutReason) const;
     bool IsBasicAttackLegal(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter, FString& OutReason) const;
+    bool GetVisibleTiles(
+        const ARoundCharacter* Character,
+        TArray<ARoundGridTile*>& OutVisibleTiles,
+        FString& OutReason) const;
     bool ExecuteMove(
         const ARoundCharacter* Character,
         const ARoundGridTile* TargetTile,
@@ -42,6 +46,7 @@ public:
 private:
     roundcore::Game CoreGame;
     TMap<const ARoundGridTile*, roundcore::EntityId> TileIds;
+    TMap<roundcore::EntityId, ARoundGridTile*> TileActors;
     TMap<const ARoundCharacter*, roundcore::EntityId> CharacterIds;
     TMap<roundcore::EntityId, ARoundCharacter*> CharacterActors;
     TMap<FString, ARoundAbilityActor*> AbilityActors;

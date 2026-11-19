@@ -193,7 +193,8 @@ Current progress:
 - Unreal exports the live terrain vision values into the same Core definitions.
 - Team-filtered structured and numeric observations now remove hidden tiles and enemies, suppress seed/random prediction inputs, and expose legal actions only to the active team.
 - Basic attacks require team visibility in Core, preventing legal-action masks from leaking hidden targets.
-- Actor/Core comparison logging and removal of Actor-side line-of-sight authority remain.
+- Unreal character vision now calls the Core visibility rule through the live-board adapter; the old Actor-side geometric implementation has been removed.
+- Vision-changing status effects still apply after geometric team visibility in Unreal and must migrate with the shared effect system.
 
 ### Phase 7 — Data export
 
