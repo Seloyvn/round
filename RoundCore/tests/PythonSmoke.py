@@ -1,0 +1,87 @@
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve()))
+import roundcore_python as rc
+
+
+def build_match(seed: int) -> rc.MatchSetup:
+    terrain = rc.TerrainDefinition()
+    terrain.id = "Arena"
+
+    stats = rc.StatBlock()
+    stats.max_health = 10
+    stats.attack = 10
+    stats.max_initiative = 20
+    stats.attack_range = 1
+    stats.move_cost = 2
+    stats.attack_cost = 5
+    stats.turn_delay = 5
+    fighter = rc.CharacterDefinition()
+    fighter.id = "Fighter"
+    fighter.stats = stats
+
+    definitions = rc.ContentDefinitions()
+    definitions.content_version = "python-smoke-v1"
+    definitions.terrains = {"Arena": terrain}
+    definitions.characters = {"Fighter": fighter}
+
+    first_tile = rc.TileState()
+    first_tile.id = 1
+    first_tile.terrain_id = "Arena"
+    second_tile = rc.TileState()
+    second_tile.id = 2
+    second_tile.coord.q = 1
+    second_tile.terrain_id = "Arena"
+
+    first = rc.CharacterState()
+    first.id = 100
+    first.definition_id = "Fighter"
+    first.team = rc.Team.TEAM_A
+    first.tile_id = 1
+    first.health = 10
+    first.initiative = 20
+    second = rc.CharacterState()
+    second.id = 200
+    second.definition_id = "Fighter"
+    second.team = rc.Team.TEAM_B
+    second.tile_id = 2
+    second.health = 10
+    second.initiative = 20
+
+    state = rc.GameState()
+    state.match_id = seed
+    state.seed = seed
+    state.active_character_id = 100
+    state.tiles = [first_tile, second_tile]
+    state.characters = [first, second]
+
+    setup = rc.MatchSetup()
+    setup.definitions = definitions
+    setup.initial_state = state
+    return setup
+
+
+game = rc.Game()
+assert game.reset(build_match(1)).success
+observation = game.observe_decision()
+attack_index = next(i for i, action in enumerate(observation.legal_actions)
+                    if action.type == rc.ActionType.BASIC_ATTACK)
+assert game.apply_decision_index(attack_index).success
+assert game.is_terminal()
+
+environments = rc.VectorEnvironment()
+assert all(result.success for result in environments.reset([build_match(i) for i in range(2, 10)]))
+observations = environments.observe()
+indices = [next(i for i, action in enumerate(observation.legal_actions)
+                if action.type == rc.ActionType.BASIC_ATTACK)
+           for observation in observations]
+step = environments.step(indices)
+assert all(result.success for result in step.results)
+assert all(observation.state.status == rc.MatchStatus.COMPLETED for observation in step.observations)
+
+schema = rc.build_observation_schema(build_match(99).definitions)
+numeric = environments.observe_numeric(schema)
+assert len(numeric) == 8
+assert all(observation.content_version == "python-smoke-v1" for observation in numeric)
+print("RoundCore Python smoke test passed")

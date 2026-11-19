@@ -16,6 +16,7 @@ Saved/
 # Generated exports and temporary files
 currentexport/
 RoundCore/build/
+RoundCore/build-*/
 RoundCore/out/
 *.tmp
 

@@ -17,6 +17,20 @@ else()
 endif()
 
 option(ROUNDCORE_BUILD_TESTS "Build RoundCore standalone tests" ON)
+option(ROUNDCORE_BUILD_PYTHON "Build the optional standalone Python module" OFF)
+
+if(ROUNDCORE_BUILD_PYTHON)
+    find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+    execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -m pybind11 --cmakedir
+        OUTPUT_VARIABLE ROUNDCORE_PYBIND11_CMAKE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY)
+    find_package(pybind11 CONFIG REQUIRED PATHS "${ROUNDCORE_PYBIND11_CMAKE_DIR}" NO_DEFAULT_PATH)
+    pybind11_add_module(roundcore_python MODULE python/Bindings.cpp)
+    target_link_libraries(roundcore_python PRIVATE RoundCore)
+endif()
+
 if(ROUNDCORE_BUILD_TESTS)
     enable_testing()
     add_executable(RoundCoreTests tests/GameTests.cpp)
@@ -34,4 +48,11 @@ if(ROUNDCORE_BUILD_TESTS)
     add_executable(RoundCoreVectorEnvironmentTests tests/VectorEnvironmentTests.cpp)
     target_link_libraries(RoundCoreVectorEnvironmentTests PRIVATE RoundCore)
     add_test(NAME RoundCoreVectorEnvironmentTests COMMAND RoundCoreVectorEnvironmentTests)
+
+    if(ROUNDCORE_BUILD_PYTHON)
+        add_test(
+            NAME RoundCorePythonSmoke
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/PythonSmoke.py"
+                "$<TARGET_FILE_DIR:roundcore_python>")
+    endif()
 endif()

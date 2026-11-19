@@ -1,0 +1,136 @@
+#include "round/core/VectorEnvironment.h"
+
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+
+namespace py = pybind11;
+using namespace roundcore;
+
+PYBIND11_MODULE(roundcore_python, module)
+{
+    module.doc() = "Standalone Python bindings for the authoritative RoundCore rules";
+
+    py::enum_<Team>(module, "Team")
+        .value("NEUTRAL", Team::Neutral).value("TEAM_A", Team::TeamA).value("TEAM_B", Team::TeamB);
+    py::enum_<ActionType>(module, "ActionType")
+        .value("MOVE", ActionType::Move).value("BASIC_ATTACK", ActionType::BasicAttack)
+        .value("USE_ABILITY", ActionType::UseAbility).value("CLAIM_OBJECTIVE", ActionType::ClaimObjective)
+        .value("WAIT", ActionType::Wait).value("END_TURN", ActionType::EndTurn);
+    py::enum_<MatchStatus>(module, "MatchStatus")
+        .value("NOT_STARTED", MatchStatus::NotStarted).value("RUNNING", MatchStatus::Running)
+        .value("COMPLETED", MatchStatus::Completed);
+    py::enum_<EventType>(module, "EventType")
+        .value("MATCH_RESET", EventType::MatchReset).value("CHARACTER_MOVED", EventType::CharacterMoved)
+        .value("DAMAGE_APPLIED", EventType::DamageApplied).value("HEALING_APPLIED", EventType::HealingApplied)
+        .value("INITIATIVE_CHANGED", EventType::InitiativeChanged).value("COOLDOWN_CHANGED", EventType::CooldownChanged)
+        .value("ABILITY_CHARGES_CHANGED", EventType::AbilityChargesChanged).value("EFFECT_ADDED", EventType::EffectAdded)
+        .value("EFFECT_REMOVED", EventType::EffectRemoved).value("TERRAIN_CHANGED", EventType::TerrainChanged)
+        .value("GLOBAL_INITIATIVE_ADVANCED", EventType::GlobalInitiativeAdvanced)
+        .value("CHARACTER_DIED", EventType::CharacterDied).value("ACTIVE_CHARACTER_CHANGED", EventType::ActiveCharacterChanged)
+        .value("OBJECTIVE_CHANGED", EventType::ObjectiveChanged).value("MATCH_ENDED", EventType::MatchEnded);
+
+    py::class_<HexCoord>(module, "HexCoord")
+        .def(py::init<>()).def_readwrite("q", &HexCoord::q).def_readwrite("r", &HexCoord::r);
+    py::class_<StatBlock>(module, "StatBlock")
+        .def(py::init<>())
+        .def_readwrite("max_health", &StatBlock::maxHealth).def_readwrite("attack", &StatBlock::attack)
+        .def_readwrite("defense", &StatBlock::defense).def_readwrite("max_initiative", &StatBlock::maxInitiative)
+        .def_readwrite("vision_range", &StatBlock::visionRange).def_readwrite("attack_range", &StatBlock::attackRange)
+        .def_readwrite("move_cost", &StatBlock::moveCost).def_readwrite("attack_cost", &StatBlock::attackCost)
+        .def_readwrite("turn_delay", &StatBlock::turnDelay);
+    py::class_<AbilityDefinition>(module, "AbilityDefinition")
+        .def(py::init<>()).def_readwrite("id", &AbilityDefinition::id)
+        .def_readwrite("values", &AbilityDefinition::values);
+    py::class_<CharacterDefinition>(module, "CharacterDefinition")
+        .def(py::init<>()).def_readwrite("id", &CharacterDefinition::id)
+        .def_readwrite("stats", &CharacterDefinition::stats)
+        .def_readwrite("ability_ids", &CharacterDefinition::abilityIds)
+        .def_readwrite("passive_values", &CharacterDefinition::passiveValues)
+        .def_readwrite("critical_chance_basis_points", &CharacterDefinition::criticalChanceBasisPoints)
+        .def_readwrite("critical_damage_multiplier_basis_points", &CharacterDefinition::criticalDamageMultiplierBasisPoints);
+    py::class_<TerrainDefinition>(module, "TerrainDefinition")
+        .def(py::init<>()).def_readwrite("id", &TerrainDefinition::id)
+        .def_readwrite("walkable", &TerrainDefinition::walkable)
+        .def_readwrite("blocks_vision", &TerrainDefinition::blocksVision)
+        .def_readwrite("stops_movement", &TerrainDefinition::stopsMovement)
+        .def_readwrite("movement_cost", &TerrainDefinition::movementCost)
+        .def_readwrite("movement_cost_multiplier_basis_points", &TerrainDefinition::movementCostMultiplierBasisPoints)
+        .def_readwrite("values", &TerrainDefinition::values);
+    py::class_<ContentDefinitions>(module, "ContentDefinitions")
+        .def(py::init<>()).def_readwrite("schema_version", &ContentDefinitions::schemaVersion)
+        .def_readwrite("content_version", &ContentDefinitions::contentVersion)
+        .def_readwrite("characters", &ContentDefinitions::characters)
+        .def_readwrite("abilities", &ContentDefinitions::abilities)
+        .def_readwrite("terrains", &ContentDefinitions::terrains);
+
+    py::class_<TileState>(module, "TileState")
+        .def(py::init<>()).def_readwrite("id", &TileState::id).def_readwrite("coord", &TileState::coord)
+        .def_readwrite("terrain_id", &TileState::terrainId).def_readwrite("occupant_id", &TileState::occupantId)
+        .def_readwrite("blocks_movement", &TileState::blocksMovement);
+    py::class_<AbilityState>(module, "AbilityState")
+        .def(py::init<>()).def_readwrite("definition_id", &AbilityState::definitionId)
+        .def_readwrite("cooldown_remaining", &AbilityState::cooldownRemaining)
+        .def_readwrite("cooldown_duration", &AbilityState::cooldownDuration)
+        .def_readwrite("current_charges", &AbilityState::currentCharges)
+        .def_readwrite("max_charges", &AbilityState::maxCharges)
+        .def_readwrite("uses_charges", &AbilityState::usesCharges);
+    py::class_<CharacterState>(module, "CharacterState")
+        .def(py::init<>()).def_readwrite("id", &CharacterState::id)
+        .def_readwrite("definition_id", &CharacterState::definitionId).def_readwrite("team", &CharacterState::team)
+        .def_readwrite("tile_id", &CharacterState::tileId).def_readwrite("health", &CharacterState::health)
+        .def_readwrite("initiative", &CharacterState::initiative).def_readwrite("alive", &CharacterState::alive)
+        .def_readwrite("movement_blocked", &CharacterState::movementBlocked)
+        .def_readwrite("can_take_turn", &CharacterState::canTakeTurn)
+        .def_readwrite("initiative_gain_per_tick", &CharacterState::initiativeGainPerTick)
+        .def_readwrite("delayed_action_initiative", &CharacterState::delayedActionInitiative)
+        .def_readwrite("abilities", &CharacterState::abilities);
+    py::class_<GameState>(module, "GameState")
+        .def(py::init<>()).def_readwrite("schema_version", &GameState::schemaVersion)
+        .def_readwrite("match_id", &GameState::matchId).def_readwrite("seed", &GameState::seed)
+        .def_readwrite("step", &GameState::step).def_readwrite("status", &GameState::status)
+        .def_readwrite("winner", &GameState::winner).def_readwrite("active_character_id", &GameState::activeCharacterId)
+        .def_readwrite("global_initiative", &GameState::globalInitiative)
+        .def_readwrite("tiles", &GameState::tiles).def_readwrite("characters", &GameState::characters);
+    py::class_<MatchSetup>(module, "MatchSetup")
+        .def(py::init<>()).def_readwrite("definitions", &MatchSetup::definitions)
+        .def_readwrite("initial_state", &MatchSetup::initialState);
+
+    py::class_<GameAction>(module, "GameAction")
+        .def(py::init<>()).def_readwrite("type", &GameAction::type).def_readwrite("actor_id", &GameAction::actorId)
+        .def_readwrite("target_entity_id", &GameAction::targetEntityId)
+        .def_readwrite("target_tile_id", &GameAction::targetTileId).def_readwrite("ability_id", &GameAction::abilityId)
+        .def_readwrite("selections", &GameAction::selections);
+    py::class_<GameEvent>(module, "GameEvent")
+        .def_readonly("type", &GameEvent::type).def_readonly("source_id", &GameEvent::sourceId)
+        .def_readonly("target_id", &GameEvent::targetId)
+        .def_readonly("tile_id", &GameEvent::tileId).def_readonly("definition_id", &GameEvent::definitionId)
+        .def_readonly("amount", &GameEvent::amount);
+    py::class_<ActionResult>(module, "ActionResult")
+        .def_readonly("success", &ActionResult::success).def_readonly("error_code", &ActionResult::errorCode)
+        .def_readonly("message", &ActionResult::message).def_readonly("events", &ActionResult::events);
+    py::class_<DecisionSnapshot>(module, "DecisionSnapshot")
+        .def_readonly("state", &DecisionSnapshot::state).def_readonly("legal_actions", &DecisionSnapshot::legalActions);
+    py::class_<ObservationSchema>(module, "ObservationSchema")
+        .def_readonly("schema_version", &ObservationSchema::schemaVersion)
+        .def_readonly("content_version", &ObservationSchema::contentVersion);
+    py::class_<NumericObservation>(module, "NumericObservation")
+        .def_readonly("schema_version", &NumericObservation::schemaVersion)
+        .def_readonly("content_version", &NumericObservation::contentVersion)
+        .def_readonly("global_values", &NumericObservation::global).def_readonly("tiles", &NumericObservation::tiles)
+        .def_readonly("characters", &NumericObservation::characters).def_readonly("abilities", &NumericObservation::abilities)
+        .def_readonly("legal_actions", &NumericObservation::legalActions)
+        .def_readonly("action_selections", &NumericObservation::actionSelections);
+
+    module.def("build_observation_schema", &BuildObservationSchema);
+    py::class_<Game>(module, "Game")
+        .def(py::init<>()).def("reset", &Game::Reset).def("apply_decision_index", &Game::ApplyDecisionIndex,
+            py::arg("legal_action_index"), py::arg("maximum_initiative_ticks") = 10000)
+        .def("observe_decision", &Game::ObserveDecision).def("observe_numeric", &Game::ObserveNumeric)
+        .def("is_terminal", &Game::IsTerminal).def("state_hash", &Game::StateHash);
+    py::class_<VectorStepResult>(module, "VectorStepResult")
+        .def_readonly("results", &VectorStepResult::results).def_readonly("observations", &VectorStepResult::observations);
+    py::class_<VectorEnvironment>(module, "VectorEnvironment")
+        .def(py::init<>()).def("reset", &VectorEnvironment::Reset).def("step", &VectorEnvironment::Step)
+        .def("observe", &VectorEnvironment::Observe).def("observe_numeric", &VectorEnvironment::ObserveNumeric)
+        .def("size", &VectorEnvironment::Size);
+}
