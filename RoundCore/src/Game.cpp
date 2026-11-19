@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <stdexcept>
 #include <unordered_set>
 #include <utility>
 
@@ -233,6 +234,17 @@ DecisionSnapshot Game::ObserveDecision() const
         snapshot.legalActions = LegalActions(state_.activeCharacterId);
     }
     return snapshot;
+}
+
+NumericObservation Game::ObserveNumeric(const ObservationSchema& schema) const
+{
+    if (schema.schemaVersion != definitions_.schemaVersion
+        || schema.contentVersion != definitions_.contentVersion)
+    {
+        throw std::invalid_argument("Observation schema does not match the loaded Core content package.");
+    }
+    const DecisionSnapshot observation = ObserveDecision();
+    return EncodeOmniscientObservation(observation.state, observation.legalActions, schema);
 }
 
 Game Game::Clone() const

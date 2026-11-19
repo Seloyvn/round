@@ -1,6 +1,7 @@
 #pragma once
 
 #include "round/core/Actions.h"
+#include "round/core/Observation.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -34,6 +35,7 @@ public:
     ActionResult ApplyDecisionIndex(std::size_t legalActionIndex, std::uint32_t maximumInitiativeTicks = 10000);
     std::vector<GameAction> LegalActions(EntityId actorId) const;
     DecisionSnapshot ObserveDecision() const;
+    NumericObservation ObserveNumeric(const ObservationSchema& schema) const;
     Game Clone() const;
 
     const ContentDefinitions& Definitions() const noexcept;

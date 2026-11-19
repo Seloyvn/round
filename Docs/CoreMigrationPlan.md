@@ -210,7 +210,9 @@ Current progress:
 - `ObserveDecision` snapshots state together with its legal action set, and `ApplyDecisionIndex` gives trainers an index-based step interface without bypassing Core validation.
 - Core matches can be cloned for independent rollouts without shared mutable state.
 - A deterministic random-valid baseline completes thousands of standalone matches and reports throughput in the test output.
-- Partial-information observations, numeric model encoding, vectorization, larger content packages, and formal performance benchmarks remain.
+- A versioned observation schema maps editor-exported definition IDs to deterministic numeric indices, and omniscient state/action tensors are emitted in stable entity order.
+- The numeric observation is deliberately marked omniscient until Core visibility can filter hidden state correctly.
+- Partial-information observations, vectorization, larger content packages, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training
 

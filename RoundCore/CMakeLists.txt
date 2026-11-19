@@ -3,6 +3,7 @@ project(RoundCore LANGUAGES CXX)
 
 add_library(RoundCore STATIC
     src/Game.cpp
+    src/Observation.cpp
 )
 
 target_include_directories(RoundCore PUBLIC include)

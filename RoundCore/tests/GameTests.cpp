@@ -73,6 +73,19 @@ int main()
     Require(cloned.ApplyDecisionIndex(0).success, "a cloned game should accept its own legal action indices");
     Require(cloned.StateHash() != first.StateHash(), "advancing a clone must not mutate its source game");
 
+    const ObservationSchema observationSchema = BuildObservationSchema(first.Definitions());
+    const NumericObservation numericObservation = first.ObserveNumeric(observationSchema);
+    Require(numericObservation.contentVersion == "test-content"
+            && numericObservation.global.size() == NumericObservation::GlobalStride,
+        "numeric observations should retain their versioned content contract");
+    Require(numericObservation.tiles.size() == first.State().tiles.size() * NumericObservation::TileStride
+            && numericObservation.characters.size()
+                == first.State().characters.size() * NumericObservation::CharacterStride,
+        "numeric observations should emit fixed-stride tile and character records");
+    Require(numericObservation.legalActions.size()
+            == first.LegalActions(first.State().activeCharacterId).size() * NumericObservation::ActionStride,
+        "numeric observations should encode the complete current legal action set");
+
     const std::vector<GameAction> legalMoves = first.LegalActions(10);
     Require(legalMoves.size() == 3,
         "legal actions should include movement, basic attack, and end turn choices");
