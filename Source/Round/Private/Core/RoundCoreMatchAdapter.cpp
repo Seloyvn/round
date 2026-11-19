@@ -7,6 +7,7 @@
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
+#include <algorithm>
 #include <string>
 
 namespace
@@ -335,6 +336,39 @@ bool FRoundCoreMatchAdapter::PreviewBasicAttack(
         }
     }
     OutReason = TEXT("Basic attack preview resolved by RoundCore clone.");
+    return true;
+}
+
+bool FRoundCoreMatchAdapter::ResolveBasicAttackCritical(
+    const ARoundCharacter* Character,
+    bool& bOutCritical,
+    FString& OutReason)
+{
+    bOutCritical = false;
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    if (!CharacterId)
+    {
+        OutReason = TEXT("Attacker is not part of the Core snapshot.");
+        return false;
+    }
+    const auto CharacterState = std::find_if(
+        CoreGame.State().characters.begin(),
+        CoreGame.State().characters.end(),
+        [CharacterId](const roundcore::CharacterState& State) { return State.id == *CharacterId; });
+    if (CharacterState == CoreGame.State().characters.end())
+    {
+        OutReason = TEXT("Attacker state is missing from the Core snapshot.");
+        return false;
+    }
+    const auto Definition = CoreGame.Definitions().characters.find(CharacterState->definitionId);
+    if (Definition == CoreGame.Definitions().characters.end())
+    {
+        OutReason = TEXT("Attacker definition is missing from the Core snapshot.");
+        return false;
+    }
+    bOutCritical = CoreGame.RollBasisPoints(Definition->second.criticalChanceBasisPoints);
+    PreservedRandomState = CoreGame.State().randomState;
+    OutReason = TEXT("Critical roll resolved by RoundCore.");
     return true;
 }
 

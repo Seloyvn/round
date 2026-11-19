@@ -3797,6 +3797,19 @@ bool ARoundGameState::PreviewCoreBasicAttack(
     return CoreMatchAdapter->PreviewBasicAttack(Character, TargetCharacter, OutPreview, OutReason);
 }
 
+bool ARoundGameState::ResolveCoreBasicAttackCritical(
+    const ARoundCharacter* Character,
+    bool& bOutCritical,
+    FString& OutReason)
+{
+    if (!CoreMatchAdapter)
+    {
+        OutReason = TEXT("Core attack snapshot has not been prepared.");
+        return false;
+    }
+    return CoreMatchAdapter->ResolveBasicAttackCritical(Character, bOutCritical, OutReason);
+}
+
 bool ARoundGameState::GetCoreVisionFields(
     const ARoundCharacter* Character,
     TArray<ARoundGridTile*>& OutVisibleFields) const

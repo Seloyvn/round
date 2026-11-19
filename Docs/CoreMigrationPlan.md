@@ -157,6 +157,7 @@ Current progress:
 - Unreal exports effective attack range, attack cost, crit chance, and crit multiplier, while preserving the Core random stream across live-state resynchronization.
 - Actor effects, terrain/aura damage modifiers, death prevention, board-object attacks, and presentation consumption remain Actor-owned, so live attack execution has not switched yet.
 - Live character attacks now resolve a non-mutating clone of the current Core snapshot before Actor execution and compare initiative cost, applied damage, death, match end, and critical state afterward. Mismatches are logged as `RoundCoreAttackParity` and provide the concrete parity cases needed to migrate shared modifiers without changing current gameplay.
+- Critical-hit rolls for live basic attacks now consume the same deterministic RoundCore random stream as headless attacks; Unreal no longer uses its independent global random source for this migrated rule.
 
 ### Phase 4 — Shared effects and terrain
 

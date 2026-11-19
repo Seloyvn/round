@@ -495,6 +495,10 @@ public:
         const ARoundCharacter* TargetCharacter,
         FRoundCoreBasicAttackPreview& OutPreview,
         FString& OutReason) const;
+    bool ResolveCoreBasicAttackCritical(
+        const ARoundCharacter* Character,
+        bool& bOutCritical,
+        FString& OutReason);
 
     bool GetCoreVisionFields(const ARoundCharacter* Character, TArray<ARoundGridTile*>& OutVisibleFields) const;
 

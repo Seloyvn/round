@@ -1077,7 +1077,20 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
 
     int32 DefenseIgnore = 0;
     int32 Damage = Attributes->BaseStats.Attack;
-    if (FMath::FRand() < GetCritChance())
+    bool bCritical = false;
+    FString CoreCriticalReason;
+    const bool bHasCoreCritical = bHasCorePreview
+        && RoundGameState->ResolveCoreBasicAttackCritical(this, bCritical, CoreCriticalReason);
+    if (!bHasCoreCritical)
+    {
+        bCritical = FMath::FRand() < GetCritChance();
+        UE_LOG(
+            LogTemp,
+            Warning,
+            TEXT("RoundCoreAttackParity CriticalFallback Attacker=%s Reason=%s"),
+            *GetName(), *CoreCriticalReason);
+    }
+    if (bCritical)
     {
         Damage = FMath::RoundToInt(static_cast<double>(Damage) * GetCritModifier());
     }
@@ -1141,17 +1154,18 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
                     : TargetHealthBeforeAttack));
             const bool bParity = ActorInitiativeCost == CorePreview.InitiativeCost
                 && ActorDamage == CorePreview.Damage
-                && bDidDie == CorePreview.bTargetDied;
+                && bDidDie == CorePreview.bTargetDied
+                && bCritical == CorePreview.bCritical;
             if (bParity)
             {
                 UE_LOG(
                     LogTemp,
                     Verbose,
-                    TEXT("RoundCoreAttackParity Match Attacker=%s Target=%s ActorCost=%d CoreCost=%d ActorDamage=%d CoreDamage=%d ActorDied=%d CoreDied=%d CoreCritical=%d"),
+                    TEXT("RoundCoreAttackParity Match Attacker=%s Target=%s ActorCost=%d CoreCost=%d ActorDamage=%d CoreDamage=%d ActorDied=%d CoreDied=%d ActorCritical=%d CoreCritical=%d"),
                     *GetName(), *TargetCharacter->GetName(),
                     ActorInitiativeCost, CorePreview.InitiativeCost,
                     ActorDamage, CorePreview.Damage,
-                    bDidDie ? 1 : 0, CorePreview.bTargetDied ? 1 : 0,
+                    bDidDie ? 1 : 0, CorePreview.bTargetDied ? 1 : 0, bCritical ? 1 : 0,
                     CorePreview.bCritical ? 1 : 0);
             }
             else
@@ -1159,11 +1173,11 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
                 UE_LOG(
                     LogTemp,
                     Warning,
-                    TEXT("RoundCoreAttackParity Mismatch Attacker=%s Target=%s ActorCost=%d CoreCost=%d ActorDamage=%d CoreDamage=%d ActorDied=%d CoreDied=%d CoreCritical=%d"),
+                    TEXT("RoundCoreAttackParity Mismatch Attacker=%s Target=%s ActorCost=%d CoreCost=%d ActorDamage=%d CoreDamage=%d ActorDied=%d CoreDied=%d ActorCritical=%d CoreCritical=%d"),
                     *GetName(), *TargetCharacter->GetName(),
                     ActorInitiativeCost, CorePreview.InitiativeCost,
                     ActorDamage, CorePreview.Damage,
-                    bDidDie ? 1 : 0, CorePreview.bTargetDied ? 1 : 0,
+                    bDidDie ? 1 : 0, CorePreview.bTargetDied ? 1 : 0, bCritical ? 1 : 0,
                     CorePreview.bCritical ? 1 : 0);
             }
         }

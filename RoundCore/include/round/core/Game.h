@@ -46,6 +46,7 @@ public:
     const GameState& State() const noexcept;
     bool IsTerminal() const noexcept;
     std::uint64_t StateHash() const noexcept;
+    bool RollBasisPoints(std::int32_t chanceBasisPoints) noexcept;
 
 private:
     const TileState* FindTile(EntityId tileId) const noexcept;

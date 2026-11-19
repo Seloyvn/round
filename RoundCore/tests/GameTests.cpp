@@ -95,6 +95,12 @@ int main()
     Game second;
     Require(second.Reset(ValidSetup()).success, "same setup should reset a second game");
     Require(first.StateHash() == second.StateHash(), "same setup and seed should produce the same state hash");
+    Game randomFirst = first.Clone();
+    Game randomSecond = second.Clone();
+    Require(randomFirst.RollBasisPoints(10000) && randomSecond.RollBasisPoints(10000),
+        "a guaranteed critical roll should succeed through Core");
+    Require(randomFirst.State().randomState == randomSecond.State().randomState,
+        "identical Core critical rolls must advance the deterministic stream identically");
 
     const std::vector<EntityId> visibleTiles = first.VisibleTileIds(10);
     Require(std::find(visibleTiles.begin(), visibleTiles.end(), 5) != visibleTiles.end(),

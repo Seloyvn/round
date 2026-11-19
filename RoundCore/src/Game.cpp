@@ -394,8 +394,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
 
     std::int64_t damage = std::max(0, attackerDefinition.stats.attack);
     const std::int32_t criticalChance = std::clamp(attackerDefinition.criticalChanceBasisPoints, 0, 10000);
-    const bool critical = criticalChance > 0
-        && static_cast<std::int32_t>(NextRandom() % 10000ull) < criticalChance;
+    const bool critical = RollBasisPoints(criticalChance);
     if (critical)
     {
         const std::int64_t multiplier = std::max(0, attackerDefinition.criticalDamageMultiplierBasisPoints);
@@ -684,6 +683,12 @@ std::uint64_t Game::NextRandom() noexcept
     value ^= value >> 27;
     state_.randomState = value;
     return value * 2685821657736338717ull;
+}
+
+bool Game::RollBasisPoints(const std::int32_t chanceBasisPoints) noexcept
+{
+    const std::int32_t chance = std::clamp(chanceBasisPoints, 0, 10000);
+    return chance > 0 && static_cast<std::int32_t>(NextRandom() % 10000ull) < chance;
 }
 
 ActionResult Game::ApplyEndTurn(const GameAction&)

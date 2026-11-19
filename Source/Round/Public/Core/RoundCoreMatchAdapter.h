@@ -37,6 +37,10 @@ public:
         const ARoundCharacter* TargetCharacter,
         FRoundCoreBasicAttackPreview& OutPreview,
         FString& OutReason) const;
+    bool ResolveBasicAttackCritical(
+        const ARoundCharacter* Character,
+        bool& bOutCritical,
+        FString& OutReason);
     bool GetVisibleTiles(
         const ARoundCharacter* Character,
         TArray<ARoundGridTile*>& OutVisibleTiles,
