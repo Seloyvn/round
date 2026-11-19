@@ -4,6 +4,7 @@ project(RoundCore LANGUAGES CXX)
 add_library(RoundCore STATIC
     src/Game.cpp
     src/Observation.cpp
+    src/VectorEnvironment.cpp
 )
 
 target_include_directories(RoundCore PUBLIC include)
@@ -29,4 +30,8 @@ if(ROUNDCORE_BUILD_TESTS)
     add_executable(RoundCoreRandomAgentSmoke tests/RandomAgentSmoke.cpp)
     target_link_libraries(RoundCoreRandomAgentSmoke PRIVATE RoundCore)
     add_test(NAME RoundCoreRandomAgentSmoke COMMAND RoundCoreRandomAgentSmoke)
+
+    add_executable(RoundCoreVectorEnvironmentTests tests/VectorEnvironmentTests.cpp)
+    target_link_libraries(RoundCoreVectorEnvironmentTests PRIVATE RoundCore)
+    add_test(NAME RoundCoreVectorEnvironmentTests COMMAND RoundCoreVectorEnvironmentTests)
 endif()

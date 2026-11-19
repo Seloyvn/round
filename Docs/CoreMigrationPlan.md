@@ -211,8 +211,9 @@ Current progress:
 - Core matches can be cloned for independent rollouts without shared mutable state.
 - A deterministic random-valid baseline completes thousands of standalone matches and reports throughput in the test output.
 - A versioned observation schema maps editor-exported definition IDs to deterministic numeric indices, and omniscient state/action tensors are emitted in stable entity order.
+- `VectorEnvironment` resets, observes, and steps independent Core matches in batches while preserving per-environment results and legal actions.
 - The numeric observation is deliberately marked omniscient until Core visibility can filter hidden state correctly.
-- Partial-information observations, vectorization, larger content packages, and formal performance benchmarks remain.
+- Partial-information observations, Python bindings, larger content packages, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training
 
