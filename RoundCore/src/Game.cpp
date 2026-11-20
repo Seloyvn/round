@@ -167,6 +167,7 @@ ActionResult Game::Reset(MatchSetup setup)
                 || effect.initiativeLossOnMove < 0
                 || effect.firstMoveInitiativeLoss < 0
                 || effect.maximumMovedFields < 0 || effect.movedFields < 0
+                || effect.frostbreakDamage < 0
                 || effect.incomingDamageMultiplierFromCauserBasisPoints < 0
                 || effect.initiativeLossOnExpire < 0)
             {
@@ -881,6 +882,34 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             EventType::DamageApplied, actor->id, target->id, target->tileId, action.abilityId, applied});
         result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
         result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+        if (applied > 0 && definition.damageType != DamageType::Physical)
+        {
+            for (auto effect = target->modifierEffects.begin(); effect != target->modifierEffects.end();)
+            {
+                if (effect->causerId != actor->id || effect->frostbreakDamage <= 0)
+                {
+                    ++effect;
+                    continue;
+                }
+                const std::int32_t frostbreakDamage = effect->frostbreakDamage;
+                const DefinitionId effectId = effect->id;
+                effect = target->modifierEffects.erase(effect);
+                result.events.push_back(GameEvent{
+                    EventType::EffectRemoved, actor->id, target->id, target->tileId, effectId, 0});
+                if (target->health <= 0)
+                {
+                    continue;
+                }
+                std::vector<GameEvent> frostAuraEvents;
+                std::vector<GameEvent> frostModifierEvents;
+                const std::int32_t frostApplied = ResolveDamage(
+                    *actor, *target, frostbreakDamage, 0, frostAuraEvents, frostModifierEvents);
+                result.events.push_back(GameEvent{EventType::DamageApplied, actor->id, target->id,
+                    target->tileId, "IcebeamFrostbreak", frostApplied});
+                result.events.insert(result.events.end(), frostAuraEvents.begin(), frostAuraEvents.end());
+                result.events.insert(result.events.end(), frostModifierEvents.begin(), frostModifierEvents.end());
+            }
+        }
         if (target->health <= 0)
         {
             target->health = 0;
@@ -1420,6 +1449,7 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.firstMoveInitiativeLoss);
             HashValue(hash, effect.maximumMovedFields);
             HashValue(hash, effect.movedFields);
+            HashValue(hash, effect.frostbreakDamage);
             HashValue(hash, effect.basicAttackCostAdd);
             HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
             HashValue(hash, effect.incomingDamageMultiplierFromCauserBasisPoints);

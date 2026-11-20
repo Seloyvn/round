@@ -375,6 +375,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.firstMoveInitiativeLoss = FMath::Max(0, Icebeam->FirstMoveInitiativeLoss);
                 EffectState.maximumMovedFields = FMath::Max(0, Icebeam->MaximumMovedFields);
                 EffectState.movedFields = FMath::Max(0, Icebeam->MovedFields);
+                EffectState.frostbreakDamage = FMath::Max(0, Icebeam->FrostbreakDamage);
                 EffectState.firstMovePenaltyAvailable = Icebeam->bFirstMovePenaltyAvailable;
             }
             EffectState.preventsAbilityUse = Silence != nullptr;

@@ -150,6 +150,7 @@ NumericObservation EncodeOmniscientObservation(
                 effect.defenseIgnoreAdd, effect.healFractionFromDamageDealtBasisPoints,
                 effect.moveCostAdd, effect.moveCostMultiplierBasisPoints, effect.initiativeLossOnMove,
                 effect.firstMoveInitiativeLoss, effect.maximumMovedFields, effect.movedFields,
+                effect.frostbreakDamage,
                 effect.basicAttackCostAdd, effect.basicAttackDamageMultiplierBasisPoints,
                 effect.incomingDamageMultiplierFromCauserBasisPoints, effect.initiativeLossOnExpire,
                 effect.onlyAffectCauserDamage ? 1 : 0,

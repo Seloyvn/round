@@ -280,6 +280,7 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.moveCostAdd); writer.Integer(effect.moveCostMultiplierBasisPoints);
             writer.Integer(effect.initiativeLossOnMove); writer.Integer(effect.firstMoveInitiativeLoss);
             writer.Integer(effect.maximumMovedFields); writer.Integer(effect.movedFields);
+            writer.Integer(effect.frostbreakDamage);
             writer.Integer(effect.basicAttackCostAdd);
             writer.Integer(effect.basicAttackDamageMultiplierBasisPoints);
             writer.Integer(effect.incomingDamageMultiplierFromCauserBasisPoints);
@@ -337,6 +338,7 @@ GameState ReadState(Reader& reader)
             value.firstMoveInitiativeLoss = reader.Integer<std::int32_t>();
             value.maximumMovedFields = reader.Integer<std::int32_t>();
             value.movedFields = reader.Integer<std::int32_t>();
+            value.frostbreakDamage = reader.Integer<std::int32_t>();
             value.basicAttackCostAdd = reader.Integer<std::int32_t>();
             value.basicAttackDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.incomingDamageMultiplierFromCauserBasisPoints = reader.Integer<std::int32_t>();

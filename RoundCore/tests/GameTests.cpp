@@ -554,6 +554,36 @@ int main()
             && modifiedAbility.State().characters[0].health == 53
             && modifiedAbility.State().characters[1].health == 84,
         "direct abilities should use the shared outgoing, incoming, lifesteal, and defense damage pipeline");
+    MatchSetup frostbreakSetup = abilitySetup;
+    frostbreakSetup.definitions.abilities.at(bolt.id).damageType = DamageType::Ice;
+    ModifierEffectState frostbreak;
+    frostbreak.id = "IcebeamSlow";
+    frostbreak.causerId = 10;
+    frostbreak.remainingInitiative = 20;
+    frostbreak.frostbreakDamage = 10;
+    frostbreakSetup.initialState.characters[1].modifierEffects.push_back(frostbreak);
+    Game frostbreakGame;
+    Require(frostbreakGame.Reset(std::move(frostbreakSetup)).success, "Frostbreak setup should reset");
+    const ActionResult frostbreakResult = frostbreakGame.ApplyAction(blockedBolt);
+    Require(frostbreakResult.success && frostbreakGame.State().characters[1].health == 69
+            && frostbreakGame.State().characters[1].modifierEffects.empty(),
+        "non-physical causer damage should consume Icebeam slow and apply Frostbreak through shared damage");
+    Require(std::any_of(frostbreakResult.events.begin(), frostbreakResult.events.end(),
+            [](const GameEvent& event)
+            {
+                return event.type == EventType::DamageApplied
+                    && event.definitionId == "IcebeamFrostbreak" && event.amount == 10;
+            }),
+        "Frostbreak should emit its own deterministic damage event");
+    MatchSetup physicalFrostbreakSetup = abilitySetup;
+    physicalFrostbreakSetup.initialState.characters[1].modifierEffects.push_back(frostbreak);
+    Game physicalFrostbreak;
+    Require(physicalFrostbreak.Reset(std::move(physicalFrostbreakSetup)).success,
+        "physical Frostbreak control setup should reset");
+    Require(physicalFrostbreak.ApplyAction(blockedBolt).success
+            && physicalFrostbreak.State().characters[1].health == 79
+            && physicalFrostbreak.State().characters[1].modifierEffects.size() == 1,
+        "physical damage should not consume or trigger Frostbreak");
     Game abilities;
     Require(abilities.Reset(std::move(abilitySetup)).success, "direct ability setup should reset");
     const std::vector<GameAction> abilityActions = abilities.LegalActions(10);
