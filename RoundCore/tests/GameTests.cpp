@@ -534,6 +534,26 @@ int main()
     Require(std::none_of(silencedActions.begin(), silencedActions.end(),
             [](const GameAction& action) { return action.type == ActionType::UseAbility; }),
         "silence should remove abilities from the legal-action mask");
+    MatchSetup modifiedAbilitySetup = abilitySetup;
+    modifiedAbilitySetup.initialState.characters[0].health = 50;
+    ModifierEffectState abilityOutgoing;
+    abilityOutgoing.id = "AbilityOutgoing";
+    abilityOutgoing.remainingInitiative = 20;
+    abilityOutgoing.outgoingDamageMultiplierBasisPoints = 15000;
+    abilityOutgoing.healFractionFromDamageDealtBasisPoints = 1000;
+    modifiedAbilitySetup.initialState.characters[0].modifierEffects.push_back(abilityOutgoing);
+    ModifierEffectState abilityIncoming;
+    abilityIncoming.id = "AbilityIncoming";
+    abilityIncoming.remainingInitiative = 20;
+    abilityIncoming.incomingDamageMultiplierBasisPoints = 5000;
+    modifiedAbilitySetup.initialState.characters[1].modifierEffects.push_back(abilityIncoming);
+    Game modifiedAbility;
+    Require(modifiedAbility.Reset(std::move(modifiedAbilitySetup)).success,
+        "modified direct-ability setup should reset");
+    Require(modifiedAbility.ApplyAction(blockedBolt).success
+            && modifiedAbility.State().characters[0].health == 53
+            && modifiedAbility.State().characters[1].health == 84,
+        "direct abilities should use the shared outgoing, incoming, lifesteal, and defense damage pipeline");
     Game abilities;
     Require(abilities.Reset(std::move(abilitySetup)).success, "direct ability setup should reset");
     const std::vector<GameAction> abilityActions = abilities.LegalActions(10);

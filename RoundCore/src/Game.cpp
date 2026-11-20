@@ -471,6 +471,128 @@ Game Game::Clone() const
     return *this;
 }
 
+std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target, std::int64_t damage,
+    std::int32_t defenseIgnore, std::vector<GameEvent>& auraEvents,
+    std::vector<GameEvent>& modifierEvents)
+{
+    const CharacterDefinition& sourceDefinition = definitions_.characters.at(source.definitionId);
+    const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
+    for (const ModifierEffectState& effect : source.modifierEffects)
+    {
+        if (effect.onlyAffectCauserDamage && effect.causerId != target.id)
+        {
+            continue;
+        }
+        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
+        damage = ApplyBasisPoints(damage, effect.outgoingDamageMultiplierBasisPoints);
+        const std::int32_t heal = static_cast<std::int32_t>(ApplyBasisPoints(
+            damage, effect.healFractionFromDamageDealtBasisPoints));
+        const std::int32_t appliedHeal = std::min(
+            heal, std::max(0, sourceDefinition.stats.maxHealth - source.health));
+        source.health += appliedHeal;
+        if (appliedHeal > 0)
+        {
+            modifierEvents.push_back(GameEvent{
+                EventType::HealingApplied, source.id, source.id, source.tileId, effect.id, appliedHeal});
+        }
+    }
+
+    const TileState* protectedTargetTile = FindTile(target.tileId);
+    for (CharacterState& auraOwner : state_.characters)
+    {
+        if (!auraOwner.alive || auraOwner.team != target.team || !protectedTargetTile)
+        {
+            continue;
+        }
+        const auto auraDefinitionEntry = definitions_.characters.find(auraOwner.definitionId);
+        const TileState* auraTile = FindTile(auraOwner.tileId);
+        if (auraDefinitionEntry == definitions_.characters.end() || !auraTile)
+        {
+            continue;
+        }
+
+        const CharacterDefinition& auraDefinition = auraDefinitionEntry->second;
+        const double reduction = std::clamp(
+            PassiveValue(auraDefinition, "CoreIncomingDamageAuraReduction"), 0.0, 0.95);
+        const std::int32_t radius = std::max(
+            0, static_cast<std::int32_t>(PassiveValue(auraDefinition, "CoreIncomingDamageAuraRadius") + 0.5));
+        const bool affectsSelf = PassiveValue(auraDefinition, "CoreIncomingDamageAuraAffectSelf") > 0.0;
+        if (reduction <= 0.0 || (auraOwner.id == target.id && !affectsSelf)
+            || HexDistance(auraTile->coord, protectedTargetTile->coord) > radius)
+        {
+            continue;
+        }
+
+        const std::int64_t previousDamage = damage;
+        damage = static_cast<std::int64_t>(static_cast<double>(damage) * (1.0 - reduction) + 0.5);
+        const std::int32_t preventedDamage = static_cast<std::int32_t>(
+            std::max<std::int64_t>(0, previousDamage - damage));
+        if (preventedDamage <= 0)
+        {
+            continue;
+        }
+
+        const std::int32_t heal = std::max(0, static_cast<std::int32_t>(
+            preventedDamage * PassiveValue(auraDefinition, "CoreAuraHealFractionOfPreventedDamage") + 0.5));
+        const std::int32_t appliedHeal = std::min(
+            heal, std::max(0, auraDefinition.stats.maxHealth - auraOwner.health));
+        auraOwner.health += appliedHeal;
+        if (appliedHeal > 0)
+        {
+            auraEvents.push_back(GameEvent{EventType::HealingApplied, auraOwner.id, auraOwner.id,
+                auraOwner.tileId, "IncomingDamageAura", appliedHeal});
+        }
+        const std::int32_t initiativeGain = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(auraDefinition, "CoreAuraInitiativeOnPrevent") + 0.5));
+        auraOwner.initiative += initiativeGain;
+        if (initiativeGain > 0)
+        {
+            auraEvents.push_back(GameEvent{EventType::InitiativeChanged, auraOwner.id, auraOwner.id,
+                auraOwner.tileId, "IncomingDamageAura", initiativeGain});
+        }
+        const std::int32_t cooldownReduction = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(auraDefinition, "CoreAuraCooldownReductionOnPrevent") + 0.5));
+        for (AbilityState& ability : auraOwner.abilities)
+        {
+            const std::int32_t previousCooldown = ability.cooldownRemaining;
+            ability.cooldownRemaining = std::max(0, previousCooldown - cooldownReduction);
+            if (ability.cooldownRemaining != previousCooldown)
+            {
+                auraEvents.push_back(GameEvent{EventType::CooldownChanged, auraOwner.id, auraOwner.id,
+                    auraOwner.tileId, ability.definitionId, ability.cooldownRemaining - previousCooldown});
+            }
+        }
+    }
+
+    const TileState* sourceTile = FindTile(source.tileId);
+    for (const ModifierEffectState& effect : target.modifierEffects)
+    {
+        if (effect.onlyAffectCauserDamage && effect.causerId != source.id)
+        {
+            continue;
+        }
+        if (effect.onlyAgainstRangedSources && sourceTile && protectedTargetTile
+            && HexDistance(sourceTile->coord, protectedTargetTile->coord) <= 1)
+        {
+            continue;
+        }
+        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
+        if (effect.causerId == source.id)
+        {
+            damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierFromCauserBasisPoints);
+        }
+        damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierBasisPoints);
+    }
+
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense - defenseIgnore);
+    const std::int64_t denominator = 100 + defense;
+    const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
+        std::numeric_limits<std::int32_t>::max(), (damage * 100 + denominator / 2) / denominator));
+    const std::int32_t appliedDamage = std::min(target.health, finalDamage);
+    target.health -= appliedDamage;
+    return appliedDamage;
+}
+
 ActionResult Game::ApplyBasicAttack(const GameAction& action)
 {
     CharacterState* attacker = FindCharacter(action.actorId);
@@ -481,7 +603,6 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     }
 
     const CharacterDefinition& attackerDefinition = definitions_.characters.at(attacker->definitionId);
-    const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
     const std::int32_t attackCost = BasicAttackCost(*attacker);
     attacker->initiative -= attackCost;
 
@@ -501,123 +622,9 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         damage = ApplyBasisPoints(damage, effect.basicAttackDamageMultiplierBasisPoints);
     }
 
-    for (const ModifierEffectState& effect : attacker->modifierEffects)
-    {
-        if (effect.onlyAffectCauserDamage && effect.causerId != target->id)
-        {
-            continue;
-        }
-        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
-        damage = ApplyBasisPoints(damage, effect.outgoingDamageMultiplierBasisPoints);
-        const std::int32_t heal = static_cast<std::int32_t>(ApplyBasisPoints(
-            damage, effect.healFractionFromDamageDealtBasisPoints));
-        const std::int32_t appliedHeal = std::min(
-            heal, std::max(0, attackerDefinition.stats.maxHealth - attacker->health));
-        attacker->health += appliedHeal;
-        if (appliedHeal > 0)
-        {
-            modifierEvents.push_back(GameEvent{
-                EventType::HealingApplied, attacker->id, attacker->id, attacker->tileId, effect.id, appliedHeal});
-        }
-    }
-
     std::vector<GameEvent> auraEvents;
-    const TileState* protectedTargetTile = FindTile(target->tileId);
-    for (CharacterState& auraOwner : state_.characters)
-    {
-        if (!auraOwner.alive || auraOwner.team != target->team || !protectedTargetTile)
-        {
-            continue;
-        }
-        const auto auraDefinitionEntry = definitions_.characters.find(auraOwner.definitionId);
-        const TileState* auraTile = FindTile(auraOwner.tileId);
-        if (auraDefinitionEntry == definitions_.characters.end() || !auraTile)
-        {
-            continue;
-        }
-
-        const CharacterDefinition& auraDefinition = auraDefinitionEntry->second;
-        const double reduction = std::clamp(
-            PassiveValue(auraDefinition, "CoreIncomingDamageAuraReduction"), 0.0, 0.95);
-        const std::int32_t radius = std::max(
-            0, static_cast<std::int32_t>(PassiveValue(auraDefinition, "CoreIncomingDamageAuraRadius") + 0.5));
-        const bool affectsSelf = PassiveValue(auraDefinition, "CoreIncomingDamageAuraAffectSelf") > 0.0;
-        if (reduction <= 0.0 || (auraOwner.id == target->id && !affectsSelf)
-            || HexDistance(auraTile->coord, protectedTargetTile->coord) > radius)
-        {
-            continue;
-        }
-
-        const std::int64_t previousDamage = damage;
-        damage = static_cast<std::int64_t>(static_cast<double>(damage) * (1.0 - reduction) + 0.5);
-        const std::int32_t preventedDamage = static_cast<std::int32_t>(std::max<std::int64_t>(0, previousDamage - damage));
-        if (preventedDamage <= 0)
-        {
-            continue;
-        }
-
-        const std::int32_t heal = std::max(0, static_cast<std::int32_t>(
-            preventedDamage * PassiveValue(auraDefinition, "CoreAuraHealFractionOfPreventedDamage") + 0.5));
-        const std::int32_t appliedHeal = std::min(heal, std::max(0, auraDefinition.stats.maxHealth - auraOwner.health));
-        auraOwner.health += appliedHeal;
-        if (appliedHeal > 0)
-        {
-            auraEvents.push_back(GameEvent{
-                EventType::HealingApplied, auraOwner.id, auraOwner.id, auraOwner.tileId,
-                "IncomingDamageAura", appliedHeal});
-        }
-        const std::int32_t initiativeGain = std::max(0, static_cast<std::int32_t>(
-            PassiveValue(auraDefinition, "CoreAuraInitiativeOnPrevent") + 0.5));
-        auraOwner.initiative += initiativeGain;
-        if (initiativeGain > 0)
-        {
-            auraEvents.push_back(GameEvent{
-                EventType::InitiativeChanged, auraOwner.id, auraOwner.id, auraOwner.tileId,
-                "IncomingDamageAura", initiativeGain});
-        }
-        const std::int32_t cooldownReduction = std::max(0, static_cast<std::int32_t>(
-            PassiveValue(auraDefinition, "CoreAuraCooldownReductionOnPrevent") + 0.5));
-        for (AbilityState& ability : auraOwner.abilities)
-        {
-            const std::int32_t previousCooldown = ability.cooldownRemaining;
-            ability.cooldownRemaining = std::max(0, previousCooldown - cooldownReduction);
-            if (ability.cooldownRemaining != previousCooldown)
-            {
-                auraEvents.push_back(GameEvent{
-                    EventType::CooldownChanged, auraOwner.id, auraOwner.id, auraOwner.tileId,
-                    ability.definitionId, ability.cooldownRemaining - previousCooldown});
-            }
-        }
-    }
-
-
-    const TileState* attackerTile = FindTile(attacker->tileId);
-    for (const ModifierEffectState& effect : target->modifierEffects)
-    {
-        if (effect.onlyAffectCauserDamage && effect.causerId != attacker->id)
-        {
-            continue;
-        }
-        if (effect.onlyAgainstRangedSources && attackerTile && protectedTargetTile
-            && HexDistance(attackerTile->coord, protectedTargetTile->coord) <= 1)
-        {
-            continue;
-        }
-        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
-        if (effect.causerId == attacker->id)
-        {
-            damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierFromCauserBasisPoints);
-        }
-        damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierBasisPoints);
-    }
-
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense - defenseIgnore);
-    const std::int64_t denominator = 100 + defense;
-    const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
-        std::numeric_limits<std::int32_t>::max(),
-        (damage * 100 + denominator / 2) / denominator));
-    const std::int32_t appliedDamage = std::min(target->health, finalDamage);
-    target->health -= appliedDamage;
+    const std::int32_t appliedDamage = ResolveDamage(
+        *attacker, *target, damage, defenseIgnore, auraEvents, modifierEvents);
 
     ActionResult result;
     result.success = true;
@@ -866,15 +873,14 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     }
     else
     {
-        const std::int64_t defense = std::max(0, targetDefinition.stats.defense - std::max(0, definition.defenseIgnore));
-        const std::int64_t denominator = 100 + defense;
-        const std::int32_t damage = static_cast<std::int32_t>(std::min<std::int64_t>(
-            std::numeric_limits<std::int32_t>::max(),
-            (static_cast<std::int64_t>(std::max(0, definition.amount)) * 100 + denominator / 2) / denominator));
-        const std::int32_t applied = std::min(target->health, damage);
-        target->health -= applied;
+        std::vector<GameEvent> auraEvents;
+        std::vector<GameEvent> modifierEvents;
+        const std::int32_t applied = ResolveDamage(*actor, *target, std::max(0, definition.amount),
+            std::max(0, definition.defenseIgnore), auraEvents, modifierEvents);
         result.events.push_back(GameEvent{
             EventType::DamageApplied, actor->id, target->id, target->tileId, action.abilityId, applied});
+        result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+        result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
         if (target->health <= 0)
         {
             target->health = 0;

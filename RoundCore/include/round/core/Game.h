@@ -55,6 +55,9 @@ private:
     CharacterState* FindCharacter(EntityId characterId) noexcept;
     std::int32_t MovementCost(const CharacterState& character, const TileState& destination) const noexcept;
     std::int32_t BasicAttackCost(const CharacterState& character) const noexcept;
+    std::int32_t ResolveDamage(CharacterState& source, CharacterState& target, std::int64_t damage,
+        std::int32_t defenseIgnore, std::vector<GameEvent>& auraEvents,
+        std::vector<GameEvent>& modifierEvents);
     ActionResult ValidateMove(const GameAction& action) const;
     ActionResult ApplyBasicAttack(const GameAction& action);
     ActionResult ValidateBasicAttack(const GameAction& action) const;
