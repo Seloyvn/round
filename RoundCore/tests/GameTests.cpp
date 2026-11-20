@@ -277,6 +277,34 @@ int main()
             && slowMoveResult.events[2].amount == -4,
         "slow movement should expose base movement cost and additional delay as separate events");
 
+    MatchSetup icebeamMoveSetup = ValidSetup();
+    icebeamMoveSetup.initialState.characters[1].tileId = 4;
+    ModifierEffectState icebeamSlow;
+    icebeamSlow.id = "IcebeamSlow";
+    icebeamSlow.remainingInitiative = 20;
+    icebeamSlow.firstMovePenaltyAvailable = true;
+    icebeamSlow.firstMoveInitiativeLoss = 6;
+    icebeamSlow.maximumMovedFields = 2;
+    icebeamMoveSetup.initialState.characters[0].modifierEffects.push_back(icebeamSlow);
+    Game icebeamMove;
+    Require(icebeamMove.Reset(std::move(icebeamMoveSetup)).success,
+        "Icebeam movement-effect setup should reset");
+    Require(icebeamMove.ApplyAction(discountedMoveAction).success
+            && icebeamMove.State().characters[0].initiative == 84
+            && icebeamMove.State().characters[0].modifierEffects.size() == 1
+            && !icebeamMove.State().characters[0].modifierEffects[0].firstMovePenaltyAvailable
+            && icebeamMove.State().characters[0].modifierEffects[0].movedFields == 1,
+        "Icebeam should consume its first-move penalty and track the first moved field in Core");
+    GameAction icebeamReturnMove = discountedMoveAction;
+    icebeamReturnMove.targetTileId = 1;
+    const ActionResult icebeamReturnResult = icebeamMove.ApplyAction(icebeamReturnMove);
+    Require(icebeamReturnResult.success && icebeamMove.State().characters[0].initiative == 74
+            && icebeamMove.State().characters[0].modifierEffects.empty(),
+        "Icebeam slow should remove itself after its configured number of moved fields");
+    Require(std::any_of(icebeamReturnResult.events.begin(), icebeamReturnResult.events.end(),
+            [](const GameEvent& event) { return event.type == EventType::EffectRemoved && event.definitionId == "IcebeamSlow"; }),
+        "Icebeam movement expiry should emit a deterministic removal event");
+
     MatchSetup turnSetup = ValidSetup();
     AbilityDefinition testAbility; testAbility.id = "TestAbility";
     AbilityDefinition chargeAbility; chargeAbility.id = "ChargeAbility";

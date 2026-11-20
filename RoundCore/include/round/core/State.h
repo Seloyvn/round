@@ -40,6 +40,9 @@ struct ModifierEffectState
     std::int32_t moveCostAdd = 0;
     std::int32_t moveCostMultiplierBasisPoints = 10000;
     std::int32_t initiativeLossOnMove = 0;
+    std::int32_t firstMoveInitiativeLoss = 0;
+    std::int32_t maximumMovedFields = 0;
+    std::int32_t movedFields = 0;
     std::int32_t basicAttackCostAdd = 0;
     std::int32_t basicAttackDamageMultiplierBasisPoints = 10000;
     std::int32_t incomingDamageMultiplierFromCauserBasisPoints = 10000;
@@ -51,6 +54,7 @@ struct ModifierEffectState
     bool consumeOnBasicAttack = false;
     bool preventsAbilityUse = false;
     bool preventsMovement = false;
+    bool firstMovePenaltyAvailable = false;
     bool expireOnTurnEnd = false;
 };
 

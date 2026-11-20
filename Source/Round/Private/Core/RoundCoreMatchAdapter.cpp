@@ -11,6 +11,7 @@
 #include "Effects/RoundSilenceEffect.h"
 #include "Effects/RoundRootEffect.h"
 #include "Effects/RoundSlowEffect.h"
+#include "Effects/RoundIcebeamEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -297,6 +298,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundSilenceEffect* Silence = Cast<ARoundSilenceEffect>(Effect);
             const ARoundRootEffect* Root = Cast<ARoundRootEffect>(Effect);
             const ARoundSlowEffect* Slow = Cast<ARoundSlowEffect>(Effect);
+            const ARoundIcebeamEffect* Icebeam = Cast<ARoundIcebeamEffect>(Effect);
             if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow)
             {
                 continue;
@@ -350,6 +352,13 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.initiativeLossOnMove = FMath::Max(0, Slow->InitiativeLossOnMove);
                 EffectState.initiativeLossOnExpire = FMath::Max(0, Slow->InitiativeLossOnExpire);
                 EffectState.blockMovementBonuses = Slow->bBlockMovementBonuses;
+            }
+            if (Icebeam)
+            {
+                EffectState.firstMoveInitiativeLoss = FMath::Max(0, Icebeam->FirstMoveInitiativeLoss);
+                EffectState.maximumMovedFields = FMath::Max(0, Icebeam->MaximumMovedFields);
+                EffectState.movedFields = FMath::Max(0, Icebeam->MovedFields);
+                EffectState.firstMovePenaltyAvailable = Icebeam->bFirstMovePenaltyAvailable;
             }
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;

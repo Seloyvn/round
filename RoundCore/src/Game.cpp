@@ -165,6 +165,8 @@ ActionResult Game::Reset(MatchSetup setup)
                 || effect.basicAttackDamageMultiplierBasisPoints < 0
                 || effect.moveCostMultiplierBasisPoints < 0
                 || effect.initiativeLossOnMove < 0
+                || effect.firstMoveInitiativeLoss < 0
+                || effect.maximumMovedFields < 0 || effect.movedFields < 0
                 || effect.incomingDamageMultiplierFromCauserBasisPoints < 0
                 || effect.initiativeLossOnExpire < 0)
             {
@@ -263,6 +265,12 @@ ActionResult Game::ApplyAction(const GameAction& action)
         initiativeLossOnMove = std::min<std::int64_t>(
             std::numeric_limits<std::int32_t>::max(),
             initiativeLossOnMove + std::max(0, effect.initiativeLossOnMove));
+        if (effect.firstMovePenaltyAvailable)
+        {
+            initiativeLossOnMove = std::min<std::int64_t>(
+                std::numeric_limits<std::int32_t>::max(),
+                initiativeLossOnMove + std::max(0, effect.firstMoveInitiativeLoss));
+        }
     }
     origin->occupantId = InvalidEntityId;
     destination->occupantId = character->id;
@@ -280,6 +288,27 @@ ActionResult Game::ApplyAction(const GameAction& action)
     {
         result.events.push_back(GameEvent{EventType::InitiativeChanged, character->id, character->id,
             destination->id, "Slow", -static_cast<std::int32_t>(initiativeLossOnMove)});
+    }
+    for (auto effect = character->modifierEffects.begin(); effect != character->modifierEffects.end();)
+    {
+        effect->firstMovePenaltyAvailable = false;
+        if (effect->maximumMovedFields > 0)
+        {
+            if (effect->movedFields < std::numeric_limits<std::int32_t>::max())
+            {
+                ++effect->movedFields;
+            }
+        }
+        if (effect->maximumMovedFields > 0 && effect->movedFields >= effect->maximumMovedFields)
+        {
+            result.events.push_back(GameEvent{EventType::EffectRemoved, character->id, character->id,
+                destination->id, effect->id, 0});
+            effect = character->modifierEffects.erase(effect);
+        }
+        else
+        {
+            ++effect;
+        }
     }
     return result;
 }
@@ -1382,6 +1411,9 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.moveCostAdd);
             HashValue(hash, effect.moveCostMultiplierBasisPoints);
             HashValue(hash, effect.initiativeLossOnMove);
+            HashValue(hash, effect.firstMoveInitiativeLoss);
+            HashValue(hash, effect.maximumMovedFields);
+            HashValue(hash, effect.movedFields);
             HashValue(hash, effect.basicAttackCostAdd);
             HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
             HashValue(hash, effect.incomingDamageMultiplierFromCauserBasisPoints);
@@ -1393,6 +1425,7 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.consumeOnBasicAttack);
             HashValue(hash, effect.preventsAbilityUse);
             HashValue(hash, effect.preventsMovement);
+            HashValue(hash, effect.firstMovePenaltyAvailable);
             HashValue(hash, effect.expireOnTurnEnd);
         }
     }

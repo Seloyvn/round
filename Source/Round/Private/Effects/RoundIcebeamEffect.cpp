@@ -1,6 +1,7 @@
 #include "Effects/RoundIcebeamEffect.h"
 
 #include "Actors/RoundCharacter.h"
+#include "Game/RoundGameState.h"
 
 void ARoundIcebeamEffect::OnOwnerMoved(ARoundCharacter* TargetCharacter, ARoundGridTile* PreviousTile, ARoundGridTile* NewTile)
 {
@@ -10,10 +11,22 @@ void ARoundIcebeamEffect::OnOwnerMoved(ARoundCharacter* TargetCharacter, ARoundG
         return;
     }
 
-    if (bFirstMovePenaltyAvailable && FirstMoveInitiativeLoss > 0)
+    ARoundGameState* GameState = ARoundGameState::GetRoundGameState(TargetCharacter);
+    const bool bCoreAppliedMovement = GameState && GameState->IsApplyingCoreMovementCallbacks();
+    if (bFirstMovePenaltyAvailable)
     {
         bFirstMovePenaltyAvailable = false;
-        TargetCharacter->ApplyDelay(FirstMoveInitiativeLoss);
+        if (FirstMoveInitiativeLoss > 0)
+        {
+            if (bCoreAppliedMovement)
+            {
+                GameState->RecordDelayApplied(TargetCharacter, FirstMoveInitiativeLoss);
+            }
+            else
+            {
+                TargetCharacter->ApplyDelay(FirstMoveInitiativeLoss);
+            }
+        }
     }
 
     if (MaximumMovedFields > 0 && ++MovedFields >= MaximumMovedFields)
