@@ -158,7 +158,7 @@ Current progress:
 - Actor effects, terrain/aura damage modifiers, death prevention, board-object attacks, and presentation consumption remain Actor-owned, so live attack execution has not switched yet.
 - Live character attacks now resolve a non-mutating clone of the current Core snapshot before Actor execution and compare initiative cost, applied damage, death, match end, and critical state afterward. Mismatches are logged as `RoundCoreAttackParity` and provide the concrete parity cases needed to migrate shared modifiers without changing current gameplay.
 - Critical-hit rolls for live basic attacks now consume the same deterministic RoundCore random stream as headless attacks; Unreal no longer uses its independent global random source for this migrated rule.
-- The shared numeric `RoundModifierEffect` state is serialized in package version 3 and participates in deterministic hashes, team-filtered observations, Python batches, duration expiry, and normal-attack resolution. Unreal exports resolved runtime instances including causer restrictions, ranged-only restrictions, multipliers, defense ignore, and pre-mitigation lifesteal.
+- Shared effect state is serialized in package version 4 and participates in deterministic hashes, team-filtered observations, Python batches, duration expiry, and normal-attack resolution. Unreal exports resolved runtime instances including causer restrictions, ranged-only restrictions, multipliers, defense ignore, pre-mitigation lifesteal, one-hit basic-attack damage changes, and one-use basic-attack costs.
 
 ### Phase 4 — Shared effects and terrain
 
@@ -172,6 +172,7 @@ Current progress:
 - `RoundModifierEffect` is the first explicit shared effect state. Initiative and turn-relative durations expire deterministically and emit removal events.
 - Modifier observations redact hidden causer IDs, preventing effects on visible units from leaking unseen enemies to a training policy.
 - Additive movement costs and blocking movement-cost bonuses now resolve in the same Core movement rule; Unreal exports the unmodified character base cost so terrain and effects are applied exactly once.
+- `RoundBasicAttackDamageReductionEffect` consumption and the first-attack initiative tax from `RoundSuppressingFireEffect` now resolve in Core and are visible to training observations.
 - Duration changes applied by other effects, damage redirection, and specialized effect classes remain Actor-owned until their individual rules are migrated.
 
 ### Phase 5 — Characters and abilities

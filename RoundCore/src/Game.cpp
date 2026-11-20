@@ -161,7 +161,8 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             if (effect.id.empty() || effect.remainingInitiative < 0 || effect.remainingTurns < 0
                 || effect.incomingDamageMultiplierBasisPoints < 0 || effect.outgoingDamageMultiplierBasisPoints < 0
-                || effect.healFractionFromDamageDealtBasisPoints < 0)
+                || effect.healFractionFromDamageDealtBasisPoints < 0
+                || effect.basicAttackDamageMultiplierBasisPoints < 0)
             {
                 return Failure("invalid_modifier_effect", "Modifier effects require an ID and non-negative duration and multiplier values.");
             }
@@ -435,7 +436,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
 
     const CharacterDefinition& attackerDefinition = definitions_.characters.at(attacker->definitionId);
     const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
-    const std::int32_t attackCost = std::max(0, attackerDefinition.stats.attackCost);
+    const std::int32_t attackCost = BasicAttackCost(*attacker);
     attacker->initiative -= attackCost;
 
     std::int64_t damage = std::max(0, attackerDefinition.stats.attack);
@@ -447,6 +448,11 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     {
         const std::int64_t multiplier = std::max(0, attackerDefinition.criticalDamageMultiplierBasisPoints);
         damage = (damage * multiplier + 5000) / 10000;
+    }
+
+    for (const ModifierEffectState& effect : attacker->modifierEffects)
+    {
+        damage = ApplyBasisPoints(damage, effect.basicAttackDamageMultiplierBasisPoints);
     }
 
     for (const ModifierEffectState& effect : attacker->modifierEffects)
@@ -572,6 +578,20 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         EventType::DamageApplied, attacker->id, target->id, target->tileId, "Physical", appliedDamage});
     result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
     result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+    for (auto effect = attacker->modifierEffects.begin(); effect != attacker->modifierEffects.end();)
+    {
+        effect->basicAttackCostAvailable = false;
+        if (effect->consumeOnBasicAttack)
+        {
+            result.events.push_back(GameEvent{
+                EventType::EffectRemoved, attacker->id, attacker->id, attacker->tileId, effect->id, 0});
+            effect = attacker->modifierEffects.erase(effect);
+        }
+        else
+        {
+            ++effect;
+        }
+    }
 
     if (target->health <= 0)
     {
@@ -652,7 +672,7 @@ ActionResult Game::ValidateBasicAttack(const GameAction& action) const
     {
         return Failure("target_not_visible", "The target is not visible to the attacking team.");
     }
-    if (attacker->initiative < std::max(0, definition.stats.attackCost))
+    if (attacker->initiative < BasicAttackCost(*attacker))
     {
         return Failure("insufficient_initiative", "The character cannot afford this basic attack.");
     }
@@ -1171,6 +1191,26 @@ std::int32_t Game::MovementCost(const CharacterState& character, const TileState
         : static_cast<std::int32_t>(std::max<std::int64_t>(1, cost));
 }
 
+std::int32_t Game::BasicAttackCost(const CharacterState& character) const noexcept
+{
+    const auto definition = definitions_.characters.find(character.definitionId);
+    if (definition == definitions_.characters.end())
+    {
+        return std::numeric_limits<std::int32_t>::max();
+    }
+    std::int64_t cost = std::max(0, definition->second.stats.attackCost);
+    for (const ModifierEffectState& effect : character.modifierEffects)
+    {
+        if (effect.basicAttackCostAvailable)
+        {
+            cost = std::max<std::int64_t>(0, cost + effect.basicAttackCostAdd);
+        }
+    }
+    return cost > std::numeric_limits<std::int32_t>::max()
+        ? std::numeric_limits<std::int32_t>::max()
+        : static_cast<std::int32_t>(cost);
+}
+
 ActionResult Game::ValidateMove(const GameAction& action) const
 {
     if (state_.status != MatchStatus::Running)
@@ -1296,9 +1336,13 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.defenseIgnoreAdd);
             HashValue(hash, effect.healFractionFromDamageDealtBasisPoints);
             HashValue(hash, effect.moveCostAdd);
+            HashValue(hash, effect.basicAttackCostAdd);
+            HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
             HashValue(hash, effect.onlyAffectCauserDamage);
             HashValue(hash, effect.onlyAgainstRangedSources);
             HashValue(hash, effect.blockMovementBonuses);
+            HashValue(hash, effect.basicAttackCostAvailable);
+            HashValue(hash, effect.consumeOnBasicAttack);
             HashValue(hash, effect.expireOnTurnEnd);
         }
     }

@@ -371,6 +371,37 @@ int main()
     Require(modifierCombat.State().characters[1].health == 85,
         "outgoing and incoming modifier multipliers should resolve in Actor order");
 
+    MatchSetup basicAttackEffectSetup = ValidSetup();
+    basicAttackEffectSetup.definitions.characters.at("Tank").stats.attack = 20;
+    basicAttackEffectSetup.definitions.characters.at("Tank").stats.defense = 0;
+    ModifierEffectState attackTax;
+    attackTax.id = "AttackTax";
+    attackTax.remainingInitiative = 50;
+    attackTax.basicAttackCostAdd = 5;
+    attackTax.basicAttackCostAvailable = true;
+    basicAttackEffectSetup.initialState.characters[0].modifierEffects.push_back(attackTax);
+    ModifierEffectState oneHitReduction;
+    oneHitReduction.id = "OneHitReduction";
+    oneHitReduction.remainingInitiative = 50;
+    oneHitReduction.basicAttackDamageMultiplierBasisPoints = 5000;
+    oneHitReduction.consumeOnBasicAttack = true;
+    basicAttackEffectSetup.initialState.characters[0].modifierEffects.push_back(oneHitReduction);
+    Game basicAttackEffects;
+    Require(basicAttackEffects.Reset(std::move(basicAttackEffectSetup)).success,
+        "basic-attack effect setup should reset");
+    Require(basicAttackEffects.ApplyAction(attack).success,
+        "a taxed and damage-modified basic attack should execute");
+    Require(basicAttackEffects.State().characters[0].initiative == 75
+            && basicAttackEffects.State().characters[1].health == 90,
+        "basic-attack cost and one-hit damage effects should affect the first attack");
+    Require(basicAttackEffects.State().characters[0].modifierEffects.size() == 1
+            && !basicAttackEffects.State().characters[0].modifierEffects[0].basicAttackCostAvailable,
+        "one-hit effects should be consumed and one-use attack taxes should become unavailable");
+    Require(basicAttackEffects.ApplyAction(attack).success
+            && basicAttackEffects.State().characters[0].initiative == 55
+            && basicAttackEffects.State().characters[1].health == 70,
+        "subsequent attacks should use base cost and damage after one-use effects resolve");
+
     MatchSetup abilitySetup = ValidSetup();
     AbilityDefinition bolt;
     bolt.id = "DirectBolt";

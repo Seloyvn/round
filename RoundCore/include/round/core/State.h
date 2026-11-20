@@ -38,9 +38,13 @@ struct ModifierEffectState
     std::int32_t defenseIgnoreAdd = 0;
     std::int32_t healFractionFromDamageDealtBasisPoints = 0;
     std::int32_t moveCostAdd = 0;
+    std::int32_t basicAttackCostAdd = 0;
+    std::int32_t basicAttackDamageMultiplierBasisPoints = 10000;
     bool onlyAffectCauserDamage = false;
     bool onlyAgainstRangedSources = false;
     bool blockMovementBonuses = false;
+    bool basicAttackCostAvailable = false;
+    bool consumeOnBasicAttack = false;
     bool expireOnTurnEnd = false;
 };
 

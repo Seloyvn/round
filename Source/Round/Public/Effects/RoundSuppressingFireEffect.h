@@ -32,6 +32,8 @@ public:
     virtual void OnOwnerMoved(class ARoundCharacter* TargetCharacter, class ARoundGridTile* PreviousTile, class ARoundGridTile* NewTile) override;
     virtual void OnDamageTaken(class ARoundCharacter* TargetCharacter, class ARoundCharacter* SourceCharacter, int32 AppliedDamage, ERoundDamageType DamageType) override;
 
+    bool IsBasicAttackTaxAvailable() const { return bBasicAttackTaxAvailable; }
+
 private:
     bool bBasicAttackTaxAvailable = true;
     bool bMovementReactionUsed = false;

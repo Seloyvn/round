@@ -6,6 +6,8 @@
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundCharacterPaladin.h"
 #include "Effects/RoundModifierEffect.h"
+#include "Effects/RoundBasicAttackDamageReductionEffect.h"
+#include "Effects/RoundSuppressingFireEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -177,8 +179,12 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         Definition.stats.maxInitiative = Stats.MaxInitiative;
         Definition.stats.visionRange = Stats.VisionRange;
         Definition.stats.attackRange = Character->GetAttackRange();
-        Definition.stats.moveCost = FMath::Max(1, Stats.MoveCost);
-        Definition.stats.attackCost = Character->GetAttackCost();
+        Definition.stats.moveCost = Stats.MoveCost > 0
+            ? Stats.MoveCost
+            : FMath::Max(1, FMath::TruncToInt(Character->GetValueFromKey(TEXT("Movecost"))));
+        Definition.stats.attackCost = Stats.AttackCost > 0
+            ? Stats.AttackCost
+            : FMath::Max(0, FMath::TruncToInt(Character->GetValueFromKey(TEXT("AttackCost"))));
         Definition.stats.turnDelay = Character->GetTurnDelay();
         Definition.criticalChanceBasisPoints = FMath::Clamp(
             FMath::RoundToInt(Character->GetCritChance() * 10000.0), 0, 10000);
@@ -269,7 +275,10 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         for (const ARoundEffectActor* Effect : Character->ActiveEffects)
         {
             const ARoundModifierEffect* Modifier = Cast<ARoundModifierEffect>(Effect);
-            if (!Modifier)
+            const ARoundBasicAttackDamageReductionEffect* BasicAttackReduction =
+                Cast<ARoundBasicAttackDamageReductionEffect>(Effect);
+            const ARoundSuppressingFireEffect* SuppressingFire = Cast<ARoundSuppressingFireEffect>(Effect);
+            if (!Modifier && !BasicAttackReduction && !SuppressingFire)
             {
                 continue;
             }
@@ -280,17 +289,31 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             EffectState.causerId = CharacterIds.FindRef(Modifier->CauserCharacter);
             EffectState.remainingInitiative = FMath::Max(0, Modifier->RemainingInitiative);
             EffectState.remainingTurns = FMath::Max(0, Modifier->RemainingTurns);
-            EffectState.incomingDamageMultiplierBasisPoints = FMath::Max(
-                0, FMath::RoundToInt(Modifier->IncomingDamageMultiplier * 10000.0));
-            EffectState.outgoingDamageMultiplierBasisPoints = FMath::Max(
-                0, FMath::RoundToInt(Modifier->OutgoingDamageMultiplier * 10000.0));
-            EffectState.defenseIgnoreAdd = Modifier->DefenseIgnoreAdd;
-            EffectState.healFractionFromDamageDealtBasisPoints = FMath::Max(
-                0, FMath::RoundToInt(Modifier->HealFractionFromDamageDealt * 10000.0));
-            EffectState.moveCostAdd = Modifier->MoveCostAdd;
-            EffectState.onlyAffectCauserDamage = Modifier->bOnlyAffectCauserDamage;
-            EffectState.onlyAgainstRangedSources = Modifier->bOnlyAgainstRangedSources;
-            EffectState.blockMovementBonuses = Modifier->bBlockMovementBonuses;
+            if (Modifier)
+            {
+                EffectState.incomingDamageMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(Modifier->IncomingDamageMultiplier * 10000.0));
+                EffectState.outgoingDamageMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(Modifier->OutgoingDamageMultiplier * 10000.0));
+                EffectState.defenseIgnoreAdd = Modifier->DefenseIgnoreAdd;
+                EffectState.healFractionFromDamageDealtBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(Modifier->HealFractionFromDamageDealt * 10000.0));
+                EffectState.moveCostAdd = Modifier->MoveCostAdd;
+                EffectState.onlyAffectCauserDamage = Modifier->bOnlyAffectCauserDamage;
+                EffectState.onlyAgainstRangedSources = Modifier->bOnlyAgainstRangedSources;
+                EffectState.blockMovementBonuses = Modifier->bBlockMovementBonuses;
+            }
+            if (BasicAttackReduction)
+            {
+                EffectState.basicAttackDamageMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(BasicAttackReduction->DamageMultiplier * 10000.0));
+                EffectState.consumeOnBasicAttack = true;
+            }
+            if (SuppressingFire)
+            {
+                EffectState.basicAttackCostAdd = FMath::Max(0, SuppressingFire->BasicAttackCostAdd);
+                EffectState.basicAttackCostAvailable = SuppressingFire->IsBasicAttackTaxAvailable();
+            }
             EffectState.expireOnTurnEnd = Modifier->bAutoExpireOnTurnEnd;
             CharacterState.modifierEffects.push_back(std::move(EffectState));
         }
