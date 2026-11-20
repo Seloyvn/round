@@ -277,10 +277,12 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.healFractionFromDamageDealtBasisPoints);
             writer.Integer(effect.moveCostAdd); writer.Integer(effect.basicAttackCostAdd);
             writer.Integer(effect.basicAttackDamageMultiplierBasisPoints);
+            writer.Integer(effect.incomingDamageMultiplierFromCauserBasisPoints);
+            writer.Integer(effect.initiativeLossOnExpire);
             writer.Integer(effect.onlyAffectCauserDamage); writer.Integer(effect.onlyAgainstRangedSources);
             writer.Integer(effect.blockMovementBonuses); writer.Integer(effect.basicAttackCostAvailable);
             writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.preventsAbilityUse);
-            writer.Integer(effect.expireOnTurnEnd);
+            writer.Integer(effect.preventsMovement); writer.Integer(effect.expireOnTurnEnd);
         }
     }
 }
@@ -325,10 +327,12 @@ GameState ReadState(Reader& reader)
             value.healFractionFromDamageDealtBasisPoints = reader.Integer<std::int32_t>();
             value.moveCostAdd = reader.Integer<std::int32_t>(); value.basicAttackCostAdd = reader.Integer<std::int32_t>();
             value.basicAttackDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.incomingDamageMultiplierFromCauserBasisPoints = reader.Integer<std::int32_t>();
+            value.initiativeLossOnExpire = reader.Integer<std::int32_t>();
             value.onlyAffectCauserDamage = reader.Integer<bool>(); value.onlyAgainstRangedSources = reader.Integer<bool>();
             value.blockMovementBonuses = reader.Integer<bool>(); value.basicAttackCostAvailable = reader.Integer<bool>();
             value.consumeOnBasicAttack = reader.Integer<bool>(); value.preventsAbilityUse = reader.Integer<bool>();
-            value.expireOnTurnEnd = reader.Integer<bool>();
+            value.preventsMovement = reader.Integer<bool>(); value.expireOnTurnEnd = reader.Integer<bool>();
             character.modifierEffects.push_back(std::move(value));
         }
         state.characters.push_back(std::move(character));

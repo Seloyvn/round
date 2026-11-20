@@ -4028,6 +4028,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
 
         if (GlobalAdvance > 0)
         {
+            bApplyingCoreInitiativeAdvance = true;
             for (ARoundCharacter* Character : RegisteredCharacters)
             {
                 if (!Character || !Character->IsAlive() || !Character->Attributes)
@@ -4037,6 +4038,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
 
                 Character->AdvanceGlobalInitiative(GlobalAdvance);
             }
+            bApplyingCoreInitiativeAdvance = false;
 
             for (ARoundGridTile* Field : Fields)
             {

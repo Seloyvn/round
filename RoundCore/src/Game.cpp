@@ -162,7 +162,9 @@ ActionResult Game::Reset(MatchSetup setup)
             if (effect.id.empty() || effect.remainingInitiative < 0 || effect.remainingTurns < 0
                 || effect.incomingDamageMultiplierBasisPoints < 0 || effect.outgoingDamageMultiplierBasisPoints < 0
                 || effect.healFractionFromDamageDealtBasisPoints < 0
-                || effect.basicAttackDamageMultiplierBasisPoints < 0)
+                || effect.basicAttackDamageMultiplierBasisPoints < 0
+                || effect.incomingDamageMultiplierFromCauserBasisPoints < 0
+                || effect.initiativeLossOnExpire < 0)
             {
                 return Failure("invalid_modifier_effect", "Modifier effects require an ID and non-negative duration and multiplier values.");
             }
@@ -558,6 +560,10 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
             continue;
         }
         defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
+        if (effect.causerId == attacker->id)
+        {
+            damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierFromCauserBasisPoints);
+        }
         damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierBasisPoints);
     }
 
@@ -887,6 +893,13 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
                 if (effect->expireOnTurnEnd && effect->remainingTurns <= 0 && effect->remainingInitiative <= 0)
                 {
+                    if (effect->initiativeLossOnExpire > 0)
+                    {
+                        endingCharacter->initiative = std::max(0, endingCharacter->initiative - effect->initiativeLossOnExpire);
+                        expirationEvents.push_back(GameEvent{
+                            EventType::InitiativeChanged, endingCharacter->id, endingCharacter->id,
+                            endingCharacter->tileId, effect->id, -effect->initiativeLossOnExpire});
+                    }
                     expirationEvents.push_back(GameEvent{
                         EventType::EffectRemoved, endingCharacter->id, endingCharacter->id,
                         endingCharacter->tileId, effect->id, 0});
@@ -1005,6 +1018,13 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
                 if (effect->remainingInitiative <= 0 && effect->remainingTurns <= 0)
                 {
+                    if (effect->initiativeLossOnExpire > 0)
+                    {
+                        character.initiative = std::max(0, character.initiative - effect->initiativeLossOnExpire);
+                        result.events.push_back(GameEvent{
+                            EventType::InitiativeChanged, character.id, character.id,
+                            character.tileId, effect->id, -effect->initiativeLossOnExpire});
+                    }
                     result.events.push_back(GameEvent{
                         EventType::EffectRemoved, character.id, character.id, character.tileId, effect->id, 0});
                     effect = character.modifierEffects.erase(effect);
@@ -1236,7 +1256,9 @@ ActionResult Game::ValidateMove(const GameAction& action) const
     {
         return Failure("not_active_character", "Only the active character can move.");
     }
-    if (character->movementBlocked)
+    if (character->movementBlocked || std::any_of(
+            character->modifierEffects.begin(), character->modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.preventsMovement; }))
     {
         return Failure("movement_blocked", "The active character cannot move.");
     }
@@ -1343,12 +1365,15 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.moveCostAdd);
             HashValue(hash, effect.basicAttackCostAdd);
             HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
+            HashValue(hash, effect.incomingDamageMultiplierFromCauserBasisPoints);
+            HashValue(hash, effect.initiativeLossOnExpire);
             HashValue(hash, effect.onlyAffectCauserDamage);
             HashValue(hash, effect.onlyAgainstRangedSources);
             HashValue(hash, effect.blockMovementBonuses);
             HashValue(hash, effect.basicAttackCostAvailable);
             HashValue(hash, effect.consumeOnBasicAttack);
             HashValue(hash, effect.preventsAbilityUse);
+            HashValue(hash, effect.preventsMovement);
             HashValue(hash, effect.expireOnTurnEnd);
         }
     }

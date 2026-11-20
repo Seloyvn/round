@@ -2,6 +2,7 @@
 
 #include "Actors/RoundCharacter.h"
 #include "Components/RoundAttributeSetComponent.h"
+#include "Game/RoundGameState.h"
 #include "Net/UnrealNetwork.h"
 
 void ARoundRootEffect::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -30,6 +31,11 @@ void ARoundRootEffect::OnInitiativeAdvanced(ARoundCharacter* TargetCharacter, in
     if (InitiativeAmount <= 0 || RemainingInitiative <= 0) return;
     RemainingInitiative = FMath::Max(0, RemainingInitiative - InitiativeAmount);
     if (RemainingInitiative > 0) return;
-    if (TargetCharacter && TargetCharacter->Attributes && InitiativeLossOnExpire > 0) TargetCharacter->Attributes->PassInitiative(InitiativeLossOnExpire);
+    const ARoundGameState* GameState = ARoundGameState::GetRoundGameState(TargetCharacter);
+    const bool bCoreAlreadyAppliedExpiry = GameState && GameState->IsApplyingCoreInitiativeAdvance();
+    if (!bCoreAlreadyAppliedExpiry && TargetCharacter && TargetCharacter->Attributes && InitiativeLossOnExpire > 0)
+    {
+        TargetCharacter->Attributes->PassInitiative(InitiativeLossOnExpire);
+    }
     RemoveEffect();
 }

@@ -9,6 +9,7 @@
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
 #include "Effects/RoundSuppressingFireEffect.h"
 #include "Effects/RoundSilenceEffect.h"
+#include "Effects/RoundRootEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -217,7 +218,20 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         CharacterState.health = Character->Attributes->CurrentHealth;
         CharacterState.initiative = Character->Attributes->CurrentInitiative;
         CharacterState.alive = Character->IsAlive();
-        CharacterState.movementBlocked = Character->HasMovementBlock();
+        // Migrated blockers are represented by modifierEffects so the Core can
+        // expire them authoritatively. Preserve the snapshot flag only for
+        // blockers whose complete behavior has not moved to Core yet.
+        CharacterState.movementBlocked = false;
+        for (const ARoundEffectActor* Effect : Character->ActiveEffects)
+        {
+            if (Effect && Effect->PreventsMovement()
+                && !Cast<ARoundRootEffect>(Effect)
+                && !Cast<ARoundSuppressingFireEffect>(Effect))
+            {
+                CharacterState.movementBlocked = true;
+                break;
+            }
+        }
         CharacterState.canTakeTurn = !Character->CharacterRowName.ToString().Contains(TEXT("Puppet"), ESearchCase::IgnoreCase)
             && !GameState.IsCharacterBlockedByObjectiveChannel(Character);
         CharacterState.initiativeGainPerTick = Character->ModifyInitiativeGainFromEffects(1);
@@ -280,17 +294,18 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 Cast<ARoundBasicAttackDamageReductionEffect>(Effect);
             const ARoundSuppressingFireEffect* SuppressingFire = Cast<ARoundSuppressingFireEffect>(Effect);
             const ARoundSilenceEffect* Silence = Cast<ARoundSilenceEffect>(Effect);
-            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence)
+            const ARoundRootEffect* Root = Cast<ARoundRootEffect>(Effect);
+            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root)
             {
                 continue;
             }
             roundcore::ModifierEffectState EffectState;
-            EffectState.id = ToCoreString(Modifier->EffectId.IsNone()
-                ? Modifier->GetClass()->GetName()
-                : Modifier->EffectId.ToString());
-            EffectState.causerId = CharacterIds.FindRef(Modifier->CauserCharacter);
-            EffectState.remainingInitiative = FMath::Max(0, Modifier->RemainingInitiative);
-            EffectState.remainingTurns = FMath::Max(0, Modifier->RemainingTurns);
+            EffectState.id = ToCoreString(Effect->EffectId.IsNone()
+                ? Effect->GetClass()->GetName()
+                : Effect->EffectId.ToString());
+            EffectState.causerId = CharacterIds.FindRef(Effect->CauserCharacter);
+            EffectState.remainingInitiative = FMath::Max(0, Effect->RemainingInitiative);
+            EffectState.remainingTurns = FMath::Max(0, Effect->RemainingTurns);
             if (Modifier)
             {
                 EffectState.incomingDamageMultiplierBasisPoints = FMath::Max(
@@ -315,9 +330,17 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             {
                 EffectState.basicAttackCostAdd = FMath::Max(0, SuppressingFire->BasicAttackCostAdd);
                 EffectState.basicAttackCostAvailable = SuppressingFire->IsBasicAttackTaxAvailable();
+                EffectState.preventsMovement = SuppressingFire->PreventsMovement();
+            }
+            if (Root)
+            {
+                EffectState.incomingDamageMultiplierFromCauserBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(Root->IncomingDamageMultiplierFromCauser * 10000.0));
+                EffectState.initiativeLossOnExpire = FMath::Max(0, Root->InitiativeLossOnExpire);
+                EffectState.preventsMovement = Root->PreventsMovement();
             }
             EffectState.preventsAbilityUse = Silence != nullptr;
-            EffectState.expireOnTurnEnd = Modifier->bAutoExpireOnTurnEnd;
+            EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
             CharacterState.modifierEffects.push_back(std::move(EffectState));
         }
         Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));

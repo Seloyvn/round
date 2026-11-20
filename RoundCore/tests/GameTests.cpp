@@ -371,6 +371,56 @@ int main()
     Require(modifierCombat.State().characters[1].health == 85,
         "outgoing and incoming modifier multipliers should resolve in Actor order");
 
+    MatchSetup rootDamageSetup = ValidSetup();
+    rootDamageSetup.definitions.characters.at("Tank").stats.attack = 20;
+    rootDamageSetup.definitions.characters.at("Tank").stats.defense = 0;
+    ModifierEffectState damageRoot;
+    damageRoot.id = "Root";
+    damageRoot.causerId = 10;
+    damageRoot.remainingInitiative = 10;
+    damageRoot.incomingDamageMultiplierFromCauserBasisPoints = 15000;
+    rootDamageSetup.initialState.characters[1].modifierEffects.push_back(damageRoot);
+    Game rootDamage;
+    Require(rootDamage.Reset(std::move(rootDamageSetup)).success, "root damage setup should reset");
+    Require(rootDamage.ApplyAction(attack).success && rootDamage.State().characters[1].health == 70,
+        "root should amplify incoming damage only from its exported causer");
+
+    MatchSetup rootedMoveSetup = ValidSetup();
+    rootedMoveSetup.initialState.characters[1].tileId = 4;
+    ModifierEffectState movementRoot;
+    movementRoot.id = "Root";
+    movementRoot.remainingInitiative = 10;
+    movementRoot.preventsMovement = true;
+    rootedMoveSetup.initialState.characters[0].modifierEffects.push_back(movementRoot);
+    Game rootedMove;
+    Require(rootedMove.Reset(std::move(rootedMoveSetup)).success, "rooted movement setup should reset");
+    GameAction rootedMoveAction;
+    rootedMoveAction.type = ActionType::Move;
+    rootedMoveAction.actorId = 10;
+    rootedMoveAction.targetTileId = 2;
+    const ActionResult rootedMoveResult = rootedMove.ValidateAction(rootedMoveAction);
+    Require(!rootedMoveResult.success && rootedMoveResult.errorCode == "movement_blocked",
+        "root should remove movement from the authoritative legal-action set");
+
+    MatchSetup rootExpirySetup = ValidSetup();
+    rootExpirySetup.initialState.activeCharacterId = 10;
+    rootExpirySetup.initialState.characters[0].initiative = 20;
+    rootExpirySetup.initialState.characters[1].initiative = 20;
+    ModifierEffectState expiringRoot;
+    expiringRoot.id = "Root";
+    expiringRoot.remainingInitiative = 1;
+    expiringRoot.initiativeLossOnExpire = 7;
+    rootExpirySetup.initialState.characters[1].modifierEffects.push_back(expiringRoot);
+    Game rootExpiry;
+    Require(rootExpiry.Reset(std::move(rootExpirySetup)).success, "root expiry setup should reset");
+    GameAction rootEndTurn;
+    rootEndTurn.type = ActionType::EndTurn;
+    rootEndTurn.actorId = 10;
+    Require(rootExpiry.ApplyAction(rootEndTurn).success
+            && rootExpiry.State().characters[1].initiative == 14
+            && rootExpiry.State().characters[1].modifierEffects.empty(),
+        "an expiring root should apply its initiative loss exactly once in Core");
+
     MatchSetup basicAttackEffectSetup = ValidSetup();
     basicAttackEffectSetup.definitions.characters.at("Tank").stats.attack = 20;
     basicAttackEffectSetup.definitions.characters.at("Tank").stats.defense = 0;

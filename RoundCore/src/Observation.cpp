@@ -149,10 +149,12 @@ NumericObservation EncodeOmniscientObservation(
                 effect.incomingDamageMultiplierBasisPoints, effect.outgoingDamageMultiplierBasisPoints,
                 effect.defenseIgnoreAdd, effect.healFractionFromDamageDealtBasisPoints,
                 effect.moveCostAdd, effect.basicAttackCostAdd, effect.basicAttackDamageMultiplierBasisPoints,
+                effect.incomingDamageMultiplierFromCauserBasisPoints, effect.initiativeLossOnExpire,
                 effect.onlyAffectCauserDamage ? 1 : 0,
                 effect.onlyAgainstRangedSources ? 1 : 0, effect.blockMovementBonuses ? 1 : 0,
                 effect.basicAttackCostAvailable ? 1 : 0, effect.consumeOnBasicAttack ? 1 : 0,
-                effect.preventsAbilityUse ? 1 : 0, effect.expireOnTurnEnd ? 1 : 0});
+                effect.preventsAbilityUse ? 1 : 0, effect.preventsMovement ? 1 : 0,
+                effect.expireOnTurnEnd ? 1 : 0});
         }
     }
 
