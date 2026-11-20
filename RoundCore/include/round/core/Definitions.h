@@ -30,6 +30,7 @@ struct AbilityDefinition
     std::int32_t range = 0;
     std::int32_t amount = 0;
     std::int32_t defenseIgnore = 0;
+    DamageType damageType = DamageType::Physical;
     bool requiresVisibility = true;
     std::unordered_map<std::string, double> values;
 };

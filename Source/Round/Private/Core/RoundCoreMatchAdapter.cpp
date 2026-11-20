@@ -38,6 +38,22 @@ roundcore::Team ToCoreTeam(const ERoundTeam Team)
         return roundcore::Team::Neutral;
     }
 }
+
+roundcore::DamageType ToCoreDamageType(const ERoundDamageType DamageType)
+{
+    switch (DamageType)
+    {
+    case ERoundDamageType::Magical: return roundcore::DamageType::Magical;
+    case ERoundDamageType::Fire: return roundcore::DamageType::Fire;
+    case ERoundDamageType::Ice: return roundcore::DamageType::Ice;
+    case ERoundDamageType::Lightning: return roundcore::DamageType::Lightning;
+    case ERoundDamageType::Holy: return roundcore::DamageType::Holy;
+    case ERoundDamageType::Ground: return roundcore::DamageType::Ground;
+    case ERoundDamageType::TrueDamage: return roundcore::DamageType::TrueDamage;
+    case ERoundDamageType::Nature: return roundcore::DamageType::Nature;
+    default: return roundcore::DamageType::Physical;
+    }
+}
 }
 
 bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& OutReason)
@@ -275,6 +291,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
                 0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("DefenseIgnore"))));
+            AbilityDefinition.damageType = ToCoreDamageType(Ability->GetAbilityDamageType());
             AbilityDefinition.requiresVisibility = Ability->GetAbilityValueFromKey(TEXT("IgnoreVisibility")) <= 0.0;
             Setup.definitions.abilities.emplace(AbilityId, std::move(AbilityDefinition));
             Definition.abilityIds.push_back(AbilityId);

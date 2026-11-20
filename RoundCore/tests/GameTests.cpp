@@ -60,6 +60,7 @@ int main()
     packageAbility.range = 3;
     packageAbility.amount = 19;
     packageAbility.defenseIgnore = 4;
+    packageAbility.damageType = DamageType::Ice;
     packageAbility.values = {{"BehindDistance", 2.0}, {"DamageMultiplier", 1.5}};
     packageSource.definitions.abilities.emplace(packageAbility.id, packageAbility);
     packageSource.definitions.characters.at("Tank").abilityIds.push_back(packageAbility.id);
@@ -80,6 +81,7 @@ int main()
     const AbilityDefinition& loadedPackageAbility = packageGame.Definitions().abilities.at("PackageBolt");
     Require(loadedPackageAbility.operation == AbilityOperation::DirectDamage
             && loadedPackageAbility.initiativeCost == 7 && loadedPackageAbility.amount == 19
+            && loadedPackageAbility.damageType == DamageType::Ice
             && loadedPackageAbility.values.at("BehindDistance") == 2.0
             && loadedPackageAbility.values.at("DamageMultiplier") == 1.5,
         "a match package must preserve executable ability contracts");

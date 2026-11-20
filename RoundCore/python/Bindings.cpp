@@ -42,6 +42,12 @@ PYBIND11_MODULE(roundcore_python, module)
     py::enum_<AbilityTargetRelation>(module, "AbilityTargetRelation")
         .value("SELF", AbilityTargetRelation::Self).value("ALLY", AbilityTargetRelation::Ally)
         .value("ENEMY", AbilityTargetRelation::Enemy).value("ANY_CHARACTER", AbilityTargetRelation::AnyCharacter);
+    py::enum_<DamageType>(module, "DamageType")
+        .value("PHYSICAL", DamageType::Physical).value("MAGICAL", DamageType::Magical)
+        .value("FIRE", DamageType::Fire).value("ICE", DamageType::Ice)
+        .value("LIGHTNING", DamageType::Lightning).value("HOLY", DamageType::Holy)
+        .value("GROUND", DamageType::Ground).value("TRUE_DAMAGE", DamageType::TrueDamage)
+        .value("NATURE", DamageType::Nature);
     py::enum_<MatchStatus>(module, "MatchStatus")
         .value("NOT_STARTED", MatchStatus::NotStarted).value("RUNNING", MatchStatus::Running)
         .value("COMPLETED", MatchStatus::Completed);
@@ -72,6 +78,7 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("range", &AbilityDefinition::range)
         .def_readwrite("amount", &AbilityDefinition::amount)
         .def_readwrite("defense_ignore", &AbilityDefinition::defenseIgnore)
+        .def_readwrite("damage_type", &AbilityDefinition::damageType)
         .def_readwrite("requires_visibility", &AbilityDefinition::requiresVisibility)
         .def_readwrite("values", &AbilityDefinition::values);
     py::class_<CharacterDefinition>(module, "CharacterDefinition")

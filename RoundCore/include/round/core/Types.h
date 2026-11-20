@@ -43,6 +43,19 @@ enum class AbilityTargetRelation : std::uint8_t
     AnyCharacter
 };
 
+enum class DamageType : std::uint8_t
+{
+    Physical,
+    Magical,
+    Fire,
+    Ice,
+    Lightning,
+    Holy,
+    Ground,
+    TrueDamage,
+    Nature
+};
+
 enum class EventType : std::uint8_t
 {
     MatchReset,

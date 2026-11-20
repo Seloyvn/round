@@ -189,7 +189,8 @@ void WriteDefinitions(Writer& writer, const ContentDefinitions& definitions)
         const AbilityDefinition& value = definitions.abilities.at(key);
         writer.String(key); writer.String(value.id); writer.Integer(value.operation); writer.Integer(value.targetRelation);
         writer.Integer(value.initiativeCost); writer.Integer(value.range); writer.Integer(value.amount);
-        writer.Integer(value.defenseIgnore); writer.Integer(value.requiresVisibility); WriteValues(writer, value.values);
+        writer.Integer(value.defenseIgnore); writer.Integer(value.damageType);
+        writer.Integer(value.requiresVisibility); WriteValues(writer, value.values);
     }
     const auto terrainKeys = SortedKeys(definitions.terrains);
     writer.Integer(static_cast<std::uint32_t>(terrainKeys.size()));
@@ -228,6 +229,7 @@ ContentDefinitions ReadDefinitions(Reader& reader)
         value.operation = reader.Integer<AbilityOperation>(); value.targetRelation = reader.Integer<AbilityTargetRelation>();
         value.initiativeCost = reader.Integer<std::int32_t>(); value.range = reader.Integer<std::int32_t>();
         value.amount = reader.Integer<std::int32_t>(); value.defenseIgnore = reader.Integer<std::int32_t>();
+        value.damageType = reader.Integer<DamageType>();
         value.requiresVisibility = reader.Integer<bool>(); value.values = ReadValues(reader);
         result.abilities.emplace(key, std::move(value));
     }
