@@ -1157,7 +1157,15 @@ std::int32_t Game::MovementCost(const CharacterState& character, const TileState
     const std::int64_t baseCost = std::max<std::int32_t>(1, characterDefinition->second.stats.moveCost);
     const std::int64_t multiplier = std::max<std::int32_t>(0, terrainDefinition->second.movementCostMultiplierBasisPoints);
     const std::int64_t scaledCost = (baseCost * multiplier + 5000) / 10000;
-    const std::int64_t cost = std::max<std::int64_t>(terrainDefinition->second.movementCost, scaledCost);
+    std::int64_t cost = std::max<std::int64_t>(terrainDefinition->second.movementCost, scaledCost);
+    for (const ModifierEffectState& effect : character.modifierEffects)
+    {
+        cost = std::max<std::int64_t>(1, cost + effect.moveCostAdd);
+        if (effect.blockMovementBonuses)
+        {
+            cost = std::max(cost, baseCost);
+        }
+    }
     return cost > std::numeric_limits<std::int32_t>::max()
         ? std::numeric_limits<std::int32_t>::max()
         : static_cast<std::int32_t>(std::max<std::int64_t>(1, cost));
@@ -1287,8 +1295,10 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.outgoingDamageMultiplierBasisPoints);
             HashValue(hash, effect.defenseIgnoreAdd);
             HashValue(hash, effect.healFractionFromDamageDealtBasisPoints);
+            HashValue(hash, effect.moveCostAdd);
             HashValue(hash, effect.onlyAffectCauserDamage);
             HashValue(hash, effect.onlyAgainstRangedSources);
+            HashValue(hash, effect.blockMovementBonuses);
             HashValue(hash, effect.expireOnTurnEnd);
         }
     }

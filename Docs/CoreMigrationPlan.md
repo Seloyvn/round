@@ -171,7 +171,8 @@ Current progress:
 
 - `RoundModifierEffect` is the first explicit shared effect state. Initiative and turn-relative durations expire deterministically and emit removal events.
 - Modifier observations redact hidden causer IDs, preventing effects on visible units from leaking unseen enemies to a training policy.
-- Movement-cost fields, duration changes applied by other effects, redirection, and specialized modifier subclasses remain Actor-owned until their individual rules are migrated.
+- Additive movement costs and blocking movement-cost bonuses now resolve in the same Core movement rule; Unreal exports the unmodified character base cost so terrain and effects are applied exactly once.
+- Duration changes applied by other effects, damage redirection, and specialized effect classes remain Actor-owned until their individual rules are migrated.
 
 ### Phase 5 — Characters and abilities
 

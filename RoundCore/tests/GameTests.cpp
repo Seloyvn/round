@@ -229,6 +229,35 @@ int main()
     Require(!unaffordable.success && unaffordable.errorCode == "insufficient_initiative",
         "unaffordable movement must be rejected without changing state");
 
+    MatchSetup discountedMoveSetup = ValidSetup();
+    discountedMoveSetup.initialState.characters[1].tileId = 4;
+    ModifierEffectState moveDiscount;
+    moveDiscount.id = "MoveDiscount";
+    moveDiscount.remainingInitiative = 10;
+    moveDiscount.moveCostAdd = -3;
+    discountedMoveSetup.initialState.characters[0].modifierEffects.push_back(moveDiscount);
+    Game discountedMove;
+    Require(discountedMove.Reset(std::move(discountedMoveSetup)).success,
+        "movement modifier setup should reset");
+    GameAction discountedMoveAction;
+    discountedMoveAction.type = ActionType::Move;
+    discountedMoveAction.actorId = 10;
+    discountedMoveAction.targetTileId = 2;
+    Require(discountedMove.ApplyAction(discountedMoveAction).success
+            && discountedMove.State().characters[0].initiative == 93,
+        "move-cost modifiers should alter the authoritative Core movement cost");
+
+    MatchSetup blockedDiscountSetup = ValidSetup();
+    blockedDiscountSetup.initialState.characters[1].tileId = 4;
+    moveDiscount.blockMovementBonuses = true;
+    blockedDiscountSetup.initialState.characters[0].modifierEffects.push_back(moveDiscount);
+    Game blockedDiscount;
+    Require(blockedDiscount.Reset(std::move(blockedDiscountSetup)).success,
+        "blocked movement bonus setup should reset");
+    Require(blockedDiscount.ApplyAction(discountedMoveAction).success
+            && blockedDiscount.State().characters[0].initiative == 90,
+        "blocking movement bonuses should clamp discounted cost to the character base cost");
+
     MatchSetup turnSetup = ValidSetup();
     AbilityDefinition testAbility; testAbility.id = "TestAbility";
     AbilityDefinition chargeAbility; chargeAbility.id = "ChargeAbility";

@@ -177,7 +177,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         Definition.stats.maxInitiative = Stats.MaxInitiative;
         Definition.stats.visionRange = Stats.VisionRange;
         Definition.stats.attackRange = Character->GetAttackRange();
-        Definition.stats.moveCost = Character->GetMoveCost();
+        Definition.stats.moveCost = FMath::Max(1, Stats.MoveCost);
         Definition.stats.attackCost = Character->GetAttackCost();
         Definition.stats.turnDelay = Character->GetTurnDelay();
         Definition.criticalChanceBasisPoints = FMath::Clamp(
@@ -287,8 +287,10 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             EffectState.defenseIgnoreAdd = Modifier->DefenseIgnoreAdd;
             EffectState.healFractionFromDamageDealtBasisPoints = FMath::Max(
                 0, FMath::RoundToInt(Modifier->HealFractionFromDamageDealt * 10000.0));
+            EffectState.moveCostAdd = Modifier->MoveCostAdd;
             EffectState.onlyAffectCauserDamage = Modifier->bOnlyAffectCauserDamage;
             EffectState.onlyAgainstRangedSources = Modifier->bOnlyAgainstRangedSources;
+            EffectState.blockMovementBonuses = Modifier->bBlockMovementBonuses;
             EffectState.expireOnTurnEnd = Modifier->bAutoExpireOnTurnEnd;
             CharacterState.modifierEffects.push_back(std::move(EffectState));
         }
