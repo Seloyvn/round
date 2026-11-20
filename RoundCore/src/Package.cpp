@@ -268,6 +268,16 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(ability.cooldownDuration); writer.Integer(ability.currentCharges);
             writer.Integer(ability.maxCharges); writer.Integer(ability.usesCharges);
         }
+        writer.Integer(static_cast<std::uint32_t>(character.modifierEffects.size()));
+        for (const ModifierEffectState& effect : character.modifierEffects)
+        {
+            writer.String(effect.id); writer.Integer(effect.causerId); writer.Integer(effect.remainingInitiative);
+            writer.Integer(effect.remainingTurns); writer.Integer(effect.incomingDamageMultiplierBasisPoints);
+            writer.Integer(effect.outgoingDamageMultiplierBasisPoints); writer.Integer(effect.defenseIgnoreAdd);
+            writer.Integer(effect.healFractionFromDamageDealtBasisPoints);
+            writer.Integer(effect.onlyAffectCauserDamage); writer.Integer(effect.onlyAgainstRangedSources);
+            writer.Integer(effect.expireOnTurnEnd);
+        }
     }
 }
 
@@ -300,6 +310,18 @@ GameState ReadState(Reader& reader)
             value.cooldownDuration = reader.Integer<std::int32_t>(); value.currentCharges = reader.Integer<std::int32_t>();
             value.maxCharges = reader.Integer<std::int32_t>(); value.usesCharges = reader.Integer<bool>();
             character.abilities.push_back(std::move(value));
+        }
+        for (std::uint32_t effect = 0, effectCount = reader.Count(); effect < effectCount; ++effect)
+        {
+            ModifierEffectState value; value.id = reader.String(); value.causerId = reader.Integer<EntityId>();
+            value.remainingInitiative = reader.Integer<std::int32_t>(); value.remainingTurns = reader.Integer<std::int32_t>();
+            value.incomingDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.outgoingDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.defenseIgnoreAdd = reader.Integer<std::int32_t>();
+            value.healFractionFromDamageDealtBasisPoints = reader.Integer<std::int32_t>();
+            value.onlyAffectCauserDamage = reader.Integer<bool>(); value.onlyAgainstRangedSources = reader.Integer<bool>();
+            value.expireOnTurnEnd = reader.Integer<bool>();
+            character.modifierEffects.push_back(std::move(value));
         }
         state.characters.push_back(std::move(character));
     }

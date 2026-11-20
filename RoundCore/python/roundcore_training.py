@@ -14,6 +14,7 @@ class BatchShape:
     max_tiles: int
     max_characters: int
     max_abilities: int
+    max_modifier_effects: int
     max_actions: int
     max_action_selections: int
 
@@ -272,6 +273,8 @@ def infer_batch_shape(observations: Iterable[rc.NumericObservation]) -> BatchSha
         max_tiles=max((_records(item.tiles, rc.TILE_STRIDE) for item in observations), default=0),
         max_characters=max((_records(item.characters, rc.CHARACTER_STRIDE) for item in observations), default=0),
         max_abilities=max((_records(item.abilities, rc.ABILITY_STRIDE) for item in observations), default=0),
+        max_modifier_effects=max(
+            (_records(item.modifier_effects, rc.MODIFIER_EFFECT_STRIDE) for item in observations), default=0),
         max_actions=max((_records(item.legal_actions, rc.ACTION_STRIDE) for item in observations), default=0),
         max_action_selections=max(
             (_records(item.action_selections, rc.ACTION_SELECTION_STRIDE) for item in observations), default=0),
@@ -289,6 +292,9 @@ def encode_batch(observations: Iterable[rc.NumericObservation], shape: BatchShap
         "character_mask": np.zeros((batch_size, shape.max_characters), dtype=np.bool_),
         "abilities": np.zeros((batch_size, shape.max_abilities, rc.ABILITY_STRIDE), dtype=np.int64),
         "ability_mask": np.zeros((batch_size, shape.max_abilities), dtype=np.bool_),
+        "modifier_effects": np.zeros(
+            (batch_size, shape.max_modifier_effects, rc.MODIFIER_EFFECT_STRIDE), dtype=np.int64),
+        "modifier_effect_mask": np.zeros((batch_size, shape.max_modifier_effects), dtype=np.bool_),
         "actions": np.zeros((batch_size, shape.max_actions, rc.ACTION_STRIDE), dtype=np.int64),
         "action_mask": np.zeros((batch_size, shape.max_actions), dtype=np.bool_),
         "action_selections": np.zeros(
@@ -304,6 +310,9 @@ def encode_batch(observations: Iterable[rc.NumericObservation], shape: BatchShap
         _copy_records(result, index, "tiles", "tile_mask", observation.tiles, rc.TILE_STRIDE)
         _copy_records(result, index, "characters", "character_mask", observation.characters, rc.CHARACTER_STRIDE)
         _copy_records(result, index, "abilities", "ability_mask", observation.abilities, rc.ABILITY_STRIDE)
+        _copy_records(
+            result, index, "modifier_effects", "modifier_effect_mask",
+            observation.modifier_effects, rc.MODIFIER_EFFECT_STRIDE)
         _copy_records(result, index, "actions", "action_mask", observation.legal_actions, rc.ACTION_STRIDE)
         _copy_records(
             result, index, "action_selections", "action_selection_mask",

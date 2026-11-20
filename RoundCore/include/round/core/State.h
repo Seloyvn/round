@@ -27,6 +27,21 @@ struct AbilityState
     bool usesCharges = false;
 };
 
+struct ModifierEffectState
+{
+    DefinitionId id;
+    EntityId causerId = InvalidEntityId;
+    std::int32_t remainingInitiative = 0;
+    std::int32_t remainingTurns = 0;
+    std::int32_t incomingDamageMultiplierBasisPoints = 10000;
+    std::int32_t outgoingDamageMultiplierBasisPoints = 10000;
+    std::int32_t defenseIgnoreAdd = 0;
+    std::int32_t healFractionFromDamageDealtBasisPoints = 0;
+    bool onlyAffectCauserDamage = false;
+    bool onlyAgainstRangedSources = false;
+    bool expireOnTurnEnd = false;
+};
+
 struct CharacterState
 {
     EntityId id = InvalidEntityId;
@@ -41,6 +56,7 @@ struct CharacterState
     std::int32_t initiativeGainPerTick = 1;
     std::int32_t delayedActionInitiative = 0;
     std::vector<AbilityState> abilities;
+    std::vector<ModifierEffectState> modifierEffects;
 };
 
 struct GameState

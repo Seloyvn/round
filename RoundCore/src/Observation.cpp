@@ -140,6 +140,17 @@ NumericObservation EncodeOmniscientObservation(
                 ability.maxCharges,
                 ability.usesCharges ? 1 : 0});
         }
+        for (std::size_t effectIndex = 0; effectIndex < character->modifierEffects.size(); ++effectIndex)
+        {
+            const ModifierEffectState& effect = character->modifierEffects[effectIndex];
+            result.modifierEffects.insert(result.modifierEffects.end(), {
+                character->id, static_cast<std::int64_t>(effectIndex), effect.causerId,
+                effect.remainingInitiative, effect.remainingTurns,
+                effect.incomingDamageMultiplierBasisPoints, effect.outgoingDamageMultiplierBasisPoints,
+                effect.defenseIgnoreAdd, effect.healFractionFromDamageDealtBasisPoints,
+                effect.onlyAffectCauserDamage ? 1 : 0, effect.onlyAgainstRangedSources ? 1 : 0,
+                effect.expireOnTurnEnd ? 1 : 0});
+        }
     }
 
     result.legalActions.reserve(legalActions.size() * NumericObservation::ActionStride);

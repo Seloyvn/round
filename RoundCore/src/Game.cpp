@@ -48,6 +48,11 @@ double PassiveValue(const CharacterDefinition& definition, const char* key) noex
     const auto found = definition.passiveValues.find(key);
     return found == definition.passiveValues.end() ? 0.0 : found->second;
 }
+
+std::int64_t ApplyBasisPoints(const std::int64_t value, const std::int32_t basisPoints) noexcept
+{
+    return (value * std::max(0, basisPoints) + 5000) / 10000;
+}
 }
 
 ActionResult Game::Reset(MatchSetup setup)
@@ -152,6 +157,15 @@ ActionResult Game::Reset(MatchSetup setup)
                 return Failure("invalid_ability_state", "Ability charges and cooldowns must be within valid non-negative bounds.");
             }
         }
+        for (const ModifierEffectState& effect : character.modifierEffects)
+        {
+            if (effect.id.empty() || effect.remainingInitiative < 0 || effect.remainingTurns < 0
+                || effect.incomingDamageMultiplierBasisPoints < 0 || effect.outgoingDamageMultiplierBasisPoints < 0
+                || effect.healFractionFromDamageDealtBasisPoints < 0)
+            {
+                return Failure("invalid_modifier_effect", "Modifier effects require an ID and non-negative duration and multiplier values.");
+            }
+        }
         if (tileIds.find(character.tileId) == tileIds.end())
         {
             return Failure("missing_character_tile", "Every character must reference a tile in the match board.");
@@ -159,6 +173,17 @@ ActionResult Game::Reset(MatchSetup setup)
         if (!occupiedTileIds.insert(character.tileId).second)
         {
             return Failure("duplicate_occupancy", "Two characters cannot start on the same tile.");
+        }
+    }
+
+    for (const CharacterState& character : setup.initialState.characters)
+    {
+        for (const ModifierEffectState& effect : character.modifierEffects)
+        {
+            if (effect.causerId != InvalidEntityId && characterIds.find(effect.causerId) == characterIds.end())
+            {
+                return Failure("missing_effect_causer", "A modifier effect causer must reference a character in the match.");
+            }
         }
     }
 
@@ -343,6 +368,21 @@ DecisionSnapshot Game::ObserveTeamDecision(const Team perspective) const
                 return character.team != perspective && !isVisibleTile(character.tileId);
             }),
         snapshot.state.characters.end());
+    std::unordered_set<EntityId> visibleCharacterIds;
+    for (const CharacterState& character : snapshot.state.characters)
+    {
+        visibleCharacterIds.insert(character.id);
+    }
+    for (CharacterState& character : snapshot.state.characters)
+    {
+        for (ModifierEffectState& effect : character.modifierEffects)
+        {
+            if (visibleCharacterIds.find(effect.causerId) == visibleCharacterIds.end())
+            {
+                effect.causerId = InvalidEntityId;
+            }
+        }
+    }
 
     const auto active = std::find_if(snapshot.state.characters.begin(), snapshot.state.characters.end(),
         [this](const CharacterState& character) { return character.id == state_.activeCharacterId; });
@@ -399,12 +439,34 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     attacker->initiative -= attackCost;
 
     std::int64_t damage = std::max(0, attackerDefinition.stats.attack);
+    std::int32_t defenseIgnore = 0;
+    std::vector<GameEvent> modifierEvents;
     const std::int32_t criticalChance = std::clamp(attackerDefinition.criticalChanceBasisPoints, 0, 10000);
     const bool critical = RollBasisPoints(criticalChance);
     if (critical)
     {
         const std::int64_t multiplier = std::max(0, attackerDefinition.criticalDamageMultiplierBasisPoints);
         damage = (damage * multiplier + 5000) / 10000;
+    }
+
+    for (const ModifierEffectState& effect : attacker->modifierEffects)
+    {
+        if (effect.onlyAffectCauserDamage && effect.causerId != target->id)
+        {
+            continue;
+        }
+        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
+        damage = ApplyBasisPoints(damage, effect.outgoingDamageMultiplierBasisPoints);
+        const std::int32_t heal = static_cast<std::int32_t>(ApplyBasisPoints(
+            damage, effect.healFractionFromDamageDealtBasisPoints));
+        const std::int32_t appliedHeal = std::min(
+            heal, std::max(0, attackerDefinition.stats.maxHealth - attacker->health));
+        attacker->health += appliedHeal;
+        if (appliedHeal > 0)
+        {
+            modifierEvents.push_back(GameEvent{
+                EventType::HealingApplied, attacker->id, attacker->id, attacker->tileId, effect.id, appliedHeal});
+        }
     }
 
     std::vector<GameEvent> auraEvents;
@@ -476,7 +538,24 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         }
     }
 
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense);
+
+    const TileState* attackerTile = FindTile(attacker->tileId);
+    for (const ModifierEffectState& effect : target->modifierEffects)
+    {
+        if (effect.onlyAffectCauserDamage && effect.causerId != attacker->id)
+        {
+            continue;
+        }
+        if (effect.onlyAgainstRangedSources && attackerTile && protectedTargetTile
+            && HexDistance(attackerTile->coord, protectedTargetTile->coord) <= 1)
+        {
+            continue;
+        }
+        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
+        damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierBasisPoints);
+    }
+
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
         std::numeric_limits<std::int32_t>::max(),
@@ -492,6 +571,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     result.events.push_back(GameEvent{
         EventType::DamageApplied, attacker->id, target->id, target->tileId, "Physical", appliedDamage});
     result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+    result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
 
     if (target->health <= 0)
     {
@@ -767,8 +847,33 @@ bool Game::RollBasisPoints(const std::int32_t chanceBasisPoints) noexcept
     return chance > 0 && static_cast<std::int32_t>(NextRandom() % 10000ull) < chance;
 }
 
-ActionResult Game::ApplyEndTurn(const GameAction&)
+ActionResult Game::ApplyEndTurn(const GameAction& action)
 {
+    std::vector<GameEvent> expirationEvents;
+    if (action.actorId != InvalidEntityId)
+    {
+        if (CharacterState* endingCharacter = FindCharacter(action.actorId))
+        {
+            for (auto effect = endingCharacter->modifierEffects.begin(); effect != endingCharacter->modifierEffects.end();)
+            {
+                if (effect->expireOnTurnEnd && effect->remainingTurns > 0)
+                {
+                    --effect->remainingTurns;
+                }
+                if (effect->expireOnTurnEnd && effect->remainingTurns <= 0 && effect->remainingInitiative <= 0)
+                {
+                    expirationEvents.push_back(GameEvent{
+                        EventType::EffectRemoved, endingCharacter->id, endingCharacter->id,
+                        endingCharacter->tileId, effect->id, 0});
+                    effect = endingCharacter->modifierEffects.erase(effect);
+                }
+                else
+                {
+                    ++effect;
+                }
+            }
+        }
+    }
     state_.activeCharacterId = InvalidEntityId;
 
     CharacterState* selected = nullptr;
@@ -800,6 +905,7 @@ ActionResult Game::ApplyEndTurn(const GameAction&)
 
     ActionResult result;
     result.success = true;
+    result.events = std::move(expirationEvents);
     if (selected)
     {
         const CharacterDefinition& definition = definitions_.characters.at(selected->definitionId);
@@ -864,6 +970,23 @@ ActionResult Game::ApplyEndTurn(const GameAction&)
                         character.tileId,
                         ability.definitionId,
                         ability.currentCharges - previousCharges});
+                }
+            }
+            for (auto effect = character.modifierEffects.begin(); effect != character.modifierEffects.end();)
+            {
+                if (effect->remainingInitiative > 0)
+                {
+                    --effect->remainingInitiative;
+                }
+                if (effect->remainingInitiative <= 0 && effect->remainingTurns <= 0)
+                {
+                    result.events.push_back(GameEvent{
+                        EventType::EffectRemoved, character.id, character.id, character.tileId, effect->id, 0});
+                    effect = character.modifierEffects.erase(effect);
+                }
+                else
+                {
+                    ++effect;
                 }
             }
         }
@@ -1155,6 +1278,18 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, ability.currentCharges);
             HashValue(hash, ability.maxCharges);
             HashValue(hash, ability.usesCharges);
+        }
+        for (const ModifierEffectState& effect : character.modifierEffects)
+        {
+            HashString(hash, effect.id); HashValue(hash, effect.causerId);
+            HashValue(hash, effect.remainingInitiative); HashValue(hash, effect.remainingTurns);
+            HashValue(hash, effect.incomingDamageMultiplierBasisPoints);
+            HashValue(hash, effect.outgoingDamageMultiplierBasisPoints);
+            HashValue(hash, effect.defenseIgnoreAdd);
+            HashValue(hash, effect.healFractionFromDamageDealtBasisPoints);
+            HashValue(hash, effect.onlyAffectCauserDamage);
+            HashValue(hash, effect.onlyAgainstRangedSources);
+            HashValue(hash, effect.expireOnTurnEnd);
         }
     }
     return hash;

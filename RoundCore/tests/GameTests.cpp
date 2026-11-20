@@ -64,6 +64,12 @@ int main()
     packageSource.definitions.abilities.emplace(packageAbility.id, packageAbility);
     packageSource.definitions.characters.at("Tank").abilityIds.push_back(packageAbility.id);
     packageSource.initialState.characters[0].abilities.push_back(AbilityState{packageAbility.id, 0, 8, 1, 1, false});
+    ModifierEffectState packageModifier;
+    packageModifier.id = "PackageModifier";
+    packageModifier.causerId = 20;
+    packageModifier.remainingInitiative = 25;
+    packageModifier.incomingDamageMultiplierBasisPoints = 9000;
+    packageSource.initialState.characters[0].modifierEffects.push_back(packageModifier);
     const std::vector<std::uint8_t> packageBytes = SerializeMatchSetup(packageSource);
     const MatchSetup packageSetup = DeserializeMatchSetup(packageBytes);
     Game packageGame;
@@ -113,6 +119,11 @@ int main()
     MatchSetup hiddenSetup = ValidSetup();
     hiddenSetup.definitions.characters.at("Tank").stats.attackRange = 5;
     hiddenSetup.initialState.characters[1].tileId = 6;
+    ModifierEffectState hiddenCauserModifier;
+    hiddenCauserModifier.id = "HiddenCauser";
+    hiddenCauserModifier.causerId = 20;
+    hiddenCauserModifier.remainingInitiative = 10;
+    hiddenSetup.initialState.characters[0].modifierEffects.push_back(hiddenCauserModifier);
     Game hidden;
     Require(hidden.Reset(std::move(hiddenSetup)).success, "hidden-information setup should reset");
     const DecisionSnapshot teamObservation = hidden.ObserveTeamDecision(Team::TeamA);
@@ -125,6 +136,8 @@ int main()
     Require(std::none_of(teamObservation.state.characters.begin(), teamObservation.state.characters.end(),
             [](const CharacterState& character) { return character.id == 20; }),
         "team observations must omit enemies behind vision blockers");
+    Require(teamObservation.state.characters[0].modifierEffects[0].causerId == InvalidEntityId,
+        "visible effects must not reveal a hidden causer through team observations");
     GameAction hiddenAttack;
     hiddenAttack.type = ActionType::BasicAttack;
     hiddenAttack.actorId = 10;
@@ -227,6 +240,12 @@ int main()
     turnSetup.initialState.characters[1].initiative = 95;
     turnSetup.initialState.characters[1].abilities.push_back(AbilityState{"TestAbility", 3, 5, 1, 1, false});
     turnSetup.initialState.characters[1].abilities.push_back(AbilityState{"ChargeAbility", 1, 5, 0, 2, true});
+    ModifierEffectState turnEffect;
+    turnEffect.id = "TurnEffect"; turnEffect.remainingTurns = 1; turnEffect.expireOnTurnEnd = true;
+    turnSetup.initialState.characters[0].modifierEffects.push_back(turnEffect);
+    ModifierEffectState initiativeEffect;
+    initiativeEffect.id = "InitiativeEffect"; initiativeEffect.remainingInitiative = 1;
+    turnSetup.initialState.characters[1].modifierEffects.push_back(initiativeEffect);
     Game turns;
     Require(turns.Reset(std::move(turnSetup)).success, "turn test setup should reset");
 
@@ -243,6 +262,9 @@ int main()
     Require(turns.State().characters[1].abilities[1].currentCharges == 1
             && turns.State().characters[1].abilities[1].cooldownRemaining == 5,
         "charge abilities should restore a charge and restart cooldown until fully charged");
+    Require(turns.State().characters[0].modifierEffects.empty()
+            && turns.State().characters[1].modifierEffects.empty(),
+        "modifier effects should expire on their configured turn or initiative boundary");
 
     endTurn.actorId = InvalidEntityId;
     for (int index = 0; index < 5; ++index)
@@ -293,6 +315,32 @@ int main()
     Require(auraAttack.success, "an attack against an aura-protected target should execute");
     Require(auraCombat.State().characters[1].health == 411,
         "the exported incoming-damage aura should reduce damage before defense mitigation");
+
+    MatchSetup modifierSetup = ValidSetup();
+    modifierSetup.definitions.characters.at("Tank").stats.attack = 20;
+    modifierSetup.definitions.characters.at("Tank").stats.defense = 0;
+    modifierSetup.initialState.characters[0].health = 50;
+    ModifierEffectState outgoingModifier;
+    outgoingModifier.id = "OutgoingModifier";
+    outgoingModifier.remainingInitiative = 10;
+    outgoingModifier.outgoingDamageMultiplierBasisPoints = 15000;
+    outgoingModifier.healFractionFromDamageDealtBasisPoints = 1000;
+    modifierSetup.initialState.characters[0].modifierEffects.push_back(outgoingModifier);
+    ModifierEffectState incomingModifier;
+    incomingModifier.id = "IncomingModifier";
+    incomingModifier.causerId = 10;
+    incomingModifier.remainingInitiative = 10;
+    incomingModifier.incomingDamageMultiplierBasisPoints = 5000;
+    incomingModifier.onlyAffectCauserDamage = true;
+    modifierSetup.initialState.characters[1].modifierEffects.push_back(incomingModifier);
+    Game modifierCombat;
+    Require(modifierCombat.Reset(std::move(modifierSetup)).success, "modifier combat setup should reset");
+    const ActionResult modifierAttack = modifierCombat.ApplyAction(attack);
+    Require(modifierAttack.success, "an attack with shared modifier effects should execute");
+    Require(modifierCombat.State().characters[0].health == 53,
+        "outgoing modifier lifesteal should heal from modified pre-mitigation damage");
+    Require(modifierCombat.State().characters[1].health == 85,
+        "outgoing and incoming modifier multipliers should resolve in Actor order");
 
     MatchSetup abilitySetup = ValidSetup();
     AbilityDefinition bolt;

@@ -14,6 +14,7 @@ PYBIND11_MODULE(roundcore_python, module)
     module.attr("TILE_STRIDE") = NumericObservation::TileStride;
     module.attr("CHARACTER_STRIDE") = NumericObservation::CharacterStride;
     module.attr("ABILITY_STRIDE") = NumericObservation::AbilityStride;
+    module.attr("MODIFIER_EFFECT_STRIDE") = NumericObservation::ModifierEffectStride;
     module.attr("ACTION_STRIDE") = NumericObservation::ActionStride;
     module.attr("ACTION_SELECTION_STRIDE") = NumericObservation::ActionSelectionStride;
     module.attr("MATCH_PACKAGE_VERSION") = MatchPackageVersion;
@@ -108,6 +109,18 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("current_charges", &AbilityState::currentCharges)
         .def_readwrite("max_charges", &AbilityState::maxCharges)
         .def_readwrite("uses_charges", &AbilityState::usesCharges);
+    py::class_<ModifierEffectState>(module, "ModifierEffectState")
+        .def(py::init<>()).def_readwrite("id", &ModifierEffectState::id)
+        .def_readwrite("causer_id", &ModifierEffectState::causerId)
+        .def_readwrite("remaining_initiative", &ModifierEffectState::remainingInitiative)
+        .def_readwrite("remaining_turns", &ModifierEffectState::remainingTurns)
+        .def_readwrite("incoming_damage_multiplier_basis_points", &ModifierEffectState::incomingDamageMultiplierBasisPoints)
+        .def_readwrite("outgoing_damage_multiplier_basis_points", &ModifierEffectState::outgoingDamageMultiplierBasisPoints)
+        .def_readwrite("defense_ignore_add", &ModifierEffectState::defenseIgnoreAdd)
+        .def_readwrite("heal_fraction_from_damage_dealt_basis_points", &ModifierEffectState::healFractionFromDamageDealtBasisPoints)
+        .def_readwrite("only_affect_causer_damage", &ModifierEffectState::onlyAffectCauserDamage)
+        .def_readwrite("only_against_ranged_sources", &ModifierEffectState::onlyAgainstRangedSources)
+        .def_readwrite("expire_on_turn_end", &ModifierEffectState::expireOnTurnEnd);
     py::class_<CharacterState>(module, "CharacterState")
         .def(py::init<>()).def_readwrite("id", &CharacterState::id)
         .def_readwrite("definition_id", &CharacterState::definitionId).def_readwrite("team", &CharacterState::team)
@@ -117,7 +130,8 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("can_take_turn", &CharacterState::canTakeTurn)
         .def_readwrite("initiative_gain_per_tick", &CharacterState::initiativeGainPerTick)
         .def_readwrite("delayed_action_initiative", &CharacterState::delayedActionInitiative)
-        .def_readwrite("abilities", &CharacterState::abilities);
+        .def_readwrite("abilities", &CharacterState::abilities)
+        .def_readwrite("modifier_effects", &CharacterState::modifierEffects);
     py::class_<GameState>(module, "GameState")
         .def(py::init<>()).def_readwrite("schema_version", &GameState::schemaVersion)
         .def_readwrite("match_id", &GameState::matchId).def_readwrite("seed", &GameState::seed)
@@ -152,6 +166,7 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readonly("content_version", &NumericObservation::contentVersion)
         .def_readonly("global_values", &NumericObservation::global).def_readonly("tiles", &NumericObservation::tiles)
         .def_readonly("characters", &NumericObservation::characters).def_readonly("abilities", &NumericObservation::abilities)
+        .def_readonly("modifier_effects", &NumericObservation::modifierEffects)
         .def_readonly("legal_actions", &NumericObservation::legalActions)
         .def_readonly("action_selections", &NumericObservation::actionSelections);
 

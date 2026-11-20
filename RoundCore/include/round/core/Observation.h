@@ -30,6 +30,7 @@ struct NumericObservation
     static constexpr std::size_t TileStride = 7;
     static constexpr std::size_t CharacterStride = 11;
     static constexpr std::size_t AbilityStride = 8;
+    static constexpr std::size_t ModifierEffectStride = 12;
     static constexpr std::size_t ActionStride = 6;
     static constexpr std::size_t ActionSelectionStride = 3;
 
@@ -40,6 +41,7 @@ struct NumericObservation
     std::vector<std::int64_t> tiles;
     std::vector<std::int64_t> characters;
     std::vector<std::int64_t> abilities;
+    std::vector<std::int64_t> modifierEffects;
     std::vector<std::int64_t> legalActions;
     std::vector<std::int64_t> actionSelections;
 };

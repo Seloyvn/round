@@ -5,6 +5,7 @@
 #include "Actors/RoundGridTile.h"
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundCharacterPaladin.h"
+#include "Effects/RoundModifierEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -154,11 +155,15 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     });
 
     roundcore::EntityId NextCharacterId = 1;
-    for (const ARoundCharacter* Character : SortedCharacters)
+    for (ARoundCharacter* Character : SortedCharacters)
     {
         const roundcore::EntityId CharacterId = NextCharacterId++;
         CharacterIds.Add(Character, CharacterId);
-        CharacterActors.Add(CharacterId, const_cast<ARoundCharacter*>(Character));
+        CharacterActors.Add(CharacterId, Character);
+    }
+    for (const ARoundCharacter* Character : SortedCharacters)
+    {
+        const roundcore::EntityId CharacterId = CharacterIds.FindRef(Character);
 
         const FString DefinitionKey = FString::Printf(TEXT("CharacterInstance:%u:%s"), CharacterId, *Character->CharacterRowName.ToString());
         const std::string DefinitionId = ToCoreString(DefinitionKey);
@@ -260,6 +265,32 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityState.usesCharges = Ability->UsesCharges();
             CharacterState.abilities.push_back(std::move(AbilityState));
             AbilityActors.Add(AbilityKey, Ability);
+        }
+        for (const ARoundEffectActor* Effect : Character->ActiveEffects)
+        {
+            const ARoundModifierEffect* Modifier = Cast<ARoundModifierEffect>(Effect);
+            if (!Modifier)
+            {
+                continue;
+            }
+            roundcore::ModifierEffectState EffectState;
+            EffectState.id = ToCoreString(Modifier->EffectId.IsNone()
+                ? Modifier->GetClass()->GetName()
+                : Modifier->EffectId.ToString());
+            EffectState.causerId = CharacterIds.FindRef(Modifier->CauserCharacter);
+            EffectState.remainingInitiative = FMath::Max(0, Modifier->RemainingInitiative);
+            EffectState.remainingTurns = FMath::Max(0, Modifier->RemainingTurns);
+            EffectState.incomingDamageMultiplierBasisPoints = FMath::Max(
+                0, FMath::RoundToInt(Modifier->IncomingDamageMultiplier * 10000.0));
+            EffectState.outgoingDamageMultiplierBasisPoints = FMath::Max(
+                0, FMath::RoundToInt(Modifier->OutgoingDamageMultiplier * 10000.0));
+            EffectState.defenseIgnoreAdd = Modifier->DefenseIgnoreAdd;
+            EffectState.healFractionFromDamageDealtBasisPoints = FMath::Max(
+                0, FMath::RoundToInt(Modifier->HealFractionFromDamageDealt * 10000.0));
+            EffectState.onlyAffectCauserDamage = Modifier->bOnlyAffectCauserDamage;
+            EffectState.onlyAgainstRangedSources = Modifier->bOnlyAgainstRangedSources;
+            EffectState.expireOnTurnEnd = Modifier->bAutoExpireOnTurnEnd;
+            CharacterState.modifierEffects.push_back(std::move(EffectState));
         }
         Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));
         Setup.initialState.characters.push_back(std::move(CharacterState));

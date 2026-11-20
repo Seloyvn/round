@@ -151,7 +151,7 @@ assert batch["tiles"].shape == (8, 2, rc.TILE_STRIDE)
 assert batch["tile_mask"].all()
 assert not batch["action_mask"].any()  # All matches above are terminal.
 try:
-    encode_batch(numeric, BatchShape(1, 2, 0, 0, 0))
+    encode_batch(numeric, BatchShape(1, 2, 0, 0, 0, 0))
 except ValueError as error:
     assert "tiles needs 2 records" in str(error)
 else:
