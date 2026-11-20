@@ -247,6 +247,7 @@ Current progress:
 - A package smoke runner can execute a real exported setup without rendering and reports when an unmigrated mechanic prevents the match from completing.
 - The first real 5v5 Unreal export (721 tiles, 50 abilities, 19 terrain definitions) loads successfully and completes headlessly in 420 decisions with the deterministic tactical baseline.
 - Live basic attacks use RoundCore's deterministic critical stream, and resolved incoming-damage auras now enter the generic Core passive contract with their range, reduction, self-target rule, and prevention rewards.
+- Visibility requests made while a character is still being spawned are treated as an incomplete lifecycle state rather than a Core failure; registered characters continue to use only the Core visibility rule.
 - Content-package loading, larger match coverage, and formal performance benchmarks remain.
 
 ### Phase 9 — Python and training

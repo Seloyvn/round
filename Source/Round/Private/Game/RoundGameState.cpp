@@ -3819,6 +3819,14 @@ bool ARoundGameState::GetCoreVisionFields(
     {
         return false;
     }
+    // Character initialization can request visibility before SpawnCharacter
+    // has registered the new Actor. It cannot be represented in a complete
+    // Core snapshot yet; the caller temporarily shows only its current tile
+    // and requests Core visibility again after registration.
+    if (!RegisteredCharacters.Contains(Character))
+    {
+        return false;
+    }
     if (!CoreMatchAdapter)
     {
         CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
