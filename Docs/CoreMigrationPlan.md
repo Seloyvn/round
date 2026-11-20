@@ -158,7 +158,7 @@ Current progress:
 - Actor effects, terrain/aura damage modifiers, death prevention, board-object attacks, and presentation consumption remain Actor-owned, so live attack execution has not switched yet.
 - Live character attacks now resolve a non-mutating clone of the current Core snapshot before Actor execution and compare initiative cost, applied damage, death, match end, and critical state afterward. Mismatches are logged as `RoundCoreAttackParity` and provide the concrete parity cases needed to migrate shared modifiers without changing current gameplay.
 - Critical-hit rolls for live basic attacks now consume the same deterministic RoundCore random stream as headless attacks; Unreal no longer uses its independent global random source for this migrated rule.
-- Shared effect state is serialized in package version 6 and participates in deterministic hashes, team-filtered observations, Python batches, duration expiry, normal-attack resolution, movement legality, and ability legality. Unreal exports resolved runtime instances including causer restrictions, ranged-only restrictions, multipliers, defense ignore, pre-mitigation lifesteal, one-hit basic-attack damage changes, one-use basic-attack costs, silence, and root.
+- Shared effect state is serialized in package version 7 and participates in deterministic hashes, team-filtered observations, Python batches, duration expiry, normal-attack resolution, movement legality and cost, and ability legality. Unreal exports resolved runtime instances including causer restrictions, ranged-only restrictions, multipliers, defense ignore, pre-mitigation lifesteal, one-hit basic-attack damage changes, one-use basic-attack costs, silence, root, and the shared slow contract.
 
 ### Phase 4 — Shared effects and terrain
 
@@ -175,6 +175,7 @@ Current progress:
 - `RoundBasicAttackDamageReductionEffect` consumption and the first-attack initiative tax from `RoundSuppressingFireEffect` now resolve in Core and are visible to training observations.
 - `RoundSilenceEffect` removes ability commands from Core legal-action masks and rejects manually submitted ability commands until its shared effect duration expires.
 - `RoundRootEffect` blocks Core movement, applies its causer-specific incoming-damage multiplier, and applies initiative loss when its duration expires. Unreal's initiative callback now only removes the presented Actor instance during Core-driven advancement, avoiding a second initiative loss.
+- `RoundSlowEffect` now exports its movement-cost multiplier, movement-bonus block, per-field initiative loss, and expiry loss. Core applies the generic movement penalties, while Unreal movement callbacks only record presentation data and continue running still-unmigrated specialized Icebeam and Suppressing Fire reactions.
 - Duration changes applied by other effects, damage redirection, and specialized effect classes remain Actor-owned until their individual rules are migrated.
 
 ### Phase 5 — Characters and abilities

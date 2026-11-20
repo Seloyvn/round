@@ -10,6 +10,7 @@
 #include "Effects/RoundSuppressingFireEffect.h"
 #include "Effects/RoundSilenceEffect.h"
 #include "Effects/RoundRootEffect.h"
+#include "Effects/RoundSlowEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -295,7 +296,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundSuppressingFireEffect* SuppressingFire = Cast<ARoundSuppressingFireEffect>(Effect);
             const ARoundSilenceEffect* Silence = Cast<ARoundSilenceEffect>(Effect);
             const ARoundRootEffect* Root = Cast<ARoundRootEffect>(Effect);
-            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root)
+            const ARoundSlowEffect* Slow = Cast<ARoundSlowEffect>(Effect);
+            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow)
             {
                 continue;
             }
@@ -328,6 +330,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             }
             if (SuppressingFire)
             {
+                EffectState.moveCostAdd += SuppressingFire->FlatMoveCostAdd;
+                EffectState.defenseIgnoreAdd += FMath::Max(0, SuppressingFire->DefenseReduction);
                 EffectState.basicAttackCostAdd = FMath::Max(0, SuppressingFire->BasicAttackCostAdd);
                 EffectState.basicAttackCostAvailable = SuppressingFire->IsBasicAttackTaxAvailable();
                 EffectState.preventsMovement = SuppressingFire->PreventsMovement();
@@ -338,6 +342,14 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                     0, FMath::RoundToInt(Root->IncomingDamageMultiplierFromCauser * 10000.0));
                 EffectState.initiativeLossOnExpire = FMath::Max(0, Root->InitiativeLossOnExpire);
                 EffectState.preventsMovement = Root->PreventsMovement();
+            }
+            if (Slow)
+            {
+                EffectState.moveCostMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt((Slow->Amount > 0.0 ? 1.0 + Slow->Amount : 1.0) * 10000.0));
+                EffectState.initiativeLossOnMove = FMath::Max(0, Slow->InitiativeLossOnMove);
+                EffectState.initiativeLossOnExpire = FMath::Max(0, Slow->InitiativeLossOnExpire);
+                EffectState.blockMovementBonuses = Slow->bBlockMovementBonuses;
             }
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;

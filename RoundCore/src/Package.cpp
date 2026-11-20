@@ -275,7 +275,8 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.remainingTurns); writer.Integer(effect.incomingDamageMultiplierBasisPoints);
             writer.Integer(effect.outgoingDamageMultiplierBasisPoints); writer.Integer(effect.defenseIgnoreAdd);
             writer.Integer(effect.healFractionFromDamageDealtBasisPoints);
-            writer.Integer(effect.moveCostAdd); writer.Integer(effect.basicAttackCostAdd);
+            writer.Integer(effect.moveCostAdd); writer.Integer(effect.moveCostMultiplierBasisPoints);
+            writer.Integer(effect.initiativeLossOnMove); writer.Integer(effect.basicAttackCostAdd);
             writer.Integer(effect.basicAttackDamageMultiplierBasisPoints);
             writer.Integer(effect.incomingDamageMultiplierFromCauserBasisPoints);
             writer.Integer(effect.initiativeLossOnExpire);
@@ -325,7 +326,10 @@ GameState ReadState(Reader& reader)
             value.outgoingDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.defenseIgnoreAdd = reader.Integer<std::int32_t>();
             value.healFractionFromDamageDealtBasisPoints = reader.Integer<std::int32_t>();
-            value.moveCostAdd = reader.Integer<std::int32_t>(); value.basicAttackCostAdd = reader.Integer<std::int32_t>();
+            value.moveCostAdd = reader.Integer<std::int32_t>();
+            value.moveCostMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.initiativeLossOnMove = reader.Integer<std::int32_t>();
+            value.basicAttackCostAdd = reader.Integer<std::int32_t>();
             value.basicAttackDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.incomingDamageMultiplierFromCauserBasisPoints = reader.Integer<std::int32_t>();
             value.initiativeLossOnExpire = reader.Integer<std::int32_t>();

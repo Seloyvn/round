@@ -3935,7 +3935,9 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
         // Apply the migrated result first. SetField remains the presentation
         // bridge for effects/terrain that have not moved to Core yet.
         Character->Attributes->SetCurrentInitiativeValue(CoreInitiative);
+        bApplyingCoreMovementCallbacks = true;
         Character->SetField(TargetTile, Index == Path.Num() - 1);
+        bApplyingCoreMovementCallbacks = false;
         TraversedPositions.Add(TargetTile->GridPosition);
         TotalMovementCost += MovementCost;
 

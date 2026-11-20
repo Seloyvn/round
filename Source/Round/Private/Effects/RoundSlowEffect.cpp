@@ -3,6 +3,7 @@
 #include "Actors/RoundCharacter.h"
 #include "Actors/RoundGridTile.h"
 #include "Components/RoundAttributeSetComponent.h"
+#include "Game/RoundGameState.h"
 
 int32 ARoundSlowEffect::GetMovecost_Implementation(int32 In) const
 {
@@ -24,7 +25,15 @@ void ARoundSlowEffect::OnOwnerMoved(ARoundCharacter* TargetCharacter, ARoundGrid
 {
     if (TargetCharacter && PreviousTile && NewTile && PreviousTile != NewTile && InitiativeLossOnMove > 0)
     {
-        TargetCharacter->ApplyDelay(InitiativeLossOnMove);
+        ARoundGameState* GameState = ARoundGameState::GetRoundGameState(TargetCharacter);
+        if (GameState && GameState->IsApplyingCoreMovementCallbacks())
+        {
+            GameState->RecordDelayApplied(TargetCharacter, InitiativeLossOnMove);
+        }
+        else
+        {
+            TargetCharacter->ApplyDelay(InitiativeLossOnMove);
+        }
     }
 }
 

@@ -509,6 +509,7 @@ public:
     FRoundActionResult ExecuteCoreMovePath(ARoundCharacter* Character, const TArray<ARoundGridTile*>& Path);
     ARoundCharacter* AdvanceCoreTurn(ARoundCharacter* EndingCharacter);
     bool IsApplyingCoreInitiativeAdvance() const { return bApplyingCoreInitiativeAdvance; }
+    bool IsApplyingCoreMovementCallbacks() const { return bApplyingCoreMovementCallbacks; }
 
     UFUNCTION(BlueprintCallable, Category = "Round|Deprecated", meta = (DeprecatedFunction, DeprecationMessage = "Use IsCoreMoveLegal. This now forwards to the authoritative-core comparison adapter."))
     bool IsSimMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile) const;
@@ -707,6 +708,7 @@ private:
     mutable bool bMatchRandomStreamInitialized = false;
     mutable TUniquePtr<FRoundCoreMatchAdapter> CoreMatchAdapter;
     bool bApplyingCoreInitiativeAdvance = false;
+    bool bApplyingCoreMovementCallbacks = false;
     UFUNCTION()
     void OnRep_MatchRandomSeed();
 

@@ -258,6 +258,25 @@ int main()
             && blockedDiscount.State().characters[0].initiative == 90,
         "blocking movement bonuses should clamp discounted cost to the character base cost");
 
+    MatchSetup slowMoveSetup = ValidSetup();
+    slowMoveSetup.initialState.characters[1].tileId = 4;
+    ModifierEffectState slowMoveEffect;
+    slowMoveEffect.id = "Slow";
+    slowMoveEffect.remainingInitiative = 20;
+    slowMoveEffect.moveCostMultiplierBasisPoints = 15000;
+    slowMoveEffect.initiativeLossOnMove = 4;
+    slowMoveSetup.initialState.characters[0].modifierEffects.push_back(slowMoveEffect);
+    Game slowMove;
+    Require(slowMove.Reset(std::move(slowMoveSetup)).success, "slow movement setup should reset");
+    const ActionResult slowMoveResult = slowMove.ApplyAction(discountedMoveAction);
+    Require(slowMoveResult.success && slowMove.State().characters[0].initiative == 81,
+        "slow should multiply movement cost and apply its per-field initiative loss in Core");
+    Require(slowMoveResult.events.size() == 3
+            && slowMoveResult.events[0].type == EventType::CharacterMoved
+            && slowMoveResult.events[0].amount == 15
+            && slowMoveResult.events[2].amount == -4,
+        "slow movement should expose base movement cost and additional delay as separate events");
+
     MatchSetup turnSetup = ValidSetup();
     AbilityDefinition testAbility; testAbility.id = "TestAbility";
     AbilityDefinition chargeAbility; chargeAbility.id = "ChargeAbility";

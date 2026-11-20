@@ -163,6 +163,8 @@ ActionResult Game::Reset(MatchSetup setup)
                 || effect.incomingDamageMultiplierBasisPoints < 0 || effect.outgoingDamageMultiplierBasisPoints < 0
                 || effect.healFractionFromDamageDealtBasisPoints < 0
                 || effect.basicAttackDamageMultiplierBasisPoints < 0
+                || effect.moveCostMultiplierBasisPoints < 0
+                || effect.initiativeLossOnMove < 0
                 || effect.incomingDamageMultiplierFromCauserBasisPoints < 0
                 || effect.initiativeLossOnExpire < 0)
             {
@@ -255,10 +257,18 @@ ActionResult Game::ApplyAction(const GameAction& action)
     }
 
     const std::int32_t cost = MovementCost(*character, *destination);
+    std::int64_t initiativeLossOnMove = 0;
+    for (const ModifierEffectState& effect : character->modifierEffects)
+    {
+        initiativeLossOnMove = std::min<std::int64_t>(
+            std::numeric_limits<std::int32_t>::max(),
+            initiativeLossOnMove + std::max(0, effect.initiativeLossOnMove));
+    }
     origin->occupantId = InvalidEntityId;
     destination->occupantId = character->id;
     character->tileId = destination->id;
-    character->initiative -= cost;
+    character->initiative = static_cast<std::int32_t>(std::max<std::int64_t>(
+        0, static_cast<std::int64_t>(character->initiative) - cost - initiativeLossOnMove));
     ++state_.step;
 
     ActionResult result;
@@ -266,6 +276,11 @@ ActionResult Game::ApplyAction(const GameAction& action)
     result.message = "Movement executed.";
     result.events.push_back(GameEvent{EventType::CharacterMoved, character->id, InvalidEntityId, destination->id, {}, cost});
     result.events.push_back(GameEvent{EventType::InitiativeChanged, character->id, character->id, destination->id, {}, -cost});
+    if (initiativeLossOnMove > 0)
+    {
+        result.events.push_back(GameEvent{EventType::InitiativeChanged, character->id, character->id,
+            destination->id, "Slow", -static_cast<std::int32_t>(initiativeLossOnMove)});
+    }
     return result;
 }
 
@@ -1205,6 +1220,8 @@ std::int32_t Game::MovementCost(const CharacterState& character, const TileState
     std::int64_t cost = std::max<std::int64_t>(terrainDefinition->second.movementCost, scaledCost);
     for (const ModifierEffectState& effect : character.modifierEffects)
     {
+        cost = std::max<std::int64_t>(1,
+            (cost * std::max(0, effect.moveCostMultiplierBasisPoints) + 5000) / 10000);
         cost = std::max<std::int64_t>(1, cost + effect.moveCostAdd);
         if (effect.blockMovementBonuses)
         {
@@ -1363,6 +1380,8 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.defenseIgnoreAdd);
             HashValue(hash, effect.healFractionFromDamageDealtBasisPoints);
             HashValue(hash, effect.moveCostAdd);
+            HashValue(hash, effect.moveCostMultiplierBasisPoints);
+            HashValue(hash, effect.initiativeLossOnMove);
             HashValue(hash, effect.basicAttackCostAdd);
             HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
             HashValue(hash, effect.incomingDamageMultiplierFromCauserBasisPoints);
