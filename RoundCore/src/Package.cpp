@@ -279,7 +279,8 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.basicAttackDamageMultiplierBasisPoints);
             writer.Integer(effect.onlyAffectCauserDamage); writer.Integer(effect.onlyAgainstRangedSources);
             writer.Integer(effect.blockMovementBonuses); writer.Integer(effect.basicAttackCostAvailable);
-            writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.expireOnTurnEnd);
+            writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.preventsAbilityUse);
+            writer.Integer(effect.expireOnTurnEnd);
         }
     }
 }
@@ -326,7 +327,8 @@ GameState ReadState(Reader& reader)
             value.basicAttackDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.onlyAffectCauserDamage = reader.Integer<bool>(); value.onlyAgainstRangedSources = reader.Integer<bool>();
             value.blockMovementBonuses = reader.Integer<bool>(); value.basicAttackCostAvailable = reader.Integer<bool>();
-            value.consumeOnBasicAttack = reader.Integer<bool>(); value.expireOnTurnEnd = reader.Integer<bool>();
+            value.consumeOnBasicAttack = reader.Integer<bool>(); value.preventsAbilityUse = reader.Integer<bool>();
+            value.expireOnTurnEnd = reader.Integer<bool>();
             character.modifierEffects.push_back(std::move(value));
         }
         state.characters.push_back(std::move(character));

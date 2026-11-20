@@ -45,6 +45,7 @@ struct ModifierEffectState
     bool blockMovementBonuses = false;
     bool basicAttackCostAvailable = false;
     bool consumeOnBasicAttack = false;
+    bool preventsAbilityUse = false;
     bool expireOnTurnEnd = false;
 };
 

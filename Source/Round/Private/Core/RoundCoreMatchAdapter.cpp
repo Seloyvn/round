@@ -8,6 +8,7 @@
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
 #include "Effects/RoundSuppressingFireEffect.h"
+#include "Effects/RoundSilenceEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -278,7 +279,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundBasicAttackDamageReductionEffect* BasicAttackReduction =
                 Cast<ARoundBasicAttackDamageReductionEffect>(Effect);
             const ARoundSuppressingFireEffect* SuppressingFire = Cast<ARoundSuppressingFireEffect>(Effect);
-            if (!Modifier && !BasicAttackReduction && !SuppressingFire)
+            const ARoundSilenceEffect* Silence = Cast<ARoundSilenceEffect>(Effect);
+            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence)
             {
                 continue;
             }
@@ -314,6 +316,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.basicAttackCostAdd = FMath::Max(0, SuppressingFire->BasicAttackCostAdd);
                 EffectState.basicAttackCostAvailable = SuppressingFire->IsBasicAttackTaxAvailable();
             }
+            EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Modifier->bAutoExpireOnTurnEnd;
             CharacterState.modifierEffects.push_back(std::move(EffectState));
         }

@@ -414,6 +414,27 @@ int main()
     abilitySetup.definitions.abilities.emplace(bolt.id, bolt);
     abilitySetup.definitions.characters.at("Tank").abilityIds = {bolt.id};
     abilitySetup.initialState.characters[0].abilities.push_back(AbilityState{bolt.id, 0, 9, 1, 1, false});
+    MatchSetup silencedSetup = abilitySetup;
+    ModifierEffectState silence;
+    silence.id = "Silence";
+    silence.remainingInitiative = 50;
+    silence.preventsAbilityUse = true;
+    silencedSetup.initialState.characters[0].modifierEffects.push_back(silence);
+    Game silenced;
+    Require(silenced.Reset(std::move(silencedSetup)).success, "silenced ability setup should reset");
+    GameAction blockedBolt;
+    blockedBolt.type = ActionType::UseAbility;
+    blockedBolt.actorId = 10;
+    blockedBolt.targetEntityId = 20;
+    blockedBolt.targetTileId = 2;
+    blockedBolt.abilityId = bolt.id;
+    const ActionResult blockedBoltResult = silenced.ValidateAction(blockedBolt);
+    Require(!blockedBoltResult.success && blockedBoltResult.errorCode == "ability_use_blocked",
+        "silence should reject otherwise legal ability commands in Core");
+    const std::vector<GameAction> silencedActions = silenced.LegalActions(10);
+    Require(std::none_of(silencedActions.begin(), silencedActions.end(),
+            [](const GameAction& action) { return action.type == ActionType::UseAbility; }),
+        "silence should remove abilities from the legal-action mask");
     Game abilities;
     Require(abilities.Reset(std::move(abilitySetup)).success, "direct ability setup should reset");
     const std::vector<GameAction> abilityActions = abilities.LegalActions(10);

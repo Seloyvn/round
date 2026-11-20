@@ -695,6 +695,11 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("not_active_character", "Only the active character can use an ability.");
     }
+    if (std::any_of(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.preventsAbilityUse; }))
+    {
+        return Failure("ability_use_blocked", "An active effect prevents this character from using abilities.");
+    }
     const auto abilityDefinition = definitions_.abilities.find(action.abilityId);
     if (abilityDefinition == definitions_.abilities.end()
         || abilityDefinition->second.operation == AbilityOperation::Unsupported)
@@ -1343,6 +1348,7 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.blockMovementBonuses);
             HashValue(hash, effect.basicAttackCostAvailable);
             HashValue(hash, effect.consumeOnBasicAttack);
+            HashValue(hash, effect.preventsAbilityUse);
             HashValue(hash, effect.expireOnTurnEnd);
         }
     }

@@ -152,7 +152,7 @@ NumericObservation EncodeOmniscientObservation(
                 effect.onlyAffectCauserDamage ? 1 : 0,
                 effect.onlyAgainstRangedSources ? 1 : 0, effect.blockMovementBonuses ? 1 : 0,
                 effect.basicAttackCostAvailable ? 1 : 0, effect.consumeOnBasicAttack ? 1 : 0,
-                effect.expireOnTurnEnd ? 1 : 0});
+                effect.preventsAbilityUse ? 1 : 0, effect.expireOnTurnEnd ? 1 : 0});
         }
     }
 

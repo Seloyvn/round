@@ -126,6 +126,7 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("block_movement_bonuses", &ModifierEffectState::blockMovementBonuses)
         .def_readwrite("basic_attack_cost_available", &ModifierEffectState::basicAttackCostAvailable)
         .def_readwrite("consume_on_basic_attack", &ModifierEffectState::consumeOnBasicAttack)
+        .def_readwrite("prevents_ability_use", &ModifierEffectState::preventsAbilityUse)
         .def_readwrite("expire_on_turn_end", &ModifierEffectState::expireOnTurnEnd);
     py::class_<CharacterState>(module, "CharacterState")
         .def(py::init<>()).def_readwrite("id", &CharacterState::id)
