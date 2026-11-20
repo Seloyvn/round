@@ -4,6 +4,7 @@
 #include "Actors/RoundAbilityActor.h"
 #include "Actors/RoundGridTile.h"
 #include "Actors/RoundTerrainActor.h"
+#include "Actors/RoundCharacterPaladin.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -178,6 +179,24 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             FMath::RoundToInt(Character->GetCritChance() * 10000.0), 0, 10000);
         Definition.criticalDamageMultiplierBasisPoints = FMath::Max(
             0, FMath::RoundToInt(Character->GetCritModifier() * 10000.0));
+        if (const ARoundCharacterPaladin* Paladin = Cast<ARoundCharacterPaladin>(Character))
+        {
+            // Resolved editor-authored values enter a generic Core aura contract.
+            Definition.passiveValues.emplace("CoreIncomingDamageAuraReduction", Paladin->GetAuraDamageReduction());
+            Definition.passiveValues.emplace("CoreIncomingDamageAuraRadius", Paladin->GetAuraRadius());
+            Definition.passiveValues.emplace(
+                "CoreIncomingDamageAuraAffectSelf",
+                Paladin->GetPassiveValueFromKey(TEXT("AuraAffectSelf")) > 0.0 ? 1.0 : 0.0);
+            Definition.passiveValues.emplace(
+                "CoreAuraHealFractionOfPreventedDamage",
+                FMath::Max(0.0, Paladin->GetPassiveValueFromKey(TEXT("HealFractionOfAuraPreventedDamage"))));
+            Definition.passiveValues.emplace(
+                "CoreAuraInitiativeOnPrevent",
+                FMath::Max(0.0, Paladin->GetPassiveValueFromKey(TEXT("InitiativeOnAuraPrevent"))));
+            Definition.passiveValues.emplace(
+                "CoreAuraCooldownReductionOnPrevent",
+                FMath::Max(0.0, Paladin->GetPassiveValueFromKey(TEXT("CooldownReductionOnAuraPrevent"))));
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;

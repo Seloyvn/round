@@ -270,6 +270,30 @@ int main()
     Require(combat.IsTerminal() && combat.State().winner == Team::TeamA,
         "eliminating the last opposing team should complete the match");
 
+    MatchSetup auraSetup = ValidSetup();
+    auraSetup.definitions.characters.at("Tank").stats.attack = 150;
+    auraSetup.definitions.characters.at("Tank").stats.defense = 35;
+    auraSetup.definitions.characters.at("Tank").stats.maxHealth = 500;
+    CharacterDefinition protectorDefinition = auraSetup.definitions.characters.at("Tank");
+    protectorDefinition.id = "protector";
+    protectorDefinition.passiveValues["CoreIncomingDamageAuraReduction"] = 0.20;
+    protectorDefinition.passiveValues["CoreIncomingDamageAuraRadius"] = 2.0;
+    protectorDefinition.passiveValues["CoreIncomingDamageAuraAffectSelf"] = 0.0;
+    auraSetup.definitions.characters.emplace(protectorDefinition.id, protectorDefinition);
+    CharacterState protector = auraSetup.initialState.characters[1];
+    protector.id = 30;
+    protector.definitionId = protectorDefinition.id;
+    protector.tileId = 3;
+    auraSetup.initialState.characters[1].health = 500;
+    auraSetup.initialState.tiles[2].occupantId = protector.id;
+    auraSetup.initialState.characters.push_back(protector);
+    Game auraCombat;
+    Require(auraCombat.Reset(std::move(auraSetup)).success, "aura combat setup should reset");
+    const ActionResult auraAttack = auraCombat.ApplyAction(attack);
+    Require(auraAttack.success, "an attack against an aura-protected target should execute");
+    Require(auraCombat.State().characters[1].health == 411,
+        "the exported incoming-damage aura should reduce damage before defense mitigation");
+
     MatchSetup abilitySetup = ValidSetup();
     AbilityDefinition bolt;
     bolt.id = "DirectBolt";

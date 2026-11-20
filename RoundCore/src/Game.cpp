@@ -42,6 +42,12 @@ void HashString(std::uint64_t& hash, const std::string& value) noexcept
     const std::uint8_t terminator = 0xff;
     HashValue(hash, terminator);
 }
+
+double PassiveValue(const CharacterDefinition& definition, const char* key) noexcept
+{
+    const auto found = definition.passiveValues.find(key);
+    return found == definition.passiveValues.end() ? 0.0 : found->second;
+}
 }
 
 ActionResult Game::Reset(MatchSetup setup)
@@ -401,6 +407,75 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         damage = (damage * multiplier + 5000) / 10000;
     }
 
+    std::vector<GameEvent> auraEvents;
+    const TileState* protectedTargetTile = FindTile(target->tileId);
+    for (CharacterState& auraOwner : state_.characters)
+    {
+        if (!auraOwner.alive || auraOwner.team != target->team || !protectedTargetTile)
+        {
+            continue;
+        }
+        const auto auraDefinitionEntry = definitions_.characters.find(auraOwner.definitionId);
+        const TileState* auraTile = FindTile(auraOwner.tileId);
+        if (auraDefinitionEntry == definitions_.characters.end() || !auraTile)
+        {
+            continue;
+        }
+
+        const CharacterDefinition& auraDefinition = auraDefinitionEntry->second;
+        const double reduction = std::clamp(
+            PassiveValue(auraDefinition, "CoreIncomingDamageAuraReduction"), 0.0, 0.95);
+        const std::int32_t radius = std::max(
+            0, static_cast<std::int32_t>(PassiveValue(auraDefinition, "CoreIncomingDamageAuraRadius") + 0.5));
+        const bool affectsSelf = PassiveValue(auraDefinition, "CoreIncomingDamageAuraAffectSelf") > 0.0;
+        if (reduction <= 0.0 || (auraOwner.id == target->id && !affectsSelf)
+            || HexDistance(auraTile->coord, protectedTargetTile->coord) > radius)
+        {
+            continue;
+        }
+
+        const std::int64_t previousDamage = damage;
+        damage = static_cast<std::int64_t>(static_cast<double>(damage) * (1.0 - reduction) + 0.5);
+        const std::int32_t preventedDamage = static_cast<std::int32_t>(std::max<std::int64_t>(0, previousDamage - damage));
+        if (preventedDamage <= 0)
+        {
+            continue;
+        }
+
+        const std::int32_t heal = std::max(0, static_cast<std::int32_t>(
+            preventedDamage * PassiveValue(auraDefinition, "CoreAuraHealFractionOfPreventedDamage") + 0.5));
+        const std::int32_t appliedHeal = std::min(heal, std::max(0, auraDefinition.stats.maxHealth - auraOwner.health));
+        auraOwner.health += appliedHeal;
+        if (appliedHeal > 0)
+        {
+            auraEvents.push_back(GameEvent{
+                EventType::HealingApplied, auraOwner.id, auraOwner.id, auraOwner.tileId,
+                "IncomingDamageAura", appliedHeal});
+        }
+        const std::int32_t initiativeGain = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(auraDefinition, "CoreAuraInitiativeOnPrevent") + 0.5));
+        auraOwner.initiative += initiativeGain;
+        if (initiativeGain > 0)
+        {
+            auraEvents.push_back(GameEvent{
+                EventType::InitiativeChanged, auraOwner.id, auraOwner.id, auraOwner.tileId,
+                "IncomingDamageAura", initiativeGain});
+        }
+        const std::int32_t cooldownReduction = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(auraDefinition, "CoreAuraCooldownReductionOnPrevent") + 0.5));
+        for (AbilityState& ability : auraOwner.abilities)
+        {
+            const std::int32_t previousCooldown = ability.cooldownRemaining;
+            ability.cooldownRemaining = std::max(0, previousCooldown - cooldownReduction);
+            if (ability.cooldownRemaining != previousCooldown)
+            {
+                auraEvents.push_back(GameEvent{
+                    EventType::CooldownChanged, auraOwner.id, auraOwner.id, auraOwner.tileId,
+                    ability.definitionId, ability.cooldownRemaining - previousCooldown});
+            }
+        }
+    }
+
     const std::int64_t defense = std::max(0, targetDefinition.stats.defense);
     const std::int64_t denominator = 100 + defense;
     const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
@@ -416,6 +491,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         EventType::InitiativeChanged, attacker->id, attacker->id, attacker->tileId, {}, -attackCost});
     result.events.push_back(GameEvent{
         EventType::DamageApplied, attacker->id, target->id, target->tileId, "Physical", appliedDamage});
+    result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
 
     if (target->health <= 0)
     {
