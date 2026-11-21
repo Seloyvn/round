@@ -40,6 +40,10 @@ ARoundGridTile* FindKnockbackTile(ARoundGameState* GameState, ARoundGridTile* So
 
 FRoundActionResult ARoundKnockbackAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 6)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile || !OwningCharacter->CurrentTile)
     {

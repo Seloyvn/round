@@ -28,6 +28,7 @@
 #include "Data/RoundTerrainRegionData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Effects/RoundBindEffect.h"
+#include "Effects/RoundTauntEffect.h"
 #include "Effects/RoundAuraEffect.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundObjectiveStatRewardEffect.h"
@@ -3842,6 +3843,12 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
 
     for (const FRoundCoreCharacterRuntimeUpdate& Update : Execution.CharacterUpdates)
     {
+        if (Update.Character && Update.Tile && Update.Character->CurrentTile != Update.Tile)
+        {
+            bApplyingCoreMovementCallbacks = true;
+            Update.Character->SetField(Update.Tile, false);
+            bApplyingCoreMovementCallbacks = false;
+        }
         if (Update.Character && Update.Character->Attributes)
         {
             Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
@@ -4041,6 +4048,61 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
                 Addition.Character->AddEffect(Effect);
             }
         }
+        else if (Addition.bIsBind)
+        {
+            if (ARoundBindEffect* Effect = GetWorld()->SpawnActor<ARoundBindEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = TEXT("Bind");
+                Effect->Description = TEXT("Wird beim Bewegen ausgeloest.");
+                Effect->TriggerDamage = Addition.TriggerDamage;
+                Effect->DelayAmount = Addition.TriggerDelay;
+                Effect->TriggerOutgoingDamageMultiplier = Addition.TriggerOutgoingDamageMultiplierBasisPoints / 10000.0;
+                Effect->TriggerSlowAmount = FMath::Max(0.0, Addition.TriggerSlowMultiplierBasisPoints / 10000.0 - 1.0);
+                Effect->TriggerSlowDuration = Addition.TriggerSlowDurationInitiative / 40;
+                Effect->TriggerAoEInitiativeLossRadius = Addition.TriggerAreaRadius;
+                Effect->TriggerAoEInitiativeLossAmount = Addition.TriggerAreaInitiativeLoss;
+                Effect->TriggerInitiativeGainForCauser = Addition.TriggerInitiativeGainForCauser;
+                Effect->bBlockMovementBonusesOnTarget = Addition.bBlockMovementBonuses;
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
+        else if (Addition.bIsTaunt)
+        {
+            if (ARoundTauntEffect* Effect = GetWorld()->SpawnActor<ARoundTauntEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = TEXT("Taunt");
+                Effect->Description = TEXT("Angriffe gegen andere Ziele verursachen weniger Schaden.");
+                Effect->Amount = Addition.OutgoingDamageMultiplierAgainstOtherTargetsBasisPoints / 10000.0;
+                Effect->InitiativeLossWhenIgnoringCauser = Addition.InitiativeLossWhenIgnoringCauser;
+                Effect->InitiativeGainForCauserWhenAttacked = Addition.InitiativeGainForCauserWhenAttacked;
+                Effect->IncomingDamageMultiplier = Addition.IncomingDamageMultiplierBasisPoints / 10000.0;
+                Effect->IncomingDamageMultiplierFromCauser = Addition.IncomingDamageMultiplierFromCauserBasisPoints / 10000.0;
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
+        else if (Addition.MoveCostMultiplierBasisPoints != 10000 || Addition.InitiativeLossOnMove > 0)
+        {
+            if (ARoundSlowEffect* Effect = GetWorld()->SpawnActor<ARoundSlowEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = TEXT("Shackle");
+                Effect->Description = TEXT("Erhoeht Bewegungskosten.");
+                Effect->Amount = FMath::Max(0.0, Addition.MoveCostMultiplierBasisPoints / 10000.0 - 1.0);
+                Effect->InitiativeLossOnMove = Addition.InitiativeLossOnMove;
+                Effect->InitiativeLossOnExpire = Addition.InitiativeLossOnExpire;
+                Effect->bBlockMovementBonuses = Addition.bBlockMovementBonuses;
+                Effect->IncomingDamageMultiplierFromCauser = Addition.IncomingDamageMultiplierFromCauserBasisPoints / 10000.0;
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
         else if (Addition.bPreventsAbilityUse)
         {
             if (ARoundSilenceEffect* Effect = GetWorld()->SpawnActor<ARoundSilenceEffect>())
@@ -4063,8 +4125,11 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             Effect->DefenseIgnoreAdd = Addition.DefenseIgnoreAdd;
             Effect->HealFractionFromDamageDealt = Addition.HealFractionFromDamageDealtBasisPoints / 10000.0;
             Effect->MoveCostAdd = Addition.MoveCostAdd;
+            Effect->IncomingEffectDurationAdd = Addition.IncomingEffectDurationAdd;
+            Effect->bOnlyAffectCauserDamage = Addition.bOnlyAffectCauserDamage;
             Effect->CauserCharacter = Addition.Causer;
-            Effect->bTreatAsBuff = true;
+            Effect->bTreatAsBuff = !Addition.bIsDebuff;
+            Effect->bTreatAsDebuff = Addition.bIsDebuff;
             Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
             Addition.Character->AddEffect(Effect);
         }
@@ -4240,21 +4305,61 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
             break;
         }
 
-        int32 MovementCost = 0;
-        int32 CoreInitiative = 0;
-        if (!CoreMatchAdapter->ExecuteMove(Character, TargetTile, MovementCost, CoreInitiative, CoreReason))
+        FRoundCoreMoveExecution MoveExecution;
+        if (!CoreMatchAdapter->ExecuteMove(Character, TargetTile, MoveExecution, CoreReason))
         {
             break;
         }
 
         // Apply the migrated result first. SetField remains the presentation
         // bridge for effects/terrain that have not moved to Core yet.
-        Character->Attributes->SetCurrentInitiativeValue(CoreInitiative);
+        for (const FRoundCoreCharacterRuntimeUpdate& Update : MoveExecution.CharacterUpdates)
+        {
+            if (Update.Character && Update.Character->Attributes)
+            {
+                Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
+                Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
+            }
+        }
         bApplyingCoreMovementCallbacks = true;
         Character->SetField(TargetTile, Index == Path.Num() - 1);
         bApplyingCoreMovementCallbacks = false;
+        for (const FRoundCoreEffectRemoval& Removal : MoveExecution.RemovedEffects)
+        {
+            if (!Removal.Character) continue;
+            const TArray<TObjectPtr<ARoundEffectActor>> Effects = Removal.Character->ActiveEffects;
+            for (ARoundEffectActor* Effect : Effects)
+            {
+                if (Effect && Effect->EffectId.ToString() == Removal.EffectId) { Effect->RemoveEffect(); break; }
+            }
+        }
+        for (const FRoundCoreModifierEffectAddition& Addition : MoveExecution.AddedModifierEffects)
+        {
+            if (!Addition.Character || !GetWorld()) continue;
+            if (Addition.MoveCostMultiplierBasisPoints != 10000)
+            {
+                if (ARoundSlowEffect* Effect = GetWorld()->SpawnActor<ARoundSlowEffect>())
+                {
+                    Effect->EffectId = FName(*Addition.EffectId); Effect->DisplayName = TEXT("Bind");
+                    Effect->Amount = FMath::Max(0.0, Addition.MoveCostMultiplierBasisPoints / 10000.0 - 1.0);
+                    Effect->CauserCharacter = Addition.Causer; Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                    Addition.Character->AddEffect(Effect);
+                }
+            }
+            else if (ARoundModifierEffect* Effect = GetWorld()->SpawnActor<ARoundModifierEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId); Effect->DisplayName = TEXT("Bind");
+                Effect->OutgoingDamageMultiplier = Addition.OutgoingDamageMultiplierBasisPoints / 10000.0;
+                Effect->bTreatAsDebuff = true; Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false); Addition.Character->AddEffect(Effect);
+            }
+        }
+        for (const FRoundCoreDamageEvent& Damage : MoveExecution.DamageEvents)
+        {
+            if (Damage.Target) Damage.Target->ApplyCoreDamageOutcome(Damage.Source, Damage.Amount, ERoundDamageType::Physical, Damage.bTargetDied);
+        }
         TraversedPositions.Add(TargetTile->GridPosition);
-        TotalMovementCost += MovementCost;
+        TotalMovementCost += MoveExecution.MovementCost;
 
         FString ResyncReason;
         if (!CoreMatchAdapter->Rebuild(*this, ResyncReason))

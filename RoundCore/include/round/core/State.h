@@ -31,6 +31,7 @@ struct ModifierEffectState
 {
     DefinitionId id;
     EntityId causerId = InvalidEntityId;
+    EntityId preferredTargetId = InvalidEntityId;
     std::int32_t remainingInitiative = 0;
     std::int32_t remainingTurns = 0;
     std::int32_t incomingDamageMultiplierBasisPoints = 10000;
@@ -48,6 +49,18 @@ struct ModifierEffectState
     std::int32_t basicAttackDamageMultiplierBasisPoints = 10000;
     std::int32_t incomingDamageMultiplierFromCauserBasisPoints = 10000;
     std::int32_t initiativeLossOnExpire = 0;
+    std::int32_t incomingEffectDurationAdd = 0;
+    std::int32_t outgoingDamageMultiplierAgainstOtherTargetsBasisPoints = 10000;
+    std::int32_t initiativeLossWhenIgnoringPreferredTarget = 0;
+    std::int32_t initiativeGainForCauserWhenAttacked = 0;
+    std::int32_t triggerDamageOnMove = 0;
+    std::int32_t triggerDelayOnMove = 0;
+    std::int32_t triggerOutgoingDamageMultiplierBasisPoints = 10000;
+    std::int32_t triggerSlowMultiplierBasisPoints = 10000;
+    std::int32_t triggerSlowDurationInitiative = 0;
+    std::int32_t triggerAreaRadius = 0;
+    std::int32_t triggerAreaInitiativeLoss = 0;
+    std::int32_t triggerInitiativeGainForCauser = 0;
     std::int32_t redirectPreMitigationBasisPoints = 0;
     std::int32_t redirectedDamageMultiplierBasisPoints = 10000;
     std::int32_t protectorHealFractionBasisPoints = 0;
@@ -67,6 +80,8 @@ struct ModifierEffectState
     bool preventsMovement = false;
     bool firstMovePenaltyAvailable = false;
     bool expireOnTurnEnd = false;
+    bool isDebuff = false;
+    bool triggerOnMove = false;
 };
 
 struct RecentAuraPreventionState

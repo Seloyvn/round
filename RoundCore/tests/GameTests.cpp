@@ -823,6 +823,67 @@ int main()
             && castGround.areaInitiativeLossPerPulse == 4 && castGround.remainingInitiative == 60,
         "ground aura abilities should create their complete editor-authored zone contract in Core");
 
+    const auto character1AbilitySetup = [](const AbilityDefinition& ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds.push_back(ability.id);
+        setup.initialState.characters[0].abilities.push_back(AbilityState{ability.id, 0, 20, 1, 1, false});
+        setup.initialState.characters[0].resourceCurrent = 2;
+        setup.initialState.characters[0].resourceMaximum = 3;
+        return setup;
+    };
+
+    AbilityDefinition knockback; knockback.id = "Knockback"; knockback.operation = AbilityOperation::Knockback;
+    knockback.range = 1; knockback.amount = 10; knockback.values = {{"KnockbackDistance", 1.0}, {"ChainCost", 1.0}};
+    Game knockbackGame; Require(knockbackGame.Reset(character1AbilitySetup(knockback)).success, "knockback setup should reset");
+    GameAction character1Cast{ActionType::UseAbility, 10, 20, InvalidEntityId, knockback.id};
+    const ActionResult knockbackResult = knockbackGame.ApplyAction(character1Cast);
+    Require(knockbackResult.success && knockbackGame.State().characters[1].tileId == 4
+            && knockbackGame.State().characters[0].resourceCurrent == 1,
+        "Character 1 Knockback should spend a chain and move the target through Core");
+
+    AbilityDefinition delay; delay.id = "Delay"; delay.operation = AbilityOperation::DelayStrike;
+    delay.range = 1; delay.values = {{"DelayAmount", 25.0}};
+    Game delayGame; Require(delayGame.Reset(character1AbilitySetup(delay)).success, "delay setup should reset");
+    character1Cast.abilityId = delay.id;
+    Require(delayGame.ApplyAction(character1Cast).success && delayGame.State().characters[1].initiative == 75,
+        "Character 1 Delay should reduce target initiative through Core");
+
+    AbilityDefinition shackle; shackle.id = "Shackle"; shackle.operation = AbilityOperation::Shackle;
+    shackle.range = 1; shackle.values = {{"SlowDuration", 2.0}, {"SlowStrength", 0.5}, {"InitiativeLossOnMove", 7.0}};
+    Game shackleGame; Require(shackleGame.Reset(character1AbilitySetup(shackle)).success, "shackle setup should reset");
+    character1Cast.abilityId = shackle.id;
+    Require(shackleGame.ApplyAction(character1Cast).success
+            && shackleGame.State().characters[1].modifierEffects[0].moveCostMultiplierBasisPoints == 15000
+            && shackleGame.State().characters[1].modifierEffects[0].initiativeLossOnMove == 7,
+        "Character 1 Shackle should create its movement debuff in Core");
+
+    AbilityDefinition bind; bind.id = "Bind"; bind.operation = AbilityOperation::Bind; bind.range = 1;
+    bind.amount = 20; bind.values = {{"DurationInitiative", 80.0}, {"DelayAmount", 10.0}};
+    MatchSetup bindSetup = character1AbilitySetup(bind);
+    bindSetup.initialState.characters[0].initiative = 0;
+    Game bindGame; Require(bindGame.Reset(std::move(bindSetup)).success, "bind setup should reset");
+    character1Cast.abilityId = bind.id;
+    Require(bindGame.ApplyAction(character1Cast).success, "Character 1 Bind should be castable");
+    GameAction endBindCasterTurn; endBindCasterTurn.type = ActionType::EndTurn; endBindCasterTurn.actorId = 10;
+    Require(bindGame.ApplyDecision(endBindCasterTurn).success && bindGame.State().activeCharacterId == 20,
+        "the bound target should receive the next test turn");
+    GameAction boundMove; boundMove.type = ActionType::Move; boundMove.actorId = 20; boundMove.targetTileId = 4;
+    const ActionResult bindMove = bindGame.ApplyAction(boundMove);
+    Require(bindMove.success && bindGame.State().characters[1].health == 81
+            && bindGame.State().characters[1].modifierEffects.empty(),
+        "Character 1 Bind should trigger damage and consume itself when the target moves");
+
+    AbilityDefinition taunt; taunt.id = "Taunt"; taunt.operation = AbilityOperation::Taunt; taunt.range = 1;
+    taunt.values = {{"DurationInitiative", 80.0}, {"ReductionAmount", 0.25}};
+    Game tauntGame; Require(tauntGame.Reset(character1AbilitySetup(taunt)).success, "taunt setup should reset");
+    character1Cast.abilityId = taunt.id;
+    Require(tauntGame.ApplyAction(character1Cast).success
+            && tauntGame.State().characters[1].modifierEffects[0].preferredTargetId == 10
+            && tauntGame.State().characters[1].modifierEffects[0].outgoingDamageMultiplierAgainstOtherTargetsBasisPoints == 7500,
+        "Character 1 Taunt should persist its preferred target and off-target penalty in Core");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

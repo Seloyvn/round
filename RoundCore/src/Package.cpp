@@ -277,7 +277,7 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(static_cast<std::uint32_t>(character.modifierEffects.size()));
         for (const ModifierEffectState& effect : character.modifierEffects)
         {
-            writer.String(effect.id); writer.Integer(effect.causerId); writer.Integer(effect.remainingInitiative);
+            writer.String(effect.id); writer.Integer(effect.causerId); writer.Integer(effect.preferredTargetId); writer.Integer(effect.remainingInitiative);
             writer.Integer(effect.remainingTurns); writer.Integer(effect.incomingDamageMultiplierBasisPoints);
             writer.Integer(effect.outgoingDamageMultiplierBasisPoints); writer.Integer(effect.defenseIgnoreAdd);
             writer.Integer(effect.healFractionFromDamageDealtBasisPoints);
@@ -289,6 +289,16 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.basicAttackDamageMultiplierBasisPoints);
             writer.Integer(effect.incomingDamageMultiplierFromCauserBasisPoints);
             writer.Integer(effect.initiativeLossOnExpire);
+            writer.Integer(effect.incomingEffectDurationAdd);
+            writer.Integer(effect.outgoingDamageMultiplierAgainstOtherTargetsBasisPoints);
+            writer.Integer(effect.initiativeLossWhenIgnoringPreferredTarget);
+            writer.Integer(effect.initiativeGainForCauserWhenAttacked);
+            writer.Integer(effect.triggerDamageOnMove); writer.Integer(effect.triggerDelayOnMove);
+            writer.Integer(effect.triggerOutgoingDamageMultiplierBasisPoints);
+            writer.Integer(effect.triggerSlowMultiplierBasisPoints);
+            writer.Integer(effect.triggerSlowDurationInitiative);
+            writer.Integer(effect.triggerAreaRadius); writer.Integer(effect.triggerAreaInitiativeLoss);
+            writer.Integer(effect.triggerInitiativeGainForCauser);
             writer.Integer(effect.redirectPreMitigationBasisPoints);
             writer.Integer(effect.redirectedDamageMultiplierBasisPoints);
             writer.Integer(effect.protectorHealFractionBasisPoints);
@@ -301,6 +311,7 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.preventsAbilityUse);
             writer.Integer(effect.preventsMovement); writer.Integer(effect.firstMovePenaltyAvailable);
             writer.Integer(effect.expireOnTurnEnd);
+            writer.Integer(effect.isDebuff); writer.Integer(effect.triggerOnMove);
         }
         writer.Integer(static_cast<std::uint32_t>(character.recentAuraPreventions.size()));
         for (const RecentAuraPreventionState& prevention : character.recentAuraPreventions)
@@ -352,6 +363,7 @@ GameState ReadState(Reader& reader)
         for (std::uint32_t effect = 0, effectCount = reader.Count(); effect < effectCount; ++effect)
         {
             ModifierEffectState value; value.id = reader.String(); value.causerId = reader.Integer<EntityId>();
+            value.preferredTargetId = reader.Integer<EntityId>();
             value.remainingInitiative = reader.Integer<std::int32_t>(); value.remainingTurns = reader.Integer<std::int32_t>();
             value.incomingDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.outgoingDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
@@ -368,6 +380,18 @@ GameState ReadState(Reader& reader)
             value.basicAttackDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.incomingDamageMultiplierFromCauserBasisPoints = reader.Integer<std::int32_t>();
             value.initiativeLossOnExpire = reader.Integer<std::int32_t>();
+            value.incomingEffectDurationAdd = reader.Integer<std::int32_t>();
+            value.outgoingDamageMultiplierAgainstOtherTargetsBasisPoints = reader.Integer<std::int32_t>();
+            value.initiativeLossWhenIgnoringPreferredTarget = reader.Integer<std::int32_t>();
+            value.initiativeGainForCauserWhenAttacked = reader.Integer<std::int32_t>();
+            value.triggerDamageOnMove = reader.Integer<std::int32_t>();
+            value.triggerDelayOnMove = reader.Integer<std::int32_t>();
+            value.triggerOutgoingDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.triggerSlowMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.triggerSlowDurationInitiative = reader.Integer<std::int32_t>();
+            value.triggerAreaRadius = reader.Integer<std::int32_t>();
+            value.triggerAreaInitiativeLoss = reader.Integer<std::int32_t>();
+            value.triggerInitiativeGainForCauser = reader.Integer<std::int32_t>();
             value.redirectPreMitigationBasisPoints = reader.Integer<std::int32_t>();
             value.redirectedDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.protectorHealFractionBasisPoints = reader.Integer<std::int32_t>();
@@ -384,6 +408,7 @@ GameState ReadState(Reader& reader)
             value.preventsMovement = reader.Integer<bool>();
             value.firstMovePenaltyAvailable = reader.Integer<bool>();
             value.expireOnTurnEnd = reader.Integer<bool>();
+            value.isDebuff = reader.Integer<bool>(); value.triggerOnMove = reader.Integer<bool>();
             character.modifierEffects.push_back(std::move(value));
         }
         for (std::uint32_t prevention = 0, preventionCount = reader.Count(); prevention < preventionCount; ++prevention)

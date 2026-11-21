@@ -18,8 +18,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Effect")
     bool bBlockMovementBonuses = false;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Effect")
+    double IncomingDamageMultiplierFromCauser = 1.0;
+
     virtual bool IsDebuff() const override { return true; }
     virtual int32 GetMovecost_Implementation(int32 In) const override;
+    virtual int32 ModifyIncomingDamage(class ARoundCharacter* TargetCharacter, class ARoundCharacter* SourceCharacter, int32 Damage, ERoundDamageType DamageType, int32& DefenseIgnore) const override;
     virtual void OnOwnerMoved(class ARoundCharacter* TargetCharacter, class ARoundGridTile* PreviousTile, class ARoundGridTile* NewTile) override;
     virtual void OnTurnEnded(class ARoundCharacter* TargetCharacter) override;
 };

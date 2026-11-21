@@ -5,6 +5,13 @@
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
+int32 ARoundSlowEffect::ModifyIncomingDamage(ARoundCharacter* TargetCharacter, ARoundCharacter* SourceCharacter,
+    int32 Damage, ERoundDamageType DamageType, int32& DefenseIgnore) const
+{
+    return CauserCharacter && SourceCharacter == CauserCharacter
+        ? FMath::Max(0, FMath::RoundToInt(Damage * IncomingDamageMultiplierFromCauser)) : Damage;
+}
+
 int32 ARoundSlowEffect::GetMovecost_Implementation(int32 In) const
 {
     int32 Cost = In;

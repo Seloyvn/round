@@ -1009,6 +1009,17 @@ void URoundAbilityRegistryData::PopulateCharacter1AbilityProgressionDefaults()
 
         AbilityData->Modify();
         AbilityData->SkillProgression = Progression;
+        const FString AbilityId = AbilityData->AbilityId.ToString();
+        const int32 CoreOperation = AbilityId.Equals(TEXT("Knockback"), ESearchCase::IgnoreCase) ? 6
+            : (AbilityId.Equals(TEXT("Delay"), ESearchCase::IgnoreCase) ? 7
+            : (AbilityId.Equals(TEXT("Shackle"), ESearchCase::IgnoreCase) ? 8
+            : (AbilityId.Equals(TEXT("Bind"), ESearchCase::IgnoreCase) ? 9
+            : (AbilityId.Equals(TEXT("Taunt"), ESearchCase::IgnoreCase) ? 10 : 0))));
+        if (CoreOperation > 0)
+        {
+            AbilityData->Values.FindOrAdd(TEXT("CoreOperation")) = CoreOperation;
+            AbilityData->Values.FindOrAdd(TEXT("CoreTargetRelation")) = 2.0;
+        }
         AbilityData->MarkPackageDirty();
         ++UpdatedProgressions;
     }

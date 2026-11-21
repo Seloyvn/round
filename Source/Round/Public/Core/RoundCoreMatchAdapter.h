@@ -28,6 +28,7 @@ struct FRoundCoreBasicAttackPreview
 struct FRoundCoreCharacterRuntimeUpdate
 {
     ARoundCharacter* Character = nullptr;
+    ARoundGridTile* Tile = nullptr;
     int32 Health = 0;
     int32 Initiative = 0;
     bool bAlive = false;
@@ -82,6 +83,27 @@ struct FRoundCoreModifierEffectAddition
     ERoundDamageType AreaDamageType = static_cast<ERoundDamageType>(0);
     int32 AreaInitiativeLossPerPulse = 0;
     bool bAreaFollowsCauser = false;
+    bool bIsDebuff = false;
+    bool bIsBind = false;
+    bool bIsTaunt = false;
+    int32 MoveCostMultiplierBasisPoints = 10000;
+    int32 InitiativeLossOnMove = 0;
+    int32 InitiativeLossOnExpire = 0;
+    bool bBlockMovementBonuses = false;
+    bool bOnlyAffectCauserDamage = false;
+    int32 IncomingDamageMultiplierFromCauserBasisPoints = 10000;
+    int32 IncomingEffectDurationAdd = 0;
+    int32 TriggerDamage = 0;
+    int32 TriggerDelay = 0;
+    int32 TriggerOutgoingDamageMultiplierBasisPoints = 10000;
+    int32 TriggerSlowMultiplierBasisPoints = 10000;
+    int32 TriggerSlowDurationInitiative = 0;
+    int32 TriggerAreaRadius = 0;
+    int32 TriggerAreaInitiativeLoss = 0;
+    int32 TriggerInitiativeGainForCauser = 0;
+    int32 InitiativeLossWhenIgnoringCauser = 0;
+    int32 InitiativeGainForCauserWhenAttacked = 0;
+    int32 OutgoingDamageMultiplierAgainstOtherTargetsBasisPoints = 10000;
 };
 
 struct FRoundCoreTurnExecution
@@ -120,6 +142,16 @@ struct FRoundCoreAbilityExecution
     bool bTargetDied = false;
 };
 
+struct FRoundCoreMoveExecution
+{
+    TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
+    TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    TArray<FRoundCoreDamageEvent> DamageEvents;
+    TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
+    int32 MovementCost = 0;
+    int32 Initiative = 0;
+};
+
 // Converts the live Unreal board to the standard-C++ state used by gameplay,
 // training and deterministic tests. This adapter contains no gameplay rules.
 class ROUND_API FRoundCoreMatchAdapter
@@ -152,8 +184,7 @@ public:
     bool ExecuteMove(
         const ARoundCharacter* Character,
         const ARoundGridTile* TargetTile,
-        int32& OutMovementCost,
-        int32& OutInitiative,
+        FRoundCoreMoveExecution& OutExecution,
         FString& OutReason);
     bool ExecuteTurnStep(
         const ARoundCharacter* EndingCharacter,

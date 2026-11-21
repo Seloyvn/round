@@ -7,7 +7,7 @@
 
 namespace roundcore
 {
-constexpr std::uint32_t MatchPackageVersion = 14;
+constexpr std::uint32_t MatchPackageVersion = 15;
 
 ROUNDCORE_API std::vector<std::uint8_t> SerializeMatchSetup(const MatchSetup& setup);
 ROUNDCORE_API MatchSetup DeserializeMatchSetup(const std::vector<std::uint8_t>& bytes);

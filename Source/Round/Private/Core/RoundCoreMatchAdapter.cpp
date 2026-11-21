@@ -15,6 +15,8 @@
 #include "Effects/RoundIcebeamEffect.h"
 #include "Effects/RoundShieldOathEffect.h"
 #include "Effects/RoundSanctifiedGroundAuraEffect.h"
+#include "Effects/RoundBindEffect.h"
+#include "Effects/RoundTauntEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -343,7 +345,12 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                             ? roundcore::AbilityOperation::TargetModifier
                             : (CoreOperation == 5
                                 ? roundcore::AbilityOperation::GroundAura
-                                : roundcore::AbilityOperation::Unsupported))));
+                                : (CoreOperation == 6 ? roundcore::AbilityOperation::Knockback
+                                : (CoreOperation == 7 ? roundcore::AbilityOperation::DelayStrike
+                                : (CoreOperation == 8 ? roundcore::AbilityOperation::Shackle
+                                : (CoreOperation == 9 ? roundcore::AbilityOperation::Bind
+                                : (CoreOperation == 10 ? roundcore::AbilityOperation::Taunt
+                                : roundcore::AbilityOperation::Unsupported)))))))));
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
                 ? roundcore::AbilityTargetRelation::Self
                 : ((AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
@@ -358,7 +365,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.initiativeCost = Ability->GetAbilityCost();
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
-                || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura)
+                || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
+                || (CoreOperation >= 6 && CoreOperation <= 10))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -390,8 +398,10 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundIcebeamEffect* Icebeam = Cast<ARoundIcebeamEffect>(Effect);
             const ARoundShieldOathEffect* ShieldOath = Cast<ARoundShieldOathEffect>(Effect);
             const ARoundSanctifiedGroundAuraEffect* SanctifiedGround = Cast<ARoundSanctifiedGroundAuraEffect>(Effect);
+            const ARoundBindEffect* Bind = Cast<ARoundBindEffect>(Effect);
+            const ARoundTauntEffect* Taunt = Cast<ARoundTauntEffect>(Effect);
             if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow
-                && !ShieldOath && !SanctifiedGround)
+                && !ShieldOath && !SanctifiedGround && !Bind && !Taunt)
             {
                 continue;
             }
@@ -402,6 +412,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             EffectState.causerId = CharacterIds.FindRef(Effect->CauserCharacter);
             EffectState.remainingInitiative = FMath::Max(0, Effect->RemainingInitiative);
             EffectState.remainingTurns = FMath::Max(0, Effect->RemainingTurns);
+            EffectState.isDebuff = Effect->IsDebuff();
             if (Modifier)
             {
                 EffectState.incomingDamageMultiplierBasisPoints = FMath::Max(
@@ -415,6 +426,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.onlyAffectCauserDamage = Modifier->bOnlyAffectCauserDamage;
                 EffectState.onlyAgainstRangedSources = Modifier->bOnlyAgainstRangedSources;
                 EffectState.blockMovementBonuses = Modifier->bBlockMovementBonuses;
+                EffectState.incomingEffectDurationAdd = FMath::Max(0, Modifier->IncomingEffectDurationAdd);
             }
             if (BasicAttackReduction)
             {
@@ -444,6 +456,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.initiativeLossOnMove = FMath::Max(0, Slow->InitiativeLossOnMove);
                 EffectState.initiativeLossOnExpire = FMath::Max(0, Slow->InitiativeLossOnExpire);
                 EffectState.blockMovementBonuses = Slow->bBlockMovementBonuses;
+                EffectState.incomingDamageMultiplierFromCauserBasisPoints = FMath::Max(0,
+                    FMath::RoundToInt(Slow->IncomingDamageMultiplierFromCauser * 10000.0));
             }
             if (Icebeam)
             {
@@ -473,6 +487,34 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.areaDamageType = ToCoreDamageType(SanctifiedGround->AuraTriggerDamageType);
                 EffectState.areaInitiativeLossPerPulse = FMath::Max(0, SanctifiedGround->InitiativeLossPerPulse);
                 EffectState.areaFollowsCauser = !SanctifiedGround->bAuraUsesFixedPosition;
+            }
+            if (Bind)
+            {
+                EffectState.triggerOnMove = true;
+                EffectState.moveCostAdd += 2;
+                EffectState.blockMovementBonuses = Bind->bBlockMovementBonusesOnTarget;
+                EffectState.triggerDamageOnMove = FMath::Max(0, Bind->TriggerDamage);
+                EffectState.triggerDelayOnMove = FMath::Max(0, Bind->DelayAmount);
+                EffectState.triggerOutgoingDamageMultiplierBasisPoints = FMath::Max(0,
+                    FMath::RoundToInt(Bind->TriggerOutgoingDamageMultiplier * 10000.0));
+                EffectState.triggerSlowMultiplierBasisPoints = FMath::Max(10000,
+                    FMath::RoundToInt((1.0 + Bind->TriggerSlowAmount) * 10000.0));
+                EffectState.triggerSlowDurationInitiative = FMath::Max(0, Bind->TriggerSlowDuration * 40);
+                EffectState.triggerAreaRadius = FMath::Max(0, Bind->TriggerAoEInitiativeLossRadius);
+                EffectState.triggerAreaInitiativeLoss = FMath::Max(0, Bind->TriggerAoEInitiativeLossAmount);
+                EffectState.triggerInitiativeGainForCauser = FMath::Max(0, Bind->TriggerInitiativeGainForCauser);
+            }
+            if (Taunt)
+            {
+                EffectState.preferredTargetId = EffectState.causerId;
+                EffectState.outgoingDamageMultiplierAgainstOtherTargetsBasisPoints = FMath::Max(0,
+                    FMath::RoundToInt((Taunt->Amount > 0.0 ? Taunt->Amount : 1.0) * 10000.0));
+                EffectState.initiativeLossWhenIgnoringPreferredTarget = FMath::Max(0, Taunt->InitiativeLossWhenIgnoringCauser);
+                EffectState.initiativeGainForCauserWhenAttacked = FMath::Max(0, Taunt->InitiativeGainForCauserWhenAttacked);
+                EffectState.incomingDamageMultiplierBasisPoints = FMath::Max(0,
+                    FMath::RoundToInt(Taunt->IncomingDamageMultiplier * 10000.0));
+                EffectState.incomingDamageMultiplierFromCauserBasisPoints = FMath::Max(0,
+                    FMath::RoundToInt(Taunt->IncomingDamageMultiplierFromCauser * 10000.0));
             }
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
@@ -856,6 +898,27 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     Addition.AreaDamageType = ToRoundDamageType(EffectState->areaDamageType);
                     Addition.AreaInitiativeLossPerPulse = EffectState->areaInitiativeLossPerPulse;
                     Addition.bAreaFollowsCauser = EffectState->areaFollowsCauser;
+                    Addition.bIsDebuff = EffectState->isDebuff;
+                    Addition.bIsBind = EffectState->triggerOnMove;
+                    Addition.bIsTaunt = EffectState->preferredTargetId != roundcore::InvalidEntityId;
+                    Addition.MoveCostMultiplierBasisPoints = EffectState->moveCostMultiplierBasisPoints;
+                    Addition.InitiativeLossOnMove = EffectState->initiativeLossOnMove;
+                    Addition.InitiativeLossOnExpire = EffectState->initiativeLossOnExpire;
+                    Addition.bBlockMovementBonuses = EffectState->blockMovementBonuses;
+                    Addition.bOnlyAffectCauserDamage = EffectState->onlyAffectCauserDamage;
+                    Addition.IncomingDamageMultiplierFromCauserBasisPoints = EffectState->incomingDamageMultiplierFromCauserBasisPoints;
+                    Addition.IncomingEffectDurationAdd = EffectState->incomingEffectDurationAdd;
+                    Addition.TriggerDamage = EffectState->triggerDamageOnMove;
+                    Addition.TriggerDelay = EffectState->triggerDelayOnMove;
+                    Addition.TriggerOutgoingDamageMultiplierBasisPoints = EffectState->triggerOutgoingDamageMultiplierBasisPoints;
+                    Addition.TriggerSlowMultiplierBasisPoints = EffectState->triggerSlowMultiplierBasisPoints;
+                    Addition.TriggerSlowDurationInitiative = EffectState->triggerSlowDurationInitiative;
+                    Addition.TriggerAreaRadius = EffectState->triggerAreaRadius;
+                    Addition.TriggerAreaInitiativeLoss = EffectState->triggerAreaInitiativeLoss;
+                    Addition.TriggerInitiativeGainForCauser = EffectState->triggerInitiativeGainForCauser;
+                    Addition.InitiativeLossWhenIgnoringCauser = EffectState->initiativeLossWhenIgnoringPreferredTarget;
+                    Addition.InitiativeGainForCauserWhenAttacked = EffectState->initiativeGainForCauserWhenAttacked;
+                    Addition.OutgoingDamageMultiplierAgainstOtherTargetsBasisPoints = EffectState->outgoingDamageMultiplierAgainstOtherTargetsBasisPoints;
                 }
             }
         }
@@ -883,6 +946,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
         {
             FRoundCoreCharacterRuntimeUpdate& Update = OutExecution.CharacterUpdates.AddDefaulted_GetRef();
             Update.Character = *Actor; Update.Health = State.health; Update.Initiative = State.initiative;
+            Update.Tile = TileActors.FindRef(State.tileId);
             Update.bAlive = State.alive; Update.ResourceCurrent = State.resourceCurrent;
             Update.ResourceRechargeProgress = State.resourceRechargeProgress;
             Update.SpecialCooldownRemaining = State.specialCooldownRemaining;
@@ -1058,12 +1122,10 @@ bool FRoundCoreMatchAdapter::IsMoveLegal(
 bool FRoundCoreMatchAdapter::ExecuteMove(
     const ARoundCharacter* Character,
     const ARoundGridTile* TargetTile,
-    int32& OutMovementCost,
-    int32& OutInitiative,
+    FRoundCoreMoveExecution& OutExecution,
     FString& OutReason)
 {
-    OutMovementCost = 0;
-    OutInitiative = 0;
+    OutExecution = {};
     const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
     const roundcore::EntityId* TileId = TileIds.Find(TargetTile);
     if (!CharacterId || !TileId)
@@ -1087,20 +1149,64 @@ bool FRoundCoreMatchAdapter::ExecuteMove(
     {
         if (Event.type == roundcore::EventType::CharacterMoved && Event.sourceId == *CharacterId)
         {
-            OutMovementCost = static_cast<int32>(Event.amount);
-            break;
+            OutExecution.MovementCost = static_cast<int32>(Event.amount);
+        }
+        else if (Event.type == roundcore::EventType::DamageApplied)
+        {
+            OutExecution.DamageEvents.Add({CharacterActors.FindRef(Event.sourceId), CharacterActors.FindRef(Event.targetId),
+                FMath::Max(0, static_cast<int32>(Event.amount)), false});
+        }
+        else if (Event.type == roundcore::EventType::CharacterDied)
+        {
+            for (FRoundCoreDamageEvent& Damage : OutExecution.DamageEvents)
+            {
+                if (Damage.Target == CharacterActors.FindRef(Event.targetId)) Damage.bTargetDied = true;
+            }
+        }
+        else if (Event.type == roundcore::EventType::EffectRemoved)
+        {
+            if (ARoundCharacter* const* Owner = CharacterActors.Find(Event.targetId))
+            {
+                OutExecution.RemovedEffects.Add({*Owner, UTF8_TO_TCHAR(Event.definitionId.c_str())});
+            }
+        }
+        else if (Event.type == roundcore::EventType::EffectAdded)
+        {
+            const auto OwnerState = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
+                [&Event](const roundcore::CharacterState& State) { return State.id == Event.targetId; });
+            if (OwnerState != CoreGame.State().characters.end())
+            {
+                const auto Effect = std::find_if(OwnerState->modifierEffects.begin(), OwnerState->modifierEffects.end(),
+                    [&Event](const roundcore::ModifierEffectState& State) { return State.id == Event.definitionId; });
+                if (Effect != OwnerState->modifierEffects.end())
+                {
+                    FRoundCoreModifierEffectAddition& Addition = OutExecution.AddedModifierEffects.AddDefaulted_GetRef();
+                    Addition.Character = CharacterActors.FindRef(Event.targetId);
+                    Addition.Causer = CharacterActors.FindRef(Effect->causerId);
+                    Addition.EffectId = UTF8_TO_TCHAR(Effect->id.c_str());
+                    Addition.RemainingInitiative = Effect->remainingInitiative;
+                    Addition.OutgoingDamageMultiplierBasisPoints = Effect->outgoingDamageMultiplierBasisPoints;
+                    Addition.MoveCostMultiplierBasisPoints = Effect->moveCostMultiplierBasisPoints;
+                    Addition.bIsDebuff = Effect->isDebuff;
+                }
+            }
         }
     }
     for (const roundcore::CharacterState& State : CoreGame.State().characters)
     {
-        if (State.id == *CharacterId)
+        if (ARoundCharacter* const* Actor = CharacterActors.Find(State.id))
         {
-            OutInitiative = State.initiative;
-            OutReason = TEXT("Movement executed by RoundCore.");
-            return true;
+            FRoundCoreCharacterRuntimeUpdate& Update = OutExecution.CharacterUpdates.AddDefaulted_GetRef();
+            Update.Character = *Actor; Update.Tile = TileActors.FindRef(State.tileId);
+            Update.Health = State.health; Update.Initiative = State.initiative; Update.bAlive = State.alive;
+            Update.ResourceCurrent = State.resourceCurrent; Update.ResourceRechargeProgress = State.resourceRechargeProgress;
+            Update.SpecialCooldownRemaining = State.specialCooldownRemaining;
+            Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
+            Update.bMovedSinceLastTurn = State.movedSinceLastTurn; Update.bStationaryGuardActive = State.stationaryGuardActive;
+            if (State.id == *CharacterId) OutExecution.Initiative = State.initiative;
         }
     }
-
-    OutReason = TEXT("RoundCore executed movement but returned no character state.");
-    return false;
+    PreservedRandomState = CoreGame.State().randomState;
+    OutReason = TEXT("Movement executed by RoundCore.");
+    return true;
 }

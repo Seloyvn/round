@@ -4,6 +4,7 @@
 #include "Actors/RoundGridTile.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Effects/RoundModifierEffect.h"
+#include "Game/RoundGameState.h"
 
 int32 ARoundBindEffect::GetMovecost_Implementation(int32 In) const
 {
@@ -18,6 +19,11 @@ int32 ARoundBindEffect::GetMovecost_Implementation(int32 In) const
 
 void ARoundBindEffect::OnOwnerMoved(ARoundCharacter* TargetCharacter, ARoundGridTile* PreviousTile, ARoundGridTile* NewTile)
 {
+    if (const ARoundGameState* GameState = TargetCharacter ? TargetCharacter->GetRoundGameState() : nullptr;
+        GameState && GameState->IsApplyingCoreMovementCallbacks())
+    {
+        return;
+    }
     if (!TargetCharacter || !PreviousTile || !NewTile || PreviousTile == NewTile)
     {
         return;

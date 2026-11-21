@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::GroundAura
+        if (ability.operation > AbilityOperation::Taunt
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -330,6 +330,87 @@ ActionResult Game::ApplyAction(const GameAction& action)
         result.events.push_back(GameEvent{EventType::InitiativeChanged, character->id, character->id,
             destination->id, "Slow", -static_cast<std::int32_t>(initiativeLossOnMove)});
     }
+    std::vector<ModifierEffectState> moveTriggers;
+    for (const ModifierEffectState& effect : character->modifierEffects)
+    {
+        if (effect.triggerOnMove) moveTriggers.push_back(effect);
+    }
+    for (const ModifierEffectState& trigger : moveTriggers)
+    {
+        CharacterState* causer = FindCharacter(trigger.causerId);
+        character->modifierEffects.erase(std::remove_if(character->modifierEffects.begin(), character->modifierEffects.end(),
+            [&trigger](const ModifierEffectState& effect) { return effect.id == trigger.id; }), character->modifierEffects.end());
+        result.events.push_back(GameEvent{EventType::EffectRemoved, trigger.causerId, character->id,
+            character->tileId, trigger.id, 0});
+        if (!causer || !causer->alive) continue;
+        if (trigger.triggerDamageOnMove > 0)
+        {
+            std::vector<GameEvent> auraEvents;
+            std::vector<GameEvent> modifierEvents;
+            const std::int32_t damage = ResolveDamage(*causer, *character, trigger.triggerDamageOnMove, 0,
+                auraEvents, modifierEvents);
+            result.events.push_back(GameEvent{EventType::DamageApplied, causer->id, character->id,
+                character->tileId, trigger.id, damage});
+            result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+            result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+        }
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(character->definitionId);
+        const double delayMultiplier = PassiveValue(targetDefinition, "DelayReceivedMultiplier");
+        const auto loseInitiative = [&result, causer, delayMultiplier, &trigger](CharacterState& target, const std::int32_t requested)
+        {
+            const std::int32_t loss = delayMultiplier > 0.0
+                ? std::max(0, static_cast<std::int32_t>(requested * delayMultiplier + 0.5)) : std::max(0, requested);
+            const std::int32_t previous = target.initiative;
+            target.initiative = std::max(0, target.initiative - loss);
+            if (target.initiative != previous) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                causer->id, target.id, target.tileId, trigger.id, target.initiative - previous});
+        };
+        loseInitiative(*character, trigger.triggerDelayOnMove);
+        if (trigger.triggerAreaRadius > 0 && trigger.triggerAreaInitiativeLoss > 0)
+        {
+            const TileState* center = FindTile(character->tileId);
+            for (CharacterState& other : state_.characters)
+            {
+                const TileState* tile = FindTile(other.tileId);
+                if (center && tile && other.alive && other.team != causer->team && other.id != character->id
+                    && HexDistance(center->coord, tile->coord) <= trigger.triggerAreaRadius)
+                {
+                    loseInitiative(other, trigger.triggerAreaInitiativeLoss);
+                }
+            }
+        }
+        if (trigger.triggerOutgoingDamageMultiplierBasisPoints != 10000 && character->health > 0)
+        {
+            ModifierEffectState weakness; weakness.id = trigger.id + ":Weakness"; weakness.causerId = causer->id;
+            weakness.remainingInitiative = 40; weakness.isDebuff = true;
+            weakness.outgoingDamageMultiplierBasisPoints = trigger.triggerOutgoingDamageMultiplierBasisPoints;
+            character->modifierEffects.push_back(weakness);
+            result.events.push_back(GameEvent{EventType::EffectAdded, causer->id, character->id,
+                character->tileId, weakness.id, weakness.remainingInitiative});
+        }
+        if (trigger.triggerSlowDurationInitiative > 0 && character->health > 0)
+        {
+            ModifierEffectState slow; slow.id = trigger.id + ":Slow"; slow.causerId = causer->id;
+            slow.remainingInitiative = trigger.triggerSlowDurationInitiative; slow.isDebuff = true;
+            slow.moveCostMultiplierBasisPoints = trigger.triggerSlowMultiplierBasisPoints;
+            character->modifierEffects.push_back(slow);
+            result.events.push_back(GameEvent{EventType::EffectAdded, causer->id, character->id,
+                character->tileId, slow.id, slow.remainingInitiative});
+        }
+        if (trigger.triggerInitiativeGainForCauser > 0)
+        {
+            causer->initiative += trigger.triggerInitiativeGainForCauser;
+            result.events.push_back(GameEvent{EventType::InitiativeChanged, causer->id, causer->id,
+                causer->tileId, trigger.id, trigger.triggerInitiativeGainForCauser});
+        }
+        if (character->health <= 0)
+        {
+            character->health = 0; character->alive = false; destination->occupantId = InvalidEntityId;
+            result.events.push_back(GameEvent{EventType::CharacterDied, causer->id, character->id,
+                character->tileId, trigger.id, 0});
+            break;
+        }
+    }
     for (auto effect = character->modifierEffects.begin(); effect != character->modifierEffects.end();)
     {
         effect->firstMovePenaltyAvailable = false;
@@ -526,6 +607,29 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         }
         defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
         damage = ApplyBasisPoints(damage, effect.outgoingDamageMultiplierBasisPoints);
+        if (effect.preferredTargetId != InvalidEntityId)
+        {
+            if (target.id != effect.preferredTargetId)
+            {
+                damage = ApplyBasisPoints(damage, effect.outgoingDamageMultiplierAgainstOtherTargetsBasisPoints);
+                if (effect.initiativeLossWhenIgnoringPreferredTarget > 0)
+                {
+                    const std::int32_t previous = source.initiative;
+                    source.initiative = std::max(0, source.initiative - effect.initiativeLossWhenIgnoringPreferredTarget);
+                    modifierEvents.push_back(GameEvent{EventType::InitiativeChanged, effect.causerId, source.id,
+                        source.tileId, effect.id, source.initiative - previous});
+                }
+            }
+            else if (effect.initiativeGainForCauserWhenAttacked > 0)
+            {
+                if (CharacterState* causer = FindCharacter(effect.causerId); causer && causer->alive)
+                {
+                    causer->initiative += effect.initiativeGainForCauserWhenAttacked;
+                    modifierEvents.push_back(GameEvent{EventType::InitiativeChanged, causer->id, causer->id,
+                        causer->tileId, effect.id, effect.initiativeGainForCauserWhenAttacked});
+                }
+            }
+        }
         const std::int32_t heal = static_cast<std::int32_t>(ApplyBasisPoints(
             damage, effect.healFractionFromDamageDealtBasisPoints));
         const std::int32_t appliedHeal = std::min(
@@ -996,6 +1100,12 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("insufficient_initiative", "The character cannot afford this ability.");
     }
+    const std::int32_t resourceCost = std::max(0,
+        static_cast<std::int32_t>(AbilityValue(definition, "ChainCost")));
+    if (actor->resourceCurrent < resourceCost)
+    {
+        return Failure("insufficient_resource", "The character cannot afford this ability's resource cost.");
+    }
     return ActionResult{true};
 }
 
@@ -1033,6 +1143,27 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     result.message = "Ability executed.";
     result.events.push_back(GameEvent{
         EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, -cost});
+    const std::int32_t resourceCost = std::max(0,
+        static_cast<std::int32_t>(AbilityValue(definition, "ChainCost")));
+    if (resourceCost > 0)
+    {
+        actor->resourceCurrent -= resourceCost;
+        result.events.push_back(GameEvent{EventType::ResourceChanged, actor->id, actor->id,
+            actor->tileId, action.abilityId, -resourceCost});
+        if (actor->firstResourceSpendRefundAvailable)
+        {
+            actor->firstResourceSpendRefundAvailable = false;
+            const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
+            const std::int32_t refund = std::max(0, static_cast<std::int32_t>(
+                PassiveValue(actorDefinition, "FirstChainSpendInitiativeRefund")));
+            actor->initiative += refund;
+            if (refund > 0)
+            {
+                result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+                    actor->tileId, action.abilityId, refund});
+            }
+        }
+    }
     if (abilityState->usesCharges)
     {
         --abilityState->currentCharges;
@@ -1053,6 +1184,73 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             EventType::CooldownChanged, actor->id, actor->id, actor->tileId,
             action.abilityId, abilityState->cooldownDuration});
     }
+
+    const auto isDebuffed = [](const CharacterState& character)
+    {
+        return std::any_of(character.modifierEffects.begin(), character.modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.isDebuff; });
+    };
+    const auto effectDuration = [this](const CharacterState& owner, const std::int32_t base)
+    {
+        const CharacterDefinition& ownerDefinition = definitions_.characters.at(owner.definitionId);
+        const double multiplier = PassiveValue(ownerDefinition, "DebuffDurationMultiplier");
+        std::int32_t duration = multiplier > 0.0
+            ? std::max(1, static_cast<std::int32_t>(base * multiplier + 0.5)) : std::max(1, base);
+        for (const ModifierEffectState& effect : owner.modifierEffects)
+        {
+            duration += std::max(0, effect.incomingEffectDurationAdd);
+        }
+        return duration;
+    };
+    const auto addEffect = [&result](CharacterState& owner, ModifierEffectState effect)
+    {
+        owner.modifierEffects.erase(std::remove_if(owner.modifierEffects.begin(), owner.modifierEffects.end(),
+            [&effect](const ModifierEffectState& existing) { return existing.id == effect.id; }),
+            owner.modifierEffects.end());
+        const DefinitionId effectId = effect.id;
+        const std::int32_t duration = effect.remainingInitiative;
+        owner.modifierEffects.push_back(std::move(effect));
+        result.events.push_back(GameEvent{EventType::EffectAdded, owner.modifierEffects.back().causerId,
+            owner.id, owner.tileId, effectId, duration});
+    };
+    const auto applyDelay = [this, &result, &action](CharacterState& source, CharacterState& delayed,
+        const std::int32_t requested, const DefinitionId& reason)
+    {
+        const CharacterDefinition& delayedDefinition = definitions_.characters.at(delayed.definitionId);
+        const double multiplier = PassiveValue(delayedDefinition, "DelayReceivedMultiplier");
+        const std::int32_t amount = multiplier > 0.0
+            ? std::max(0, static_cast<std::int32_t>(requested * multiplier + 0.5))
+            : std::max(0, requested);
+        const std::int32_t before = delayed.initiative;
+        delayed.initiative = std::max(0, delayed.initiative - amount);
+        if (delayed.initiative != before)
+        {
+            result.events.push_back(GameEvent{EventType::InitiativeChanged, source.id, delayed.id,
+                delayed.tileId, reason.empty() ? action.abilityId : reason, delayed.initiative - before});
+        }
+    };
+    const auto applyDamage = [this, &result, &action](CharacterState& source, CharacterState& damaged,
+        const std::int32_t amount, const std::int32_t defenseIgnore, const DefinitionId& reason)
+    {
+        std::vector<GameEvent> auraEvents;
+        std::vector<GameEvent> modifierEvents;
+        const std::int32_t applied = ResolveDamage(source, damaged, std::max(0, amount),
+            std::max(0, defenseIgnore), auraEvents, modifierEvents);
+        result.events.push_back(GameEvent{EventType::DamageApplied, source.id, damaged.id, damaged.tileId,
+            reason.empty() ? action.abilityId : reason, applied});
+        result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+        result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+        return applied;
+    };
+    const auto finalizeDeath = [this, &result, &action](CharacterState& source, CharacterState& damaged)
+    {
+        if (damaged.health > 0 || !damaged.alive) return;
+        damaged.health = 0;
+        damaged.alive = false;
+        if (TileState* tile = FindTile(damaged.tileId)) tile->occupantId = InvalidEntityId;
+        result.events.push_back(GameEvent{EventType::CharacterDied, source.id, damaged.id,
+            damaged.tileId, action.abilityId, 0});
+    };
 
     if (definition.operation == AbilityOperation::GroundAura)
     {
@@ -1123,6 +1321,248 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         actor->modifierEffects.push_back(effect);
         result.events.push_back(GameEvent{EventType::EffectAdded, actor->id, actor->id,
             actor->tileId, effect.id, effect.remainingInitiative});
+    }
+    else if (definition.operation == AbilityOperation::Knockback)
+    {
+        std::int32_t damage = std::max(0, definition.amount);
+        if (isDebuffed(*target))
+        {
+            const double multiplier = AbilityValue(definition, "DamageMultiplierVsDebuffed");
+            if (multiplier > 0.0) damage = std::max(0, static_cast<std::int32_t>(damage * multiplier + 0.5));
+        }
+        applyDamage(*actor, *target, damage, definition.defenseIgnore, {});
+        if (target->health > 0)
+        {
+            const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+            const std::int32_t ignoreChance = std::clamp(static_cast<std::int32_t>(
+                PassiveValue(targetDefinition, "IgnoreEnemyForcedMovementChance") * 10000.0 + 0.5), 0, 10000);
+            const bool ignored = ignoreChance > 0 && RollBasisPoints(ignoreChance);
+            const std::int32_t requestedDistance = std::max(0,
+                static_cast<std::int32_t>(AbilityValue(definition, "KnockbackDistance")));
+            std::int32_t moved = 0;
+            while (!ignored && moved < requestedDistance)
+            {
+                const TileState* sourceTile = FindTile(actor->tileId);
+                const TileState* currentTile = FindTile(target->tileId);
+                TileState* best = nullptr;
+                std::int32_t bestDistance = sourceTile && currentTile ? HexDistance(sourceTile->coord, currentTile->coord) : -1;
+                for (TileState& candidate : state_.tiles)
+                {
+                    const auto terrain = definitions_.terrains.find(candidate.terrainId);
+                    if (!sourceTile || !currentTile || HexDistance(currentTile->coord, candidate.coord) != 1
+                        || candidate.occupantId != InvalidEntityId || candidate.blocksMovement
+                        || terrain == definitions_.terrains.end() || !terrain->second.walkable) continue;
+                    const std::int32_t distance = HexDistance(sourceTile->coord, candidate.coord);
+                    if (distance > bestDistance || (distance == bestDistance && (!best || candidate.id < best->id)))
+                    {
+                        bestDistance = distance; best = &candidate;
+                    }
+                }
+                if (!best) break;
+                if (TileState* old = FindTile(target->tileId)) old->occupantId = InvalidEntityId;
+                best->occupantId = target->id; target->tileId = best->id; ++moved;
+                result.events.push_back(GameEvent{EventType::CharacterMoved, target->id, target->id,
+                    best->id, action.abilityId, 0});
+            }
+            if (moved < requestedDistance)
+            {
+                applyDamage(*actor, *target, std::max(0, static_cast<std::int32_t>(
+                    AbilityValue(definition, "WallBonusDamage"))), definition.defenseIgnore, action.abilityId + ":Wall");
+            }
+            applyDelay(*actor, *target, std::max(0, static_cast<std::int32_t>(
+                AbilityValue(definition, "TargetInitiativeLossOnHit"))), {});
+            const std::int32_t selfSteps = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfStepTowardTarget")));
+            for (std::int32_t step = 0; step < selfSteps; ++step)
+            {
+                TileState* actorTile = FindTile(actor->tileId);
+                const TileState* targetTile = FindTile(target->tileId);
+                TileState* best = nullptr;
+                std::int32_t bestDistance = actorTile && targetTile ? HexDistance(actorTile->coord, targetTile->coord) : 0;
+                for (TileState& candidate : state_.tiles)
+                {
+                    const auto terrain = definitions_.terrains.find(candidate.terrainId);
+                    if (!actorTile || !targetTile || HexDistance(actorTile->coord, candidate.coord) != 1
+                        || candidate.occupantId != InvalidEntityId || candidate.blocksMovement
+                        || terrain == definitions_.terrains.end() || !terrain->second.walkable) continue;
+                    const std::int32_t distance = HexDistance(candidate.coord, targetTile->coord);
+                    if (distance < bestDistance && (!best || distance < HexDistance(best->coord, targetTile->coord)
+                        || (distance == HexDistance(best->coord, targetTile->coord) && candidate.id < best->id))) best = &candidate;
+                }
+                if (!best) break;
+                actorTile->occupantId = InvalidEntityId; best->occupantId = actor->id; actor->tileId = best->id;
+                actor->movedSinceLastTurn = true; actor->stationaryGuardActive = false;
+                result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id,
+                    best->id, action.abilityId + ":Follow", 0});
+            }
+            const double slow = AbilityValue(definition, "ApplySlowOnHitStrength");
+            if (slow > 0.0 && target->health > 0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":Slow"; effect.causerId = actor->id;
+                effect.isDebuff = true; effect.remainingInitiative = effectDuration(*target, std::max(1,
+                    static_cast<std::int32_t>(AbilityValue(definition, "ApplySlowOnHitDuration") * 40.0)));
+                effect.moveCostMultiplierBasisPoints = std::max(10000,
+                    static_cast<std::int32_t>((1.0 + slow) * 10000.0 + 0.5));
+                addEffect(*target, effect);
+            }
+            const double targetIncoming = AbilityValue(definition, "IncomingDamageMultiplierOnHit");
+            if (targetIncoming > 0.0 && targetIncoming != 1.0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":Exposed"; effect.causerId = actor->id;
+                effect.isDebuff = true; effect.remainingInitiative = effectDuration(*target, 40);
+                effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(targetIncoming * 10000.0 + 0.5);
+                addEffect(*target, effect);
+            }
+            const double actorOutgoing = AbilityValue(definition, "OutgoingDamageMultiplierAfterHit");
+            if (actorOutgoing > 0.0 && actorOutgoing != 1.0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":Momentum"; effect.causerId = actor->id;
+                effect.remainingInitiative = 40;
+                effect.outgoingDamageMultiplierBasisPoints = static_cast<std::int32_t>(actorOutgoing * 10000.0 + 0.5);
+                addEffect(*actor, effect);
+            }
+            const double selfIncoming = AbilityValue(definition, "SelfIncomingDamageMultiplierFromTarget");
+            if (selfIncoming > 0.0 && selfIncoming != 1.0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":Guard"; effect.causerId = target->id;
+                effect.onlyAffectCauserDamage = true; effect.incomingDamageMultiplierBasisPoints =
+                    static_cast<std::int32_t>(selfIncoming * 10000.0 + 0.5);
+                effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(
+                    AbilityValue(definition, "SelfIncomingDamageMultiplierFromTargetDuration") * 40.0));
+                addEffect(*actor, effect);
+            }
+        }
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::DelayStrike)
+    {
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+        std::int32_t damage = definition.amount;
+        const double highInitiativeMultiplier = AbilityValue(definition, "OutgoingDamageMultiplierOnHighInitiativeTarget");
+        if (highInitiativeMultiplier > 0.0 && target->initiative >= targetDefinition.stats.maxInitiative)
+        {
+            damage = std::max(0, static_cast<std::int32_t>(damage * highInitiativeMultiplier + 0.5));
+        }
+        applyDamage(*actor, *target, damage, definition.defenseIgnore, {});
+        const bool alreadyDebuffed = isDebuffed(*target);
+        const bool alreadyDelayed = std::any_of(target->modifierEffects.begin(), target->modifierEffects.end(),
+            [&action](const ModifierEffectState& effect) { return effect.id == action.abilityId + ":Delayed"; });
+        std::int32_t delay = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DelayAmount")));
+        if (alreadyDebuffed) delay += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ExtraDelayVsDebuffed")));
+        if (alreadyDelayed) delay += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AdditionalInitiativeLossIfAlreadyDelayed")));
+        applyDelay(*actor, *target, delay, {});
+        const std::int32_t radius = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AoEInitiativeLossRadius")));
+        const std::int32_t areaLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AoEInitiativeLossAmount")));
+        const TileState* center = FindTile(target->tileId);
+        if (center && radius > 0 && areaLoss > 0)
+        {
+            for (CharacterState& other : state_.characters)
+            {
+                const TileState* tile = FindTile(other.tileId);
+                if (other.alive && other.team != actor->team && other.id != target->id && tile
+                    && HexDistance(center->coord, tile->coord) <= radius) applyDelay(*actor, other, areaLoss, action.abilityId + ":Area");
+            }
+        }
+        const std::int32_t selfGain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfInitiativeGainOnUse")));
+        actor->initiative += selfGain;
+        if (selfGain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+            actor->tileId, action.abilityId, selfGain});
+        if (target->health > 0)
+        {
+            ModifierEffectState marker; marker.id = action.abilityId + ":Delayed"; marker.causerId = actor->id;
+            marker.isDebuff = true; marker.remainingInitiative = effectDuration(*target, 40);
+            marker.incomingEffectDurationAdd = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "IncomingEffectDurationAdd") * 40.0));
+            marker.moveCostAdd = static_cast<std::int32_t>(AbilityValue(definition, "MoveCostAddOnTarget"));
+            marker.blockMovementBonuses = AbilityValue(definition, "BlockMovementBonusesOnTarget") > 0.0;
+            addEffect(*target, marker);
+        }
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::Shackle)
+    {
+        applyDamage(*actor, *target, definition.amount, definition.defenseIgnore, {});
+        if (target->health > 0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Shackle"; effect.causerId = actor->id;
+            effect.isDebuff = true; effect.remainingInitiative = effectDuration(*target, std::max(1,
+                static_cast<std::int32_t>(AbilityValue(definition, "SlowDuration") * 40.0)));
+            const double slow = AbilityValue(definition, "SlowStrength");
+            effect.moveCostMultiplierBasisPoints = std::max(10000, static_cast<std::int32_t>((1.0 + slow) * 10000.0 + 0.5));
+            const double outgoing = AbilityValue(definition, "OutgoingDamageMultiplierWhileShackled");
+            effect.outgoingDamageMultiplierBasisPoints = outgoing > 0.0 ? static_cast<std::int32_t>(outgoing * 10000.0 + 0.5) : 10000;
+            effect.initiativeLossOnMove = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnMove")));
+            effect.blockMovementBonuses = AbilityValue(definition, "BlockMovementBonuses") > 0.0;
+            const double incoming = AbilityValue(definition, "IncomingDamageMultiplierFromCauserWhileShackled");
+            effect.incomingDamageMultiplierFromCauserBasisPoints = incoming > 0.0 ? static_cast<std::int32_t>(incoming * 10000.0 + 0.5) : 10000;
+            effect.initiativeLossOnExpire = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnExpire")));
+            addEffect(*target, effect);
+            const double selfIncoming = AbilityValue(definition, "SelfIncomingDamageMultiplierFromTargetWhileShackled");
+            if (selfIncoming > 0.0)
+            {
+                ModifierEffectState protection; protection.id = action.abilityId + ":Protection"; protection.causerId = target->id;
+                protection.remainingInitiative = effect.remainingInitiative; protection.onlyAffectCauserDamage = true;
+                protection.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(selfIncoming * 10000.0 + 0.5);
+                addEffect(*actor, protection);
+            }
+        }
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::Bind)
+    {
+        ModifierEffectState effect; effect.id = action.abilityId + ":Bind"; effect.causerId = actor->id;
+        effect.isDebuff = true; effect.triggerOnMove = true; effect.remainingInitiative = effectDuration(*target,
+            std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative"))));
+        effect.moveCostAdd = 2; effect.blockMovementBonuses = AbilityValue(definition, "BlockMovementBonusesOnTarget") > 0.0;
+        effect.triggerDamageOnMove = std::max(0, definition.amount);
+        const double triggerVsDebuffed = AbilityValue(definition, "TriggerDamageMultiplierVsDebuffed");
+        if (isDebuffed(*target) && triggerVsDebuffed > 0.0)
+        {
+            effect.triggerDamageOnMove = std::max(0, static_cast<std::int32_t>(
+                effect.triggerDamageOnMove * triggerVsDebuffed + 0.5));
+        }
+        effect.triggerDelayOnMove = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DelayAmount")));
+        const double outgoing = AbilityValue(definition, "TriggerOutgoingDamageMultiplier");
+        effect.triggerOutgoingDamageMultiplierBasisPoints = outgoing > 0.0 ? static_cast<std::int32_t>(outgoing * 10000.0 + 0.5) : 10000;
+        const double slow = AbilityValue(definition, "TriggerSlowAmount");
+        effect.triggerSlowMultiplierBasisPoints = std::max(10000, static_cast<std::int32_t>((1.0 + slow) * 10000.0 + 0.5));
+        effect.triggerSlowDurationInitiative = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "TriggerSlowDuration") * 40.0));
+        effect.triggerAreaRadius = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "TriggerAoEInitiativeLossRadius")));
+        effect.triggerAreaInitiativeLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "TriggerAoEInitiativeLossAmount")));
+        effect.triggerInitiativeGainForCauser = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "TriggerInitiativeGainForCauser")));
+        addEffect(*target, effect);
+    }
+    else if (definition.operation == AbilityOperation::Taunt)
+    {
+        applyDamage(*actor, *target, definition.amount, definition.defenseIgnore, {});
+        if (target->health > 0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Taunt"; effect.causerId = actor->id;
+            effect.preferredTargetId = actor->id; effect.isDebuff = true;
+            const bool debuffed = isDebuffed(*target);
+            effect.remainingInitiative = effectDuration(*target, std::max(1,
+                static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative"))
+                + (debuffed ? static_cast<std::int32_t>(AbilityValue(definition, "ExtraDurationVsDebuffed") * 40.0) : 0)));
+            const double reduction = AbilityValue(definition, "ReductionAmount");
+            const double explicitMultiplier = AbilityValue(definition, "OutgoingDamageMultiplierWhileTaunted");
+            const double multiplier = explicitMultiplier > 0.0 ? explicitMultiplier : std::max(0.0, 1.0 - reduction);
+            effect.outgoingDamageMultiplierAgainstOtherTargetsBasisPoints = static_cast<std::int32_t>(multiplier * 10000.0 + 0.5);
+            effect.initiativeLossWhenIgnoringPreferredTarget = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossWhenIgnoringCauser")));
+            effect.initiativeGainForCauserWhenAttacked = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainForCauserWhenAttacked")));
+            const double fromCauser = AbilityValue(definition, "IncomingDamageMultiplierFromCauserWhileTaunted");
+            effect.incomingDamageMultiplierFromCauserBasisPoints = fromCauser > 0.0 ? static_cast<std::int32_t>(fromCauser * 10000.0 + 0.5) : 10000;
+            const double allIncoming = AbilityValue(definition, "IncomingDamageMultiplierWhileTaunted");
+            effect.incomingDamageMultiplierBasisPoints = allIncoming > 0.0 ? static_cast<std::int32_t>(allIncoming * 10000.0 + 0.5) : 10000;
+            addEffect(*target, effect);
+            applyDelay(*actor, *target, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ImmediateInitiativeLoss"))), {});
+            const double selfIncoming = AbilityValue(definition, "SelfIncomingDamageMultiplierFromTargetWhileTaunted");
+            if (selfIncoming > 0.0)
+            {
+                ModifierEffectState protection; protection.id = action.abilityId + ":Protection"; protection.causerId = target->id;
+                protection.remainingInitiative = effect.remainingInitiative; protection.onlyAffectCauserDamage = true;
+                protection.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(selfIncoming * 10000.0 + 0.5);
+                addEffect(*actor, protection);
+            }
+        }
+        finalizeDeath(*actor, *target);
     }
     else if (definition.operation == AbilityOperation::DirectHeal)
     {
@@ -1911,7 +2351,7 @@ std::uint64_t Game::StateHash() const noexcept
         }
         for (const ModifierEffectState& effect : character.modifierEffects)
         {
-            HashString(hash, effect.id); HashValue(hash, effect.causerId);
+            HashString(hash, effect.id); HashValue(hash, effect.causerId); HashValue(hash, effect.preferredTargetId);
             HashValue(hash, effect.remainingInitiative); HashValue(hash, effect.remainingTurns);
             HashValue(hash, effect.incomingDamageMultiplierBasisPoints);
             HashValue(hash, effect.outgoingDamageMultiplierBasisPoints);
@@ -1928,6 +2368,16 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
             HashValue(hash, effect.incomingDamageMultiplierFromCauserBasisPoints);
             HashValue(hash, effect.initiativeLossOnExpire);
+            HashValue(hash, effect.incomingEffectDurationAdd);
+            HashValue(hash, effect.outgoingDamageMultiplierAgainstOtherTargetsBasisPoints);
+            HashValue(hash, effect.initiativeLossWhenIgnoringPreferredTarget);
+            HashValue(hash, effect.initiativeGainForCauserWhenAttacked);
+            HashValue(hash, effect.triggerDamageOnMove); HashValue(hash, effect.triggerDelayOnMove);
+            HashValue(hash, effect.triggerOutgoingDamageMultiplierBasisPoints);
+            HashValue(hash, effect.triggerSlowMultiplierBasisPoints);
+            HashValue(hash, effect.triggerSlowDurationInitiative);
+            HashValue(hash, effect.triggerAreaRadius); HashValue(hash, effect.triggerAreaInitiativeLoss);
+            HashValue(hash, effect.triggerInitiativeGainForCauser);
             HashValue(hash, effect.redirectPreMitigationBasisPoints);
             HashValue(hash, effect.redirectedDamageMultiplierBasisPoints);
             HashValue(hash, effect.protectorHealFractionBasisPoints);
@@ -1947,6 +2397,7 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.preventsMovement);
             HashValue(hash, effect.firstMovePenaltyAvailable);
             HashValue(hash, effect.expireOnTurnEnd);
+            HashValue(hash, effect.isDebuff); HashValue(hash, effect.triggerOnMove);
         }
         for (const RecentAuraPreventionState& prevention : character.recentAuraPreventions)
         {
