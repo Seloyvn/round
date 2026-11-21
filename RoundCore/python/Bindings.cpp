@@ -146,6 +146,10 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("prevents_movement", &ModifierEffectState::preventsMovement)
         .def_readwrite("first_move_penalty_available", &ModifierEffectState::firstMovePenaltyAvailable)
         .def_readwrite("expire_on_turn_end", &ModifierEffectState::expireOnTurnEnd);
+    py::class_<RecentAuraPreventionState>(module, "RecentAuraPreventionState")
+        .def(py::init<>())
+        .def_readwrite("source_id", &RecentAuraPreventionState::sourceId)
+        .def_readwrite("global_initiative", &RecentAuraPreventionState::globalInitiative);
     py::class_<CharacterState>(module, "CharacterState")
         .def(py::init<>()).def_readwrite("id", &CharacterState::id)
         .def_readwrite("definition_id", &CharacterState::definitionId).def_readwrite("team", &CharacterState::team)
@@ -156,7 +160,8 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("initiative_gain_per_tick", &CharacterState::initiativeGainPerTick)
         .def_readwrite("delayed_action_initiative", &CharacterState::delayedActionInitiative)
         .def_readwrite("abilities", &CharacterState::abilities)
-        .def_readwrite("modifier_effects", &CharacterState::modifierEffects);
+        .def_readwrite("modifier_effects", &CharacterState::modifierEffects)
+        .def_readwrite("recent_aura_preventions", &CharacterState::recentAuraPreventions);
     py::class_<GameState>(module, "GameState")
         .def(py::init<>()).def_readwrite("schema_version", &GameState::schemaVersion)
         .def_readwrite("match_id", &GameState::matchId).def_readwrite("seed", &GameState::seed)

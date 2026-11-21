@@ -59,6 +59,21 @@ roundcore::DamageType ToCoreDamageType(const ERoundDamageType DamageType)
 bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& OutReason)
 {
     OutReason.Reset();
+    for (const roundcore::CharacterState& State : CoreGame.State().characters)
+    {
+        ARoundCharacter* const* Owner = CharacterActors.Find(State.id);
+        if (!Owner)
+        {
+            continue;
+        }
+        for (const roundcore::RecentAuraPreventionState& Prevention : State.recentAuraPreventions)
+        {
+            if (ARoundCharacter* const* Source = CharacterActors.Find(Prevention.sourceId))
+            {
+                PreservedAuraPreventions.FindOrAdd(*Owner).FindOrAdd(*Source) = Prevention.globalInitiative;
+            }
+        }
+    }
     TileIds.Reset();
     TileActors.Reset();
     CharacterIds.Reset();
@@ -388,6 +403,17 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
             CharacterState.modifierEffects.push_back(std::move(EffectState));
         }
+        if (const TMap<const ARoundCharacter*, uint64>* Preventions = PreservedAuraPreventions.Find(Character))
+        {
+            for (const TPair<const ARoundCharacter*, uint64>& Prevention : *Preventions)
+            {
+                const roundcore::EntityId SourceId = CharacterIds.FindRef(Prevention.Key);
+                if (SourceId != roundcore::InvalidEntityId)
+                {
+                    CharacterState.recentAuraPreventions.push_back({SourceId, Prevention.Value});
+                }
+            }
+        }
         Setup.definitions.characters.emplace(DefinitionId, std::move(Definition));
         Setup.initialState.characters.push_back(std::move(CharacterState));
     }
@@ -429,6 +455,40 @@ bool FRoundCoreMatchAdapter::IsBasicAttackLegal(
     const roundcore::ActionResult Result = CoreGame.ValidateAction(Action);
     OutReason = Result.success
         ? TEXT("Basic attack is legal in RoundCore.")
+        : FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+    return Result.success;
+}
+
+bool FRoundCoreMatchAdapter::IsAbilityLegal(
+    const ARoundCharacter* Character,
+    const ARoundAbilityActor* Ability,
+    const ARoundCharacter* TargetCharacter,
+    FString& OutReason) const
+{
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    FString AbilityKey;
+    for (const TPair<FString, ARoundAbilityActor*>& Entry : AbilityActors)
+    {
+        if (Entry.Value == Ability)
+        {
+            AbilityKey = Entry.Key;
+            break;
+        }
+    }
+    if (!CharacterId || !TargetId || AbilityKey.IsEmpty())
+    {
+        OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
+        return false;
+    }
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::UseAbility;
+    Action.actorId = *CharacterId;
+    Action.targetEntityId = *TargetId;
+    Action.abilityId = ToCoreString(AbilityKey);
+    const roundcore::ActionResult Result = CoreGame.ValidateAction(Action);
+    OutReason = Result.success
+        ? TEXT("Ability is legal in RoundCore.")
         : FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
     return Result.success;
 }
@@ -671,6 +731,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     Addition.DefenseIgnoreAdd = EffectState->defenseIgnoreAdd;
                     Addition.HealFractionFromDamageDealtBasisPoints = EffectState->healFractionFromDamageDealtBasisPoints;
                     Addition.MoveCostAdd = EffectState->moveCostAdd;
+                    Addition.bPreventsAbilityUse = EffectState->preventsAbilityUse;
                 }
             }
         }

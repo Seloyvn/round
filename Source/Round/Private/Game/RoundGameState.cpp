@@ -3972,7 +3972,19 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
                 ExistingEffect->RemoveEffect();
             }
         }
-        if (ARoundModifierEffect* Effect = GetWorld()->SpawnActor<ARoundModifierEffect>())
+        if (Addition.bPreventsAbilityUse)
+        {
+            if (ARoundSilenceEffect* Effect = GetWorld()->SpawnActor<ARoundSilenceEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = Ability->AbilityData ? Ability->AbilityData->DisplayName.ToString() : TEXT("Silence");
+                Effect->Description = TEXT("Kann keine Skills einsetzen.");
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
+        else if (ARoundModifierEffect* Effect = GetWorld()->SpawnActor<ARoundModifierEffect>())
         {
             Effect->EffectId = FName(*Addition.EffectId);
             Effect->DisplayName = Ability->AbilityData ? Ability->AbilityData->DisplayName.ToString() : TEXT("Modifier");
@@ -4019,6 +4031,22 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         UE_LOG(LogTemp, Error, TEXT("RoundCore post-ability resync failed: %s"), *ResyncReason);
     }
     return Result;
+}
+
+bool ARoundGameState::IsCoreAbilityLegal(
+    const ARoundCharacter* Character, const ARoundAbilityActor* Ability, const ARoundCharacter* TargetCharacter) const
+{
+    if (!Character || !Ability || !TargetCharacter)
+    {
+        return false;
+    }
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+    FString CoreReason;
+    return CoreMatchAdapter->Rebuild(*this, CoreReason)
+        && CoreMatchAdapter->IsAbilityLegal(Character, Ability, TargetCharacter, CoreReason);
 }
 
 bool ARoundGameState::GetCoreVisionFields(

@@ -59,6 +59,12 @@ struct ModifierEffectState
     bool expireOnTurnEnd = false;
 };
 
+struct RecentAuraPreventionState
+{
+    EntityId sourceId = InvalidEntityId;
+    std::uint64_t globalInitiative = 0;
+};
+
 struct CharacterState
 {
     EntityId id = InvalidEntityId;
@@ -74,6 +80,7 @@ struct CharacterState
     std::int32_t delayedActionInitiative = 0;
     std::vector<AbilityState> abilities;
     std::vector<ModifierEffectState> modifierEffects;
+    std::vector<RecentAuraPreventionState> recentAuraPreventions;
 };
 
 struct GameState

@@ -604,6 +604,33 @@ int main()
             && std::any_of(followupResult.events.begin(), followupResult.events.end(),
                 [](const GameEvent& event) { return event.type == EventType::HealingApplied && event.amount == 30; }),
         "direct-ability follow-ups should emit deterministic initiative and healing events");
+    MatchSetup condemnSetup = abilitySetup;
+    AbilityDefinition& condemn = condemnSetup.definitions.abilities.at(bolt.id);
+    condemn.values["RecentAllyDamageWindowInitiative"] = 25.0;
+    condemn.values["SilenceDurationInitiative"] = 40.0;
+    condemn.values["SelfHealOnCondemn"] = 20.0;
+    condemn.values["InitiativeGainOnCondemn"] = 5.0;
+    condemnSetup.initialState.characters[0].health = 50;
+    condemnSetup.initialState.characters[0].recentAuraPreventions.push_back({20, 0});
+    Game condemnGame;
+    Require(condemnGame.Reset(std::move(condemnSetup)).success, "Condemn setup should reset");
+    const ActionResult condemnResult = condemnGame.ApplyAction(blockedBolt);
+    Require(condemnResult.success && condemnGame.State().characters[0].health == 70
+            && condemnGame.State().characters[0].initiative == 98
+            && condemnGame.State().characters[1].modifierEffects.size() == 1
+            && condemnGame.State().characters[1].modifierEffects[0].preventsAbilityUse
+            && condemnGame.State().characters[1].modifierEffects[0].remainingInitiative == 40,
+        "Condemn should require aura history and resolve damage, rewards, and silence in Core");
+    MatchSetup expiredCondemnSetup = abilitySetup;
+    expiredCondemnSetup.definitions.abilities.at(bolt.id).values["RecentAllyDamageWindowInitiative"] = 25.0;
+    expiredCondemnSetup.initialState.globalInitiative = 30;
+    expiredCondemnSetup.initialState.characters[0].recentAuraPreventions.push_back({20, 0});
+    Game expiredCondemn;
+    Require(expiredCondemn.Reset(std::move(expiredCondemnSetup)).success,
+        "expired Condemn setup should reset");
+    const ActionResult expiredCondemnResult = expiredCondemn.ValidateAction(blockedBolt);
+    Require(!expiredCondemnResult.success && expiredCondemnResult.errorCode == "missing_recent_aura_prevention",
+        "Condemn should reject targets outside the editor-authored aura prevention window");
     Game abilities;
     Require(abilities.Reset(std::move(abilitySetup)).success, "direct ability setup should reset");
     const std::vector<GameAction> abilityActions = abilities.LegalActions(10);

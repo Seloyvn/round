@@ -21,6 +21,12 @@ bool ARoundCondemnAbility::CanTargetTile(const ARoundGridTile* TargetTile) const
         return false;
     }
 
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 1)
+    {
+        const ARoundGameState* GameState = OwningCharacter->GetRoundGameState();
+        return GameState && GameState->IsCoreAbilityLegal(OwningCharacter, this, TargetCharacter);
+    }
+
     const ARoundCharacterPaladin* Paladin = Cast<ARoundCharacterPaladin>(OwningCharacter);
     if (!Paladin)
     {
@@ -44,6 +50,11 @@ bool ARoundCondemnAbility::CanTargetTile(const ARoundGridTile* TargetTile) const
 
 FRoundActionResult ARoundCondemnAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 1)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
+
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes)
     {

@@ -199,6 +199,14 @@ ActionResult Game::Reset(MatchSetup setup)
                 return Failure("missing_effect_causer", "A modifier effect causer must reference a character in the match.");
             }
         }
+        for (const RecentAuraPreventionState& prevention : character.recentAuraPreventions)
+        {
+            if (prevention.sourceId == InvalidEntityId || characterIds.find(prevention.sourceId) == characterIds.end())
+            {
+                return Failure("missing_aura_prevention_source",
+                    "Recent aura prevention sources must reference a character in the match.");
+            }
+        }
     }
 
     for (TileState& tile : setup.initialState.tiles)
@@ -539,6 +547,18 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
             continue;
         }
 
+        auto recentPrevention = std::find_if(auraOwner.recentAuraPreventions.begin(),
+            auraOwner.recentAuraPreventions.end(),
+            [&source](const RecentAuraPreventionState& state) { return state.sourceId == source.id; });
+        if (recentPrevention == auraOwner.recentAuraPreventions.end())
+        {
+            auraOwner.recentAuraPreventions.push_back({source.id, state_.globalInitiative});
+        }
+        else
+        {
+            recentPrevention->globalInitiative = state_.globalInitiative;
+        }
+
         const std::int32_t heal = std::max(0, static_cast<std::int32_t>(
             preventedDamage * PassiveValue(auraDefinition, "CoreAuraHealFractionOfPreventedDamage") + 0.5));
         const std::int32_t appliedHeal = std::min(
@@ -793,6 +813,19 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("invalid_ability_relation", "The target does not match the ability's target relation.");
     }
+    const std::int32_t recentAuraWindow = std::max(0,
+        static_cast<std::int32_t>(AbilityValue(definition, "RecentAllyDamageWindowInitiative")));
+    if (recentAuraWindow > 0)
+    {
+        const auto prevention = std::find_if(actor->recentAuraPreventions.begin(), actor->recentAuraPreventions.end(),
+            [target](const RecentAuraPreventionState& state) { return state.sourceId == target->id; });
+        if (prevention == actor->recentAuraPreventions.end()
+            || prevention->globalInitiative + static_cast<std::uint64_t>(recentAuraWindow) < state_.globalInitiative)
+        {
+            return Failure("missing_recent_aura_prevention",
+                "This ability requires recent damage prevention against the target.");
+        }
+    }
     const TileState* actorTile = FindTile(actor->tileId);
     const TileState* targetTile = FindTile(target->tileId);
     if (!actorTile || !targetTile)
@@ -924,8 +957,9 @@ ActionResult Game::ApplyAbility(const GameAction& action)
                 target->tileId, action.abilityId, target->initiative - previousInitiative});
         }
 
-        const std::int32_t initiativeGain = std::max(
-            0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnHit")));
+        const std::int32_t initiativeGain = std::max({0,
+            static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnHit")),
+            static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnCondemn"))});
         if (initiativeGain > 0)
         {
             actor->initiative += initiativeGain;
@@ -933,8 +967,9 @@ ActionResult Game::ApplyAbility(const GameAction& action)
                 actor->tileId, action.abilityId, initiativeGain});
         }
 
-        const std::int32_t selfHeal = std::max(
-            0, static_cast<std::int32_t>(AbilityValue(definition, "SelfHealOnHit")));
+        const std::int32_t selfHeal = std::max({0,
+            static_cast<std::int32_t>(AbilityValue(definition, "SelfHealOnHit")),
+            static_cast<std::int32_t>(AbilityValue(definition, "SelfHealOnCondemn"))});
         if (selfHeal > 0)
         {
             const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
@@ -943,6 +978,22 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             actor->health += healing;
             result.events.push_back(GameEvent{EventType::HealingApplied, actor->id, actor->id,
                 actor->tileId, action.abilityId, healing});
+        }
+        const std::int32_t silenceDuration = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "SilenceDurationInitiative")));
+        if (silenceDuration > 0 && target->alive)
+        {
+            ModifierEffectState silence;
+            silence.id = action.abilityId + ":Silence";
+            silence.causerId = actor->id;
+            silence.remainingInitiative = silenceDuration;
+            silence.preventsAbilityUse = true;
+            target->modifierEffects.erase(std::remove_if(target->modifierEffects.begin(), target->modifierEffects.end(),
+                [&silence](const ModifierEffectState& existing) { return existing.id == silence.id; }),
+                target->modifierEffects.end());
+            target->modifierEffects.push_back(silence);
+            result.events.push_back(GameEvent{EventType::EffectAdded, actor->id, target->id,
+                target->tileId, silence.id, silence.remainingInitiative});
         }
         if (applied > 0 && definition.damageType != DamageType::Physical)
         {
@@ -1525,6 +1576,11 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.preventsMovement);
             HashValue(hash, effect.firstMovePenaltyAvailable);
             HashValue(hash, effect.expireOnTurnEnd);
+        }
+        for (const RecentAuraPreventionState& prevention : character.recentAuraPreventions)
+        {
+            HashValue(hash, prevention.sourceId);
+            HashValue(hash, prevention.globalInitiative);
         }
     }
     return hash;

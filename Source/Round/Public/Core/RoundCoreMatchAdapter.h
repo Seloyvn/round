@@ -55,6 +55,7 @@ struct FRoundCoreModifierEffectAddition
     int32 DefenseIgnoreAdd = 0;
     int32 HealFractionFromDamageDealtBasisPoints = 0;
     int32 MoveCostAdd = 0;
+    bool bPreventsAbilityUse = false;
 };
 
 struct FRoundCoreBasicAttackExecution
@@ -88,6 +89,8 @@ public:
     bool Rebuild(const ARoundGameState& GameState, FString& OutReason);
     bool IsMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile, FString& OutReason) const;
     bool IsBasicAttackLegal(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter, FString& OutReason) const;
+    bool IsAbilityLegal(const ARoundCharacter* Character, const ARoundAbilityActor* Ability,
+        const ARoundCharacter* TargetCharacter, FString& OutReason) const;
     bool PreviewBasicAttack(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter,
         FRoundCoreBasicAttackPreview& OutPreview, FString& OutReason) const;
     bool ResolveBasicAttackCritical(const ARoundCharacter* Character, bool& bOutCritical, FString& OutReason);
@@ -129,6 +132,7 @@ private:
     TMap<const ARoundCharacter*, roundcore::EntityId> CharacterIds;
     TMap<roundcore::EntityId, ARoundCharacter*> CharacterActors;
     TMap<FString, ARoundAbilityActor*> AbilityActors;
+    TMap<const ARoundCharacter*, TMap<const ARoundCharacter*, uint64>> PreservedAuraPreventions;
     int32 LastMatchSeed = 0;
     std::uint64_t PreservedRandomState = 0;
 };

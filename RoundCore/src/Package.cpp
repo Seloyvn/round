@@ -291,6 +291,12 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.preventsMovement); writer.Integer(effect.firstMovePenaltyAvailable);
             writer.Integer(effect.expireOnTurnEnd);
         }
+        writer.Integer(static_cast<std::uint32_t>(character.recentAuraPreventions.size()));
+        for (const RecentAuraPreventionState& prevention : character.recentAuraPreventions)
+        {
+            writer.Integer(prevention.sourceId);
+            writer.Integer(prevention.globalInitiative);
+        }
     }
 }
 
@@ -350,6 +356,13 @@ GameState ReadState(Reader& reader)
             value.firstMovePenaltyAvailable = reader.Integer<bool>();
             value.expireOnTurnEnd = reader.Integer<bool>();
             character.modifierEffects.push_back(std::move(value));
+        }
+        for (std::uint32_t prevention = 0, preventionCount = reader.Count(); prevention < preventionCount; ++prevention)
+        {
+            RecentAuraPreventionState value;
+            value.sourceId = reader.Integer<EntityId>();
+            value.globalInitiative = reader.Integer<std::uint64_t>();
+            character.recentAuraPreventions.push_back(value);
         }
         state.characters.push_back(std::move(character));
     }
