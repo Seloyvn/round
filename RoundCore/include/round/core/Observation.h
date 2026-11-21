@@ -28,7 +28,7 @@ struct NumericObservation
 {
     static constexpr std::size_t GlobalStride = 7;
     static constexpr std::size_t TileStride = 7;
-    static constexpr std::size_t CharacterStride = 11;
+    static constexpr std::size_t CharacterStride = 19;
     static constexpr std::size_t AbilityStride = 8;
     static constexpr std::size_t ModifierEffectStride = 39;
     static constexpr std::size_t ActionStride = 6;

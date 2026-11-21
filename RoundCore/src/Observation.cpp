@@ -125,7 +125,15 @@ NumericObservation EncodeOmniscientObservation(
             character->movementBlocked ? 1 : 0,
             character->canTakeTurn ? 1 : 0,
             character->initiativeGainPerTick,
-            character->delayedActionInitiative});
+            character->delayedActionInitiative,
+            character->resourceCurrent,
+            character->resourceMaximum,
+            character->resourceRechargeProgress,
+            character->resourceRechargeInterval,
+            character->specialCooldownRemaining,
+            character->firstResourceSpendRefundAvailable ? 1 : 0,
+            character->movedSinceLastTurn ? 1 : 0,
+            character->stationaryGuardActive ? 1 : 0});
 
         for (std::size_t abilityIndex = 0; abilityIndex < character->abilities.size(); ++abilityIndex)
         {

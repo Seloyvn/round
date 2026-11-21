@@ -723,6 +723,44 @@ int main()
             [](const GameEvent& event) { return event.type == EventType::DamageApplied && event.targetId == 30; }),
         "Shield Oath should emit redirected damage for Unreal presentation and training rewards");
 
+    MatchSetup chainSetup = ValidSetup();
+    chainSetup.definitions.characters.at("Tank").stats.defense = 0;
+    chainSetup.definitions.characters.at("Tank").passiveValues["DamageMultiplierWhileHasChain"] = 0.5;
+    chainSetup.definitions.characters.at("Tank").passiveValues["CheatDeathHealPerConsumedChain"] = 20.0;
+    chainSetup.definitions.characters.at("Tank").passiveValues["CheatDeathCooldownInitiative"] = 10.0;
+    chainSetup.initialState.characters[1].health = 4;
+    chainSetup.initialState.characters[1].resourceCurrent = 2;
+    chainSetup.initialState.characters[1].resourceMaximum = 2;
+    chainSetup.initialState.characters[1].resourceRechargeInterval = 20;
+    Game chainGame;
+    Require(chainGame.Reset(std::move(chainSetup)).success, "Character 1 chain setup should reset");
+    const ActionResult chainAttack = chainGame.ApplyAction(attack);
+    Require(chainAttack.success && chainGame.State().characters[1].alive
+            && chainGame.State().characters[1].health == 40
+            && chainGame.State().characters[1].resourceCurrent == 0
+            && chainGame.State().characters[1].specialCooldownRemaining == 10,
+        "Character 1 should consume all chains to survive lethal Core damage when configured");
+    Require(std::any_of(chainAttack.events.begin(), chainAttack.events.end(),
+            [](const GameEvent& event) { return event.type == EventType::ResourceChanged && event.amount == -2; }),
+        "Character 1 cheat death should emit its chain consumption");
+
+    MatchSetup rechargeSetup = ValidSetup();
+    rechargeSetup.initialState.activeCharacterId = InvalidEntityId;
+    rechargeSetup.initialState.characters[0].initiative = 0;
+    rechargeSetup.initialState.characters[1].initiative = 0;
+    rechargeSetup.initialState.characters[0].resourceCurrent = 0;
+    rechargeSetup.initialState.characters[0].resourceMaximum = 2;
+    rechargeSetup.initialState.characters[0].resourceRechargeProgress = 1;
+    rechargeSetup.initialState.characters[0].resourceRechargeInterval = 2;
+    Game rechargeGame;
+    Require(rechargeGame.Reset(std::move(rechargeSetup)).success, "Character 1 recharge setup should reset");
+    GameAction rechargeTick;
+    rechargeTick.type = ActionType::EndTurn;
+    const ActionResult rechargeResult = rechargeGame.ApplyAction(rechargeTick);
+    Require(rechargeResult.success && rechargeGame.State().characters[0].resourceCurrent == 1
+            && rechargeGame.State().characters[0].resourceRechargeProgress == 0,
+        "Character 1 chains should recharge on global initiative in Core");
+
     MatchSetup groundAuraSetup = ValidSetup();
     groundAuraSetup.initialState.activeCharacterId = InvalidEntityId;
     groundAuraSetup.initialState.characters[0].initiative = 0;

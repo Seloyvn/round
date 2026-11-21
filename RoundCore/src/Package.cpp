@@ -263,6 +263,10 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(character.tileId); writer.Integer(character.health); writer.Integer(character.initiative);
         writer.Integer(character.alive); writer.Integer(character.movementBlocked); writer.Integer(character.canTakeTurn);
         writer.Integer(character.initiativeGainPerTick); writer.Integer(character.delayedActionInitiative);
+        writer.Integer(character.resourceCurrent); writer.Integer(character.resourceMaximum);
+        writer.Integer(character.resourceRechargeProgress); writer.Integer(character.resourceRechargeInterval);
+        writer.Integer(character.specialCooldownRemaining); writer.Integer(character.firstResourceSpendRefundAvailable);
+        writer.Integer(character.movedSinceLastTurn); writer.Integer(character.stationaryGuardActive);
         writer.Integer(static_cast<std::uint32_t>(character.abilities.size()));
         for (const AbilityState& ability : character.abilities)
         {
@@ -330,6 +334,14 @@ GameState ReadState(Reader& reader)
         character.alive = reader.Integer<bool>(); character.movementBlocked = reader.Integer<bool>();
         character.canTakeTurn = reader.Integer<bool>(); character.initiativeGainPerTick = reader.Integer<std::int32_t>();
         character.delayedActionInitiative = reader.Integer<std::int32_t>();
+        character.resourceCurrent = reader.Integer<std::int32_t>();
+        character.resourceMaximum = reader.Integer<std::int32_t>();
+        character.resourceRechargeProgress = reader.Integer<std::int32_t>();
+        character.resourceRechargeInterval = reader.Integer<std::int32_t>();
+        character.specialCooldownRemaining = reader.Integer<std::int32_t>();
+        character.firstResourceSpendRefundAvailable = reader.Integer<bool>();
+        character.movedSinceLastTurn = reader.Integer<bool>();
+        character.stationaryGuardActive = reader.Integer<bool>();
         for (std::uint32_t ability = 0, abilityCount = reader.Count(); ability < abilityCount; ++ability)
         {
             AbilityState value; value.definitionId = reader.String(); value.cooldownRemaining = reader.Integer<std::int32_t>();

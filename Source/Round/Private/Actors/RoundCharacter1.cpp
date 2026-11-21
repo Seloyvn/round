@@ -4,6 +4,7 @@
 #include "Actors/RoundGridTile.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Data/RoundCharacterData.h"
+#include "Game/RoundGameState.h"
 #include "Net/UnrealNetwork.h"
 
 ARoundCharacter1::ARoundCharacter1()
@@ -63,22 +64,25 @@ void ARoundCharacter1::InitializeCharacter()
 
 void ARoundCharacter1::BeginTurn()
 {
-    bGrantedChainSpendRefundThisTurn = false;
-    bMovedThisTurn = false;
-    bStationaryGuardActive = false;
-
-    if (GetCurrentChainCount() <= 0)
+    if (!bCoreTurnDelayAlreadyApplied)
     {
-        const int32 ChainGain = FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("ZeroChainTurnStartGainChain"))));
-        if (ChainGain > 0)
-        {
-            GainChains(ChainGain);
-        }
+        bGrantedChainSpendRefundThisTurn = false;
+        bMovedThisTurn = false;
+        bStationaryGuardActive = false;
 
-        const int32 InitiativePenalty = FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("ZeroChainTurnStartInitiativePenalty"))));
-        if (InitiativePenalty > 0)
+        if (GetCurrentChainCount() <= 0)
         {
-            Super::ApplyDelay(InitiativePenalty);
+            const int32 ChainGain = FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("ZeroChainTurnStartGainChain"))));
+            if (ChainGain > 0)
+            {
+                GainChains(ChainGain);
+            }
+
+            const int32 InitiativePenalty = FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("ZeroChainTurnStartInitiativePenalty"))));
+            if (InitiativePenalty > 0)
+            {
+                Super::ApplyDelay(InitiativePenalty);
+            }
         }
     }
 
@@ -90,6 +94,12 @@ void ARoundCharacter1::AdvanceGlobalInitiative(int32 Amount)
     Super::AdvanceGlobalInitiative(Amount);
 
     if (Amount <= 0)
+    {
+        return;
+    }
+
+    const ARoundGameState* GameState = GetRoundGameState();
+    if (GameState && GameState->IsApplyingCoreInitiativeAdvance())
     {
         return;
     }

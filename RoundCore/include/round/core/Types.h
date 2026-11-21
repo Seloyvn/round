@@ -68,6 +68,7 @@ enum class EventType : std::uint8_t
     InitiativeChanged,
     CooldownChanged,
     AbilityChargesChanged,
+    ResourceChanged,
     EffectAdded,
     EffectRemoved,
     TerrainChanged,

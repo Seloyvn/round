@@ -3847,6 +3847,15 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
             Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
             Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
         }
+        if (ARoundCharacter1* Character1 = Cast<ARoundCharacter1>(Update.Character))
+        {
+            Character1->NativeChainCount = Update.ResourceCurrent;
+            Character1->NativeChainRechargeProgress = Update.ResourceRechargeProgress;
+            Character1->NativeDamageRechargeCooldownRemaining = Update.SpecialCooldownRemaining;
+            Character1->bGrantedChainSpendRefundThisTurn = !Update.bFirstResourceSpendRefundAvailable;
+            Character1->bMovedThisTurn = Update.bMovedSinceLastTurn;
+            Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
+        }
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -3943,6 +3952,15 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         {
             Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
             Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
+        }
+        if (ARoundCharacter1* Character1 = Cast<ARoundCharacter1>(Update.Character))
+        {
+            Character1->NativeChainCount = Update.ResourceCurrent;
+            Character1->NativeChainRechargeProgress = Update.ResourceRechargeProgress;
+            Character1->NativeDamageRechargeCooldownRemaining = Update.SpecialCooldownRemaining;
+            Character1->bGrantedChainSpendRefundThisTurn = !Update.bFirstResourceSpendRefundAvailable;
+            Character1->bMovedThisTurn = Update.bMovedSinceLastTurn;
+            Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
         }
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
@@ -4309,6 +4327,15 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             {
                 Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
                 Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
+            }
+            if (ARoundCharacter1* Character1 = Cast<ARoundCharacter1>(Update.Character))
+            {
+                Character1->NativeChainCount = Update.ResourceCurrent;
+                Character1->NativeChainRechargeProgress = Update.ResourceRechargeProgress;
+                Character1->NativeDamageRechargeCooldownRemaining = Update.SpecialCooldownRemaining;
+                Character1->bGrantedChainSpendRefundThisTurn = !Update.bFirstResourceSpendRefundAvailable;
+                Character1->bMovedThisTurn = Update.bMovedSinceLastTurn;
+                Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
             }
         }
         for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)

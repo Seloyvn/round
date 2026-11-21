@@ -88,6 +88,14 @@ struct CharacterState
     bool canTakeTurn = true;
     std::int32_t initiativeGainPerTick = 1;
     std::int32_t delayedActionInitiative = 0;
+    std::int32_t resourceCurrent = 0;
+    std::int32_t resourceMaximum = 0;
+    std::int32_t resourceRechargeProgress = 0;
+    std::int32_t resourceRechargeInterval = 0;
+    std::int32_t specialCooldownRemaining = 0;
+    bool firstResourceSpendRefundAvailable = true;
+    bool movedSinceLastTurn = false;
+    bool stationaryGuardActive = false;
     std::vector<AbilityState> abilities;
     std::vector<ModifierEffectState> modifierEffects;
     std::vector<RecentAuraPreventionState> recentAuraPreventions;

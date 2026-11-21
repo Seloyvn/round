@@ -135,6 +135,13 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_character_id", "Character IDs must be unique and non-zero.");
         }
+        if (character.resourceMaximum < 0 || character.resourceCurrent < 0
+            || character.resourceCurrent > character.resourceMaximum
+            || character.resourceRechargeProgress < 0 || character.resourceRechargeInterval < 0
+            || character.specialCooldownRemaining < 0)
+        {
+            return Failure("invalid_character_resource", "Character resource state must be within non-negative bounds.");
+        }
         if (setup.definitions.characters.find(character.definitionId) == setup.definitions.characters.end())
         {
             return Failure("missing_character_definition", "Every character must reference an exported character definition.");
@@ -301,6 +308,14 @@ ActionResult Game::ApplyAction(const GameAction& action)
     origin->occupantId = InvalidEntityId;
     destination->occupantId = character->id;
     character->tileId = destination->id;
+    character->movedSinceLastTurn = true;
+    character->stationaryGuardActive = false;
+    const CharacterDefinition& movingDefinition = definitions_.characters.at(character->definitionId);
+    const double receivedDelayMultiplier = PassiveValue(movingDefinition, "DelayReceivedMultiplier");
+    if (initiativeLossOnMove > 0 && receivedDelayMultiplier > 0.0)
+    {
+        initiativeLossOnMove = static_cast<std::int64_t>(initiativeLossOnMove * receivedDelayMultiplier + 0.5);
+    }
     character->initiative = static_cast<std::int32_t>(std::max<std::int64_t>(
         0, static_cast<std::int64_t>(character->initiative) - cost - initiativeLossOnMove));
     ++state_.step;
@@ -523,6 +538,24 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         }
     }
 
+    if (target.resourceCurrent > 0)
+    {
+        const double multiplier = PassiveValue(targetDefinition, "DamageMultiplierWhileHasChain");
+        if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
+    if (target.stationaryGuardActive)
+    {
+        const double multiplier = PassiveValue(targetDefinition, "StationaryIncomingDamageMultiplier");
+        if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
+    const bool sourceDebuffedByTarget = std::any_of(source.modifierEffects.begin(), source.modifierEffects.end(),
+        [&target, &source](const ModifierEffectState& effect) { return effect.causerId == target.id && effect.causerId != source.id; });
+    if (sourceDebuffedByTarget)
+    {
+        const double multiplier = PassiveValue(targetDefinition, "IncomingDamageMultiplierFromDebuffedEnemies");
+        if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
+
     for (const ModifierEffectState& effect : target.modifierEffects)
     {
         if (effect.redirectPreMitigationBasisPoints <= 0 || effect.causerId == target.id)
@@ -672,12 +705,32 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierBasisPoints);
     }
 
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense - defenseIgnore);
+    const std::int32_t resourceDefense = target.resourceCurrent <= 0
+        ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileNoChain")))
+        : 0;
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
         std::numeric_limits<std::int32_t>::max(), (damage * 100 + denominator / 2) / denominator));
     const std::int32_t appliedDamage = std::min(target.health, finalDamage);
     target.health -= appliedDamage;
+    if (target.health <= 0 && target.resourceCurrent > 0 && target.specialCooldownRemaining <= 0)
+    {
+        const std::int32_t healPerResource = std::max(
+            0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "CheatDeathHealPerConsumedChain")));
+        if (healPerResource > 0)
+        {
+            const std::int32_t consumed = target.resourceCurrent;
+            target.resourceCurrent = 0;
+            target.specialCooldownRemaining = std::max(0, static_cast<std::int32_t>(
+                PassiveValue(targetDefinition, "CheatDeathCooldownInitiative")));
+            target.health = std::clamp(healPerResource * consumed, 1, targetDefinition.stats.maxHealth);
+            modifierEvents.push_back(GameEvent{EventType::ResourceChanged, target.id, target.id,
+                target.tileId, "NativeResource", -consumed});
+            modifierEvents.push_back(GameEvent{EventType::HealingApplied, target.id, target.id,
+                target.tileId, "CheatDeath", target.health});
+        }
+    }
     return appliedDamage;
 }
 
@@ -1082,6 +1135,7 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     }
     else
     {
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
         std::vector<GameEvent> auraEvents;
         std::vector<GameEvent> modifierEvents;
         const std::int32_t applied = ResolveDamage(*actor, *target, std::max(0, definition.amount),
@@ -1095,8 +1149,12 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             0, static_cast<std::int32_t>(AbilityValue(definition, "ImmediateInitiativeLoss")));
         if (immediateInitiativeLoss > 0)
         {
+            const double delayMultiplier = PassiveValue(targetDefinition, "DelayReceivedMultiplier");
+            const std::int32_t adjustedLoss = delayMultiplier > 0.0
+                ? std::max(0, static_cast<std::int32_t>(immediateInitiativeLoss * delayMultiplier + 0.5))
+                : immediateInitiativeLoss;
             const std::int32_t previousInitiative = target->initiative;
-            target->initiative = std::max(0, target->initiative - immediateInitiativeLoss);
+            target->initiative = std::max(0, target->initiative - adjustedLoss);
             result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, target->id,
                 target->tileId, action.abilityId, target->initiative - previousInitiative});
         }
@@ -1221,6 +1279,10 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
     {
         if (CharacterState* endingCharacter = FindCharacter(action.actorId))
         {
+            if (endingCharacter->resourceMaximum > 0)
+            {
+                endingCharacter->stationaryGuardActive = !endingCharacter->movedSinceLastTurn;
+            }
             for (auto effect = endingCharacter->modifierEffects.begin(); effect != endingCharacter->modifierEffects.end();)
             {
                 if (effect->expireOnTurnEnd && effect->remainingTurns > 0)
@@ -1290,6 +1352,33 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             result.events.push_back(GameEvent{
                 EventType::InitiativeChanged, selected->id, selected->id, selected->tileId, {}, -delay});
         }
+        if (selected->resourceMaximum > 0)
+        {
+            selected->movedSinceLastTurn = false;
+            selected->stationaryGuardActive = false;
+            selected->firstResourceSpendRefundAvailable = true;
+            if (selected->resourceCurrent <= 0)
+            {
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "ZeroChainTurnStartGainChain")));
+                if (gain > 0)
+                {
+                    const std::int32_t previous = selected->resourceCurrent;
+                    selected->resourceCurrent = std::min(selected->resourceMaximum, selected->resourceCurrent + gain);
+                    result.events.push_back(GameEvent{EventType::ResourceChanged, selected->id, selected->id,
+                        selected->tileId, "NativeResource", selected->resourceCurrent - previous});
+                }
+                const std::int32_t penalty = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "ZeroChainTurnStartInitiativePenalty")));
+                if (penalty > 0)
+                {
+                    const std::int32_t previous = selected->initiative;
+                    selected->initiative = std::max(0, selected->initiative - penalty);
+                    result.events.push_back(GameEvent{EventType::InitiativeChanged, selected->id, selected->id,
+                        selected->tileId, "ZeroResourceTurnStart", selected->initiative - previous});
+                }
+            }
+        }
         state_.activeCharacterId = selected->id;
         result.events.push_back(GameEvent{
             EventType::ActiveCharacterChanged, selected->id, selected->id, selected->tileId, {}, 0});
@@ -1302,6 +1391,36 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             if (!character.alive)
             {
                 continue;
+            }
+            if (character.specialCooldownRemaining > 0)
+            {
+                --character.specialCooldownRemaining;
+            }
+            if (character.resourceMaximum > 0 && character.resourceRechargeInterval > 0)
+            {
+                ++character.resourceRechargeProgress;
+                while (character.resourceRechargeProgress >= character.resourceRechargeInterval)
+                {
+                    character.resourceRechargeProgress -= character.resourceRechargeInterval;
+                    if (character.resourceCurrent < character.resourceMaximum)
+                    {
+                        ++character.resourceCurrent;
+                        result.events.push_back(GameEvent{EventType::ResourceChanged, character.id, character.id,
+                            character.tileId, "NativeResource", 1});
+                    }
+                    else
+                    {
+                        const CharacterDefinition& definition = definitions_.characters.at(character.definitionId);
+                        const std::int32_t overflowGain = std::max(0, static_cast<std::int32_t>(
+                            PassiveValue(definition, "ChainOverflowInitiativeGain")));
+                        if (overflowGain > 0)
+                        {
+                            character.initiative += overflowGain;
+                            result.events.push_back(GameEvent{EventType::InitiativeChanged, character.id, character.id,
+                                character.tileId, "ResourceOverflow", overflowGain});
+                        }
+                    }
+                }
             }
             for (const ModifierEffectState& area : character.modifierEffects)
             {
@@ -1337,8 +1456,14 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                     result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
                     if (area.areaInitiativeLossPerPulse > 0 && target.alive)
                     {
+                        const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
+                        const double delayMultiplier = PassiveValue(targetDefinition, "DelayReceivedMultiplier");
+                        const std::int32_t adjustedLoss = delayMultiplier > 0.0
+                            ? std::max(0, static_cast<std::int32_t>(
+                                area.areaInitiativeLossPerPulse * delayMultiplier + 0.5))
+                            : area.areaInitiativeLossPerPulse;
                         const std::int32_t previous = target.initiative;
-                        target.initiative = std::max(0, target.initiative - area.areaInitiativeLossPerPulse);
+                        target.initiative = std::max(0, target.initiative - adjustedLoss);
                         result.events.push_back(GameEvent{EventType::InitiativeChanged, character.id, target.id,
                             target.tileId, area.id, target.initiative - previous});
                     }
@@ -1767,6 +1892,14 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.canTakeTurn);
         HashValue(hash, character.initiativeGainPerTick);
         HashValue(hash, character.delayedActionInitiative);
+        HashValue(hash, character.resourceCurrent);
+        HashValue(hash, character.resourceMaximum);
+        HashValue(hash, character.resourceRechargeProgress);
+        HashValue(hash, character.resourceRechargeInterval);
+        HashValue(hash, character.specialCooldownRemaining);
+        HashValue(hash, character.firstResourceSpendRefundAvailable);
+        HashValue(hash, character.movedSinceLastTurn);
+        HashValue(hash, character.stationaryGuardActive);
         for (const AbilityState& ability : character.abilities)
         {
             HashString(hash, ability.definitionId);

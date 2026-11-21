@@ -207,6 +207,7 @@ Current progress:
 - Paladin `Condemn` now uses deterministic Core aura-prevention history for targeting and resolves its damage, silence, self-healing, initiative reward, cost, and cooldown in one action. Package version 11 serializes this resumable targeting history.
 - Paladin `Shield Oath` now uses the generic Core target-modifier operation. Pre-mitigation redirection, redirected damage scaling, protector healing, ally initiative rewards, duration, cost, and cooldown resolve in Core; package version 12 serializes the redirect state.
 - All Paladin abilities now resolve in RoundCore. Sanctify Ground uses the generic tile-targeted ground-aura contract, including fixed/following centers, radius, damage, initiative loss, duration, legal actions, observations, and Unreal presentation.
+- Character 1 migration has started with its shared native chain state and passive foundation. Chain capacity, recharge progress, recharge overflow, stationary guard, chain-dependent mitigation/defense, reduced received delay, zero-chain turn start, and chain-consuming death prevention are resumable Core state, serialized in package version 14, exposed to training observations, and mirrored by Unreal without a second initiative-tick implementation.
 
 ### Phase 6 — Vision and observations
 

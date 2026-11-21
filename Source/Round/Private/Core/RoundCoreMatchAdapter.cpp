@@ -5,6 +5,7 @@
 #include "Actors/RoundGridTile.h"
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundCharacterPaladin.h"
+#include "Actors/RoundCharacter1.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
 #include "Effects/RoundSuppressingFireEffect.h"
@@ -261,6 +262,21 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 "CoreAuraCooldownReductionOnPrevent",
                 FMath::Max(0.0, Paladin->GetPassiveValueFromKey(TEXT("CooldownReductionOnAuraPrevent"))));
         }
+        if (const ARoundCharacter1* Character1 = Cast<ARoundCharacter1>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("FirstChainSpendInitiativeRefund"), TEXT("ZeroChainTurnStartGainChain"),
+                TEXT("ZeroChainTurnStartInitiativePenalty"), TEXT("IncomingDamageMultiplierFromDebuffedEnemies"),
+                TEXT("DamageMultiplierWhileHasChain"), TEXT("ChainOverflowInitiativeGain"),
+                TEXT("DebuffDurationMultiplier"), TEXT("CheatDeathHealPerConsumedChain"),
+                TEXT("CheatDeathCooldownInitiative"), TEXT("DelayReceivedMultiplier"),
+                TEXT("IgnoreEnemyForcedMovementChance"), TEXT("DefenseWhileNoChain"),
+                TEXT("StationaryIncomingDamageMultiplier")};
+            for (const TCHAR* Key : PassiveKeys)
+            {
+                Definition.passiveValues.emplace(ToCoreString(Key), Character1->GetPassiveValueFromKey(Key));
+            }
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -287,6 +303,17 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             && !GameState.IsCharacterBlockedByObjectiveChannel(Character);
         CharacterState.initiativeGainPerTick = Character->ModifyInitiativeGainFromEffects(1);
         CharacterState.delayedActionInitiative = FMath::Max(0, Character->NativeDelayedActionInitiative);
+        if (const ARoundCharacter1* Character1 = Cast<ARoundCharacter1>(Character))
+        {
+            CharacterState.resourceCurrent = Character1->GetCurrentChainCount();
+            CharacterState.resourceMaximum = Character1->GetChainLimit();
+            CharacterState.resourceRechargeProgress = FMath::Max(0, Character1->NativeChainRechargeProgress);
+            CharacterState.resourceRechargeInterval = Character1->GetChainRechargeTime();
+            CharacterState.specialCooldownRemaining = FMath::Max(0, Character1->NativeDamageRechargeCooldownRemaining);
+            CharacterState.firstResourceSpendRefundAvailable = !Character1->bGrantedChainSpendRefundThisTurn;
+            CharacterState.movedSinceLastTurn = Character1->bMovedThisTurn;
+            CharacterState.stationaryGuardActive = Character1->bStationaryGuardActive;
+        }
         for (int32 AbilityIndex = 0; AbilityIndex < Character->GrantedAbilities.Num(); ++AbilityIndex)
         {
             ARoundAbilityActor* Ability = Character->GrantedAbilities[AbilityIndex];
@@ -700,7 +727,14 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
     {
         if (ARoundCharacter* const* Actor = CharacterActors.Find(State.id))
         {
-            OutExecution.CharacterUpdates.Add({*Actor, State.health, State.initiative, State.alive});
+            FRoundCoreCharacterRuntimeUpdate& Update = OutExecution.CharacterUpdates.AddDefaulted_GetRef();
+            Update.Character = *Actor; Update.Health = State.health; Update.Initiative = State.initiative;
+            Update.bAlive = State.alive; Update.ResourceCurrent = State.resourceCurrent;
+            Update.ResourceRechargeProgress = State.resourceRechargeProgress;
+            Update.SpecialCooldownRemaining = State.specialCooldownRemaining;
+            Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
+            Update.bMovedSinceLastTurn = State.movedSinceLastTurn;
+            Update.bStationaryGuardActive = State.stationaryGuardActive;
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {
@@ -847,7 +881,14 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     {
         if (ARoundCharacter* const* Actor = CharacterActors.Find(State.id))
         {
-            OutExecution.CharacterUpdates.Add({*Actor, State.health, State.initiative, State.alive});
+            FRoundCoreCharacterRuntimeUpdate& Update = OutExecution.CharacterUpdates.AddDefaulted_GetRef();
+            Update.Character = *Actor; Update.Health = State.health; Update.Initiative = State.initiative;
+            Update.bAlive = State.alive; Update.ResourceCurrent = State.resourceCurrent;
+            Update.ResourceRechargeProgress = State.resourceRechargeProgress;
+            Update.SpecialCooldownRemaining = State.specialCooldownRemaining;
+            Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
+            Update.bMovedSinceLastTurn = State.movedSinceLastTurn;
+            Update.bStationaryGuardActive = State.stationaryGuardActive;
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {
@@ -961,7 +1002,14 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
     {
         if (ARoundCharacter* const* Character = CharacterActors.Find(State.id))
         {
-            OutExecution.CharacterUpdates.Add({*Character, State.health, State.initiative, State.alive});
+            FRoundCoreCharacterRuntimeUpdate& Update = OutExecution.CharacterUpdates.AddDefaulted_GetRef();
+            Update.Character = *Character; Update.Health = State.health; Update.Initiative = State.initiative;
+            Update.bAlive = State.alive; Update.ResourceCurrent = State.resourceCurrent;
+            Update.ResourceRechargeProgress = State.resourceRechargeProgress;
+            Update.SpecialCooldownRemaining = State.specialCooldownRemaining;
+            Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
+            Update.bMovedSinceLastTurn = State.movedSinceLastTurn;
+            Update.bStationaryGuardActive = State.stationaryGuardActive;
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {

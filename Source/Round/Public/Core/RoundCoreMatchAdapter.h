@@ -31,6 +31,12 @@ struct FRoundCoreCharacterRuntimeUpdate
     int32 Health = 0;
     int32 Initiative = 0;
     bool bAlive = false;
+    int32 ResourceCurrent = 0;
+    int32 ResourceRechargeProgress = 0;
+    int32 SpecialCooldownRemaining = 0;
+    bool bFirstResourceSpendRefundAvailable = true;
+    bool bMovedSinceLastTurn = false;
+    bool bStationaryGuardActive = false;
 };
 
 struct FRoundCoreEffectRemoval
