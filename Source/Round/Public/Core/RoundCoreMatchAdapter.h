@@ -44,6 +44,19 @@ struct FRoundCoreHealingEvent
     int32 Amount = 0;
 };
 
+struct FRoundCoreModifierEffectAddition
+{
+    ARoundCharacter* Character = nullptr;
+    ARoundCharacter* Causer = nullptr;
+    FString EffectId;
+    int32 RemainingInitiative = 0;
+    int32 IncomingDamageMultiplierBasisPoints = 10000;
+    int32 OutgoingDamageMultiplierBasisPoints = 10000;
+    int32 DefenseIgnoreAdd = 0;
+    int32 HealFractionFromDamageDealtBasisPoints = 0;
+    int32 MoveCostAdd = 0;
+};
+
 struct FRoundCoreBasicAttackExecution
 {
     TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
@@ -60,6 +73,7 @@ struct FRoundCoreAbilityExecution
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
     TArray<FRoundCoreHealingEvent> HealingEvents;
+    TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
     int32 AppliedDamage = 0;
     int32 AppliedHealing = 0;
     int32 TargetInitiativeLoss = 0;

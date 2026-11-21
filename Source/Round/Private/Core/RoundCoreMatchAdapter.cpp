@@ -275,10 +275,16 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
             AbilityDefinition.operation = CoreOperation == 1
                 ? roundcore::AbilityOperation::DirectDamage
-                : (CoreOperation == 2 ? roundcore::AbilityOperation::DirectHeal : roundcore::AbilityOperation::Unsupported);
-            AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
-                ? roundcore::AbilityTargetRelation::Ally
-                : roundcore::AbilityTargetRelation::Enemy;
+                : (CoreOperation == 2
+                    ? roundcore::AbilityOperation::DirectHeal
+                    : (CoreOperation == 3
+                        ? roundcore::AbilityOperation::SelfModifier
+                        : roundcore::AbilityOperation::Unsupported));
+            AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
+                ? roundcore::AbilityTargetRelation::Self
+                : (AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
+                    ? roundcore::AbilityTargetRelation::Ally
+                    : roundcore::AbilityTargetRelation::Enemy);
             if (ResolvedValues.Contains(TEXT("CoreTargetRelation")))
             {
                 AbilityDefinition.targetRelation = static_cast<roundcore::AbilityTargetRelation>(FMath::Clamp(
@@ -643,6 +649,30 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
             && Event.targetId == *TargetId && Event.amount < 0)
         {
             OutExecution.TargetInitiativeLoss += -static_cast<int32>(Event.amount);
+        }
+        else if (Event.type == roundcore::EventType::EffectAdded)
+        {
+            const auto OwnerState = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
+                [&Event](const roundcore::CharacterState& State) { return State.id == Event.targetId; });
+            if (OwnerState != CoreGame.State().characters.end())
+            {
+                const auto EffectState = std::find_if(OwnerState->modifierEffects.begin(), OwnerState->modifierEffects.end(),
+                    [&Event](const roundcore::ModifierEffectState& State) { return State.id == Event.definitionId; });
+                ARoundCharacter* const* Owner = CharacterActors.Find(Event.targetId);
+                if (EffectState != OwnerState->modifierEffects.end() && Owner)
+                {
+                    FRoundCoreModifierEffectAddition& Addition = OutExecution.AddedModifierEffects.AddDefaulted_GetRef();
+                    Addition.Character = *Owner;
+                    Addition.Causer = CharacterActors.FindRef(EffectState->causerId);
+                    Addition.EffectId = UTF8_TO_TCHAR(EffectState->id.c_str());
+                    Addition.RemainingInitiative = EffectState->remainingInitiative;
+                    Addition.IncomingDamageMultiplierBasisPoints = EffectState->incomingDamageMultiplierBasisPoints;
+                    Addition.OutgoingDamageMultiplierBasisPoints = EffectState->outgoingDamageMultiplierBasisPoints;
+                    Addition.DefenseIgnoreAdd = EffectState->defenseIgnoreAdd;
+                    Addition.HealFractionFromDamageDealtBasisPoints = EffectState->healFractionFromDamageDealtBasisPoints;
+                    Addition.MoveCostAdd = EffectState->moveCostAdd;
+                }
+            }
         }
         else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
         {

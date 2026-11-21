@@ -3958,6 +3958,36 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             }
         }
     }
+    for (const FRoundCoreModifierEffectAddition& Addition : Execution.AddedModifierEffects)
+    {
+        if (!Addition.Character || !GetWorld())
+        {
+            continue;
+        }
+        const TArray<TObjectPtr<ARoundEffectActor>> ExistingEffects = Addition.Character->ActiveEffects;
+        for (ARoundEffectActor* ExistingEffect : ExistingEffects)
+        {
+            if (ExistingEffect && ExistingEffect->EffectId.ToString() == Addition.EffectId)
+            {
+                ExistingEffect->RemoveEffect();
+            }
+        }
+        if (ARoundModifierEffect* Effect = GetWorld()->SpawnActor<ARoundModifierEffect>())
+        {
+            Effect->EffectId = FName(*Addition.EffectId);
+            Effect->DisplayName = Ability->AbilityData ? Ability->AbilityData->DisplayName.ToString() : TEXT("Modifier");
+            Effect->Description = Ability->AbilityData ? Ability->AbilityData->Description.ToString() : TEXT("Core modifier effect.");
+            Effect->IncomingDamageMultiplier = Addition.IncomingDamageMultiplierBasisPoints / 10000.0;
+            Effect->OutgoingDamageMultiplier = Addition.OutgoingDamageMultiplierBasisPoints / 10000.0;
+            Effect->DefenseIgnoreAdd = Addition.DefenseIgnoreAdd;
+            Effect->HealFractionFromDamageDealt = Addition.HealFractionFromDamageDealtBasisPoints / 10000.0;
+            Effect->MoveCostAdd = Addition.MoveCostAdd;
+            Effect->CauserCharacter = Addition.Causer;
+            Effect->bTreatAsBuff = true;
+            Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+            Addition.Character->AddEffect(Effect);
+        }
+    }
 
     if (Execution.AppliedDamage > 0 || Execution.bTargetDied)
     {
@@ -3977,9 +4007,11 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
     }
 
     Result.bSuccess = true;
-    Result.Reason = Execution.AppliedDamage > 0
+    Result.Reason = !Execution.AddedModifierEffects.IsEmpty()
+        ? TEXT("Modifier ability executed by RoundCore.")
+        : (Execution.AppliedDamage > 0
         ? FString::Printf(TEXT("Ability executed by RoundCore for %d damage."), Execution.AppliedDamage)
-        : FString::Printf(TEXT("Ability executed by RoundCore for %d healing."), Execution.AppliedHealing);
+        : FString::Printf(TEXT("Ability executed by RoundCore for %d healing."), Execution.AppliedHealing));
 
     FString ResyncReason;
     if (!CoreMatchAdapter->Rebuild(*this, ResyncReason))

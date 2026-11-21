@@ -38,7 +38,8 @@ PYBIND11_MODULE(roundcore_python, module)
     py::enum_<AbilityOperation>(module, "AbilityOperation")
         .value("UNSUPPORTED", AbilityOperation::Unsupported)
         .value("DIRECT_DAMAGE", AbilityOperation::DirectDamage)
-        .value("DIRECT_HEAL", AbilityOperation::DirectHeal);
+        .value("DIRECT_HEAL", AbilityOperation::DirectHeal)
+        .value("SELF_MODIFIER", AbilityOperation::SelfModifier);
     py::enum_<AbilityTargetRelation>(module, "AbilityTargetRelation")
         .value("SELF", AbilityTargetRelation::Self).value("ALLY", AbilityTargetRelation::Ally)
         .value("ENEMY", AbilityTargetRelation::Enemy).value("ANY_CHARACTER", AbilityTargetRelation::AnyCharacter);

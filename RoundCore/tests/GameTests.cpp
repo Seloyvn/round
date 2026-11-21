@@ -620,6 +620,49 @@ int main()
     Require(abilities.State().characters[1].health == 79,
         "direct damage should use the exported amount and defense ignore");
 
+    MatchSetup selfModifierSetup = ValidSetup();
+    AbilityDefinition bulwark;
+    bulwark.id = "Bulwark";
+    bulwark.operation = AbilityOperation::SelfModifier;
+    bulwark.targetRelation = AbilityTargetRelation::Self;
+    bulwark.initiativeCost = 8;
+    bulwark.range = 0;
+    bulwark.values["DurationInitiative"] = 75.0;
+    bulwark.values["SelfIncomingDamageMultiplier"] = 0.7;
+    bulwark.values["OutgoingDamageMultiplier"] = 1.25;
+    bulwark.values["DefenseIgnore"] = 30.0;
+    bulwark.values["HealFractionFromDamageDealt"] = 0.15;
+    bulwark.values["MoveCostAdd"] = -3.0;
+    selfModifierSetup.definitions.abilities.emplace(bulwark.id, bulwark);
+    selfModifierSetup.definitions.characters.at("Tank").abilityIds = {bulwark.id};
+    selfModifierSetup.initialState.characters[0].abilities.push_back(
+        AbilityState{bulwark.id, 0, 40, 1, 1, false});
+    Game selfModifierGame;
+    Require(selfModifierGame.Reset(std::move(selfModifierSetup)).success,
+        "self modifier ability setup should reset");
+    GameAction useBulwark;
+    useBulwark.type = ActionType::UseAbility;
+    useBulwark.actorId = 10;
+    useBulwark.targetEntityId = 10;
+    useBulwark.targetTileId = 1;
+    useBulwark.abilityId = bulwark.id;
+    const ActionResult bulwarkResult = selfModifierGame.ApplyAction(useBulwark);
+    Require(bulwarkResult.success && selfModifierGame.State().characters[0].initiative == 92
+            && selfModifierGame.State().characters[0].abilities[0].cooldownRemaining == 40
+            && selfModifierGame.State().characters[0].modifierEffects.size() == 1,
+        "self modifier abilities should pay their cost, start cooldown, and add one Core effect");
+    const ModifierEffectState& bulwarkEffect = selfModifierGame.State().characters[0].modifierEffects[0];
+    Require(bulwarkEffect.remainingInitiative == 75
+            && bulwarkEffect.incomingDamageMultiplierBasisPoints == 7000
+            && bulwarkEffect.outgoingDamageMultiplierBasisPoints == 12500
+            && bulwarkEffect.defenseIgnoreAdd == 30
+            && bulwarkEffect.healFractionFromDamageDealtBasisPoints == 1500
+            && bulwarkEffect.moveCostAdd == -3,
+        "self modifier abilities should preserve all editor-authored modifier values");
+    Require(std::any_of(bulwarkResult.events.begin(), bulwarkResult.events.end(),
+            [](const GameEvent& event) { return event.type == EventType::EffectAdded; }),
+        "self modifier abilities should emit an effect-added event for Unreal presentation");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

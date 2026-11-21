@@ -2777,6 +2777,11 @@ void URoundAbilityRegistryData::PopulatePaladinAbilityProgressionDefaults()
             Ability->Values.FindOrAdd(TEXT("CoreOperation")) = 1.0;
             Ability->Values.FindOrAdd(TEXT("CoreTargetRelation")) = 2.0;
         }
+        else if (Ability->AbilityId == FName(TEXT("Bulwark")))
+        {
+            Ability->Values.FindOrAdd(TEXT("CoreOperation")) = 3.0;
+            Ability->Values.FindOrAdd(TEXT("CoreTargetRelation")) = 0.0;
+        }
         Ability->MarkPackageDirty();
     }
     MarkPackageDirty();

@@ -203,7 +203,8 @@ Current progress:
 - Unreal exports an ability only into this executable subset when its resolved `CoreOperation` value explicitly opts in. Unmarked and specialized abilities remain unavailable to the headless agent rather than being approximated.
 - Unreal now executes opted-in direct abilities through this same Core path and mirrors their state and events back into the Actor presentation layer.
 - Paladin `Smite` is the first specialized live ability migrated end to end. Its damage, defense ignore, target initiative loss, self initiative gain, self healing, cost, cooldown, death, and victory all resolve in one Core action from editor-authored values.
-- The Paladin protection aura already resolves in the shared Core damage pipeline; Condemn, Sanctify Ground, Bulwark, and Shield Oath remain Actor-authoritative.
+- Paladin `Bulwark` now uses the generic Core self-modifier operation. Duration, incoming and outgoing damage multipliers, defense ignore, movement cost, lifesteal, cost, and cooldown are editor-authored and the resulting effect is mirrored into Unreal for presentation.
+- The Paladin protection aura already resolves in the shared Core damage pipeline; Condemn, Sanctify Ground, and Shield Oath remain Actor-authoritative.
 
 ### Phase 6 — Vision and observations
 

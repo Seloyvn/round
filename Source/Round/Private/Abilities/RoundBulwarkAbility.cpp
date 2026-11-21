@@ -7,6 +7,11 @@
 
 FRoundActionResult ARoundBulwarkAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 3)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
+
     FRoundActionResult Result;
     if (!OwningCharacter || !OwningCharacter->Attributes)
     {

@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::DirectHeal
+        if (ability.operation > AbilityOperation::SelfModifier
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -870,7 +870,32 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             action.abilityId, abilityState->cooldownDuration});
     }
 
-    if (definition.operation == AbilityOperation::DirectHeal)
+    if (definition.operation == AbilityOperation::SelfModifier)
+    {
+        ModifierEffectState effect;
+        effect.id = action.abilityId + ":Modifier";
+        effect.causerId = actor->id;
+        effect.remainingInitiative = std::max(
+            1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        const double incomingMultiplier = AbilityValue(definition, "SelfIncomingDamageMultiplier");
+        const double outgoingMultiplier = AbilityValue(definition, "OutgoingDamageMultiplier");
+        effect.incomingDamageMultiplierBasisPoints = std::max(
+            0, static_cast<std::int32_t>((incomingMultiplier > 0.0 ? incomingMultiplier : 1.0) * 10000.0 + 0.5));
+        effect.outgoingDamageMultiplierBasisPoints = std::max(
+            0, static_cast<std::int32_t>((outgoingMultiplier > 0.0 ? outgoingMultiplier : 1.0) * 10000.0 + 0.5));
+        effect.defenseIgnoreAdd = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseIgnore")));
+        effect.healFractionFromDamageDealtBasisPoints = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "HealFractionFromDamageDealt") * 10000.0 + 0.5));
+        effect.moveCostAdd = static_cast<std::int32_t>(AbilityValue(definition, "MoveCostAdd"));
+        actor->modifierEffects.erase(std::remove_if(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [&effect](const ModifierEffectState& existing) { return existing.id == effect.id; }),
+            actor->modifierEffects.end());
+        actor->modifierEffects.push_back(effect);
+        result.events.push_back(GameEvent{EventType::EffectAdded, actor->id, actor->id,
+            actor->tileId, effect.id, effect.remainingInitiative});
+    }
+    else if (definition.operation == AbilityOperation::DirectHeal)
     {
         const std::int32_t maximumHealth = std::max(0, targetDefinition.stats.maxHealth);
         const std::int32_t healing = std::min(std::max(0, definition.amount), std::max(0, maximumHealth - target->health));
