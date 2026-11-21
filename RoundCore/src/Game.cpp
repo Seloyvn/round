@@ -49,6 +49,12 @@ double PassiveValue(const CharacterDefinition& definition, const char* key) noex
     return found == definition.passiveValues.end() ? 0.0 : found->second;
 }
 
+double AbilityValue(const AbilityDefinition& definition, const char* key) noexcept
+{
+    const auto found = definition.values.find(key);
+    return found == definition.values.end() ? 0.0 : found->second;
+}
+
 std::int64_t ApplyBasisPoints(const std::int64_t value, const std::int32_t basisPoints) noexcept
 {
     return (value * std::max(0, basisPoints) + 5000) / 10000;
@@ -882,6 +888,37 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             EventType::DamageApplied, actor->id, target->id, target->tileId, action.abilityId, applied});
         result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
         result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+
+        const std::int32_t immediateInitiativeLoss = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "ImmediateInitiativeLoss")));
+        if (immediateInitiativeLoss > 0)
+        {
+            const std::int32_t previousInitiative = target->initiative;
+            target->initiative = std::max(0, target->initiative - immediateInitiativeLoss);
+            result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, target->id,
+                target->tileId, action.abilityId, target->initiative - previousInitiative});
+        }
+
+        const std::int32_t initiativeGain = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnHit")));
+        if (initiativeGain > 0)
+        {
+            actor->initiative += initiativeGain;
+            result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+                actor->tileId, action.abilityId, initiativeGain});
+        }
+
+        const std::int32_t selfHeal = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "SelfHealOnHit")));
+        if (selfHeal > 0)
+        {
+            const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
+            const std::int32_t maximumHealth = std::max(0, actorDefinition.stats.maxHealth);
+            const std::int32_t healing = std::min(selfHeal, std::max(0, maximumHealth - actor->health));
+            actor->health += healing;
+            result.events.push_back(GameEvent{EventType::HealingApplied, actor->id, actor->id,
+                actor->tileId, action.abilityId, healing});
+        }
         if (applied > 0 && definition.damageType != DamageType::Physical)
         {
             for (auto effect = target->modifierEffects.begin(); effect != target->modifierEffects.end();)

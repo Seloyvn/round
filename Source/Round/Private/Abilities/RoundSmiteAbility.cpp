@@ -4,6 +4,11 @@
 
 FRoundActionResult ARoundSmiteAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 1)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
+
     FRoundActionResult Result = ExecuteDefaultAbility(TargetTile);
     if (Result.bSuccess && OwningCharacter && OwningCharacter->Attributes)
     {

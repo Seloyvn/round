@@ -584,6 +584,26 @@ int main()
             && physicalFrostbreak.State().characters[1].health == 79
             && physicalFrostbreak.State().characters[1].modifierEffects.size() == 1,
         "physical damage should not consume or trigger Frostbreak");
+    MatchSetup followupAbilitySetup = abilitySetup;
+    AbilityDefinition& followupBolt = followupAbilitySetup.definitions.abilities.at(bolt.id);
+    followupBolt.values["ImmediateInitiativeLoss"] = 16.0;
+    followupBolt.values["InitiativeGainOnHit"] = 12.0;
+    followupBolt.values["SelfHealOnHit"] = 30.0;
+    followupAbilitySetup.initialState.characters[0].health = 50;
+    Game followupAbility;
+    Require(followupAbility.Reset(std::move(followupAbilitySetup)).success,
+        "direct ability follow-up setup should reset");
+    const ActionResult followupResult = followupAbility.ApplyAction(blockedBolt);
+    Require(followupResult.success
+            && followupAbility.State().characters[0].health == 80
+            && followupAbility.State().characters[0].initiative == 105
+            && followupAbility.State().characters[1].initiative == 84,
+        "data-driven direct-ability follow-ups should heal and adjust both characters' initiative");
+    Require(std::count_if(followupResult.events.begin(), followupResult.events.end(),
+            [](const GameEvent& event) { return event.type == EventType::InitiativeChanged; }) == 3
+            && std::any_of(followupResult.events.begin(), followupResult.events.end(),
+                [](const GameEvent& event) { return event.type == EventType::HealingApplied && event.amount == 30; }),
+        "direct-ability follow-ups should emit deterministic initiative and healing events");
     Game abilities;
     Require(abilities.Reset(std::move(abilitySetup)).success, "direct ability setup should reset");
     const std::vector<GameAction> abilityActions = abilities.LegalActions(10);

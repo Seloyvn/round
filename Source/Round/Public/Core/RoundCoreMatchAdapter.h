@@ -38,6 +38,12 @@ struct FRoundCoreEffectRemoval
     FString EffectId;
 };
 
+struct FRoundCoreHealingEvent
+{
+    ARoundCharacter* Character = nullptr;
+    int32 Amount = 0;
+};
+
 struct FRoundCoreBasicAttackExecution
 {
     TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
@@ -53,8 +59,10 @@ struct FRoundCoreAbilityExecution
     TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    TArray<FRoundCoreHealingEvent> HealingEvents;
     int32 AppliedDamage = 0;
     int32 AppliedHealing = 0;
+    int32 TargetInitiativeLoss = 0;
     bool bTargetDied = false;
 };
 

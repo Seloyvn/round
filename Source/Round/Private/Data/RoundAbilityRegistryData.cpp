@@ -2771,7 +2771,13 @@ void URoundAbilityRegistryData::PopulatePaladinAbilityProgressionDefaults()
         URoundSkillProgressionData* Progression = LoadObject<URoundSkillProgressionData>(nullptr, *ProgressionPath);
         if (!Ability || !Progression) continue;
         Progression->Modify(); Progression->SkillId = Ability->AbilityId; Progression->DisplayName = FText::FromString(Entry.Name); Progression->Description = FText::FromString(Entry.Description); Progression->Levels = Entry.Levels; Progression->MarkPackageDirty();
-        Ability->Modify(); Ability->SkillProgression = Progression; Ability->MarkPackageDirty();
+        Ability->Modify(); Ability->SkillProgression = Progression;
+        if (Ability->AbilityId == FName(TEXT("Smite")))
+        {
+            Ability->Values.FindOrAdd(TEXT("CoreOperation")) = 1.0;
+            Ability->Values.FindOrAdd(TEXT("CoreTargetRelation")) = 2.0;
+        }
+        Ability->MarkPackageDirty();
     }
     MarkPackageDirty();
 #endif

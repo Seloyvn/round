@@ -627,6 +627,22 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
         else if (Event.type == roundcore::EventType::HealingApplied && Event.targetId == *TargetId)
         {
             OutExecution.AppliedHealing += FMath::Max(0, static_cast<int32>(Event.amount));
+            if (ARoundCharacter* const* HealedCharacter = CharacterActors.Find(Event.targetId))
+            {
+                OutExecution.HealingEvents.Add({*HealedCharacter, FMath::Max(0, static_cast<int32>(Event.amount))});
+            }
+        }
+        else if (Event.type == roundcore::EventType::HealingApplied)
+        {
+            if (ARoundCharacter* const* HealedCharacter = CharacterActors.Find(Event.targetId))
+            {
+                OutExecution.HealingEvents.Add({*HealedCharacter, FMath::Max(0, static_cast<int32>(Event.amount))});
+            }
+        }
+        else if (Event.type == roundcore::EventType::InitiativeChanged
+            && Event.targetId == *TargetId && Event.amount < 0)
+        {
+            OutExecution.TargetInitiativeLoss += -static_cast<int32>(Event.amount);
         }
         else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
         {

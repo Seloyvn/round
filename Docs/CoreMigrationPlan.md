@@ -201,7 +201,9 @@ Current progress:
 - The first explicit ability contract supports editor-declared direct damage and direct healing with target relation, range, visibility, initiative cost, cooldown, charges, defense ignore, death, and victory handled by Core.
 - Supported abilities appear in stable legal-action lists and numeric action masks; standalone C++ and Python tests execute the same path.
 - Unreal exports an ability only into this executable subset when its resolved `CoreOperation` value explicitly opts in. Unmarked and specialized abilities remain unavailable to the headless agent rather than being approximated.
-- Unreal execution has not yet switched to this path; parity comparison and selection of the first genuinely simple asset remain before removing its Actor implementation.
+- Unreal now executes opted-in direct abilities through this same Core path and mirrors their state and events back into the Actor presentation layer.
+- Paladin `Smite` is the first specialized live ability migrated end to end. Its damage, defense ignore, target initiative loss, self initiative gain, self healing, cost, cooldown, death, and victory all resolve in one Core action from editor-authored values.
+- The Paladin protection aura already resolves in the shared Core damage pipeline; Condemn, Sanctify Ground, Bulwark, and Shield Oath remain Actor-authoritative.
 
 ### Phase 6 — Vision and observations
 

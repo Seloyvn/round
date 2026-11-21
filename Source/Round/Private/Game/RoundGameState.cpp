@@ -3964,9 +3964,16 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         TargetCharacter->ApplyCoreDamageOutcome(
             Character, Execution.AppliedDamage, Ability->GetAbilityDamageType(), Execution.bTargetDied);
     }
-    if (Execution.AppliedHealing > 0)
+    for (const FRoundCoreHealingEvent& Healing : Execution.HealingEvents)
     {
-        RecordHeal(TargetCharacter, Execution.AppliedHealing);
+        if (Healing.Character && Healing.Amount > 0)
+        {
+            RecordHeal(Healing.Character, Healing.Amount);
+        }
+    }
+    if (Execution.TargetInitiativeLoss > 0)
+    {
+        RecordDelayApplied(TargetCharacter, Execution.TargetInitiativeLoss);
     }
 
     Result.bSuccess = true;
