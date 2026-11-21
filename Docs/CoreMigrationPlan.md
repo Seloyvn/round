@@ -206,7 +206,7 @@ Current progress:
 - Paladin `Bulwark` now uses the generic Core self-modifier operation. Duration, incoming and outgoing damage multipliers, defense ignore, movement cost, lifesteal, cost, and cooldown are editor-authored and the resulting effect is mirrored into Unreal for presentation.
 - Paladin `Condemn` now uses deterministic Core aura-prevention history for targeting and resolves its damage, silence, self-healing, initiative reward, cost, and cooldown in one action. Package version 11 serializes this resumable targeting history.
 - Paladin `Shield Oath` now uses the generic Core target-modifier operation. Pre-mitigation redirection, redirected damage scaling, protector healing, ally initiative rewards, duration, cost, and cooldown resolve in Core; package version 12 serializes the redirect state.
-- The Paladin protection aura already resolves in the shared Core damage pipeline; Sanctify Ground remains Actor-authoritative.
+- All Paladin abilities now resolve in RoundCore. Sanctify Ground uses the generic tile-targeted ground-aura contract, including fixed/following centers, radius, damage, initiative loss, duration, legal actions, observations, and Unreal presentation.
 
 ### Phase 6 — Vision and observations
 

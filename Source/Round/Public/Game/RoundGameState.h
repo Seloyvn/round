@@ -498,9 +498,10 @@ public:
 
     FRoundActionResult ExecuteCoreBasicAttack(ARoundCharacter* Character, ARoundCharacter* TargetCharacter);
     FRoundActionResult ExecuteCoreAbility(
-        ARoundCharacter* Character, ARoundAbilityActor* Ability, ARoundCharacter* TargetCharacter);
+        ARoundCharacter* Character, ARoundAbilityActor* Ability, ARoundCharacter* TargetCharacter,
+        ARoundGridTile* TargetTile = nullptr);
     bool IsCoreAbilityLegal(const ARoundCharacter* Character, const ARoundAbilityActor* Ability,
-        const ARoundCharacter* TargetCharacter) const;
+        const ARoundCharacter* TargetCharacter, const ARoundGridTile* TargetTile = nullptr) const;
 
     bool GetCoreVisionFields(const ARoundCharacter* Character, TArray<ARoundGridTile*>& OutVisibleFields) const;
 

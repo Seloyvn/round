@@ -1,11 +1,18 @@
 #include "Effects/RoundSanctifiedGroundAuraEffect.h"
 
 #include "Actors/RoundCharacter.h"
+#include "Game/RoundGameState.h"
 #include "EngineUtils.h"
 
 void ARoundSanctifiedGroundAuraEffect::OnInitiativeAdvanced(ARoundCharacter* TargetCharacter, int32 InitiativeAmount)
 {
     Super::ARoundAuraEffect::OnInitiativeAdvanced(TargetCharacter, InitiativeAmount);
+
+    const ARoundGameState* GameState = ARoundGameState::GetRoundGameState(TargetCharacter);
+    if (GameState && GameState->IsApplyingCoreInitiativeAdvance())
+    {
+        return;
+    }
 
     if (InitiativeAmount <= 0 || AuraTriggerDamage <= 0 || !GetWorld())
     {

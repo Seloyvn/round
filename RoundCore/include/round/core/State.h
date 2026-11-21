@@ -52,6 +52,12 @@ struct ModifierEffectState
     std::int32_t redirectedDamageMultiplierBasisPoints = 10000;
     std::int32_t protectorHealFractionBasisPoints = 0;
     std::int32_t protectedInitiativePerHit = 0;
+    EntityId areaCenterTileId = InvalidEntityId;
+    std::int32_t areaRadius = 0;
+    std::int32_t areaDamage = 0;
+    DamageType areaDamageType = DamageType::Physical;
+    std::int32_t areaInitiativeLossPerPulse = 0;
+    bool areaFollowsCauser = false;
     bool onlyAffectCauserDamage = false;
     bool onlyAgainstRangedSources = false;
     bool blockMovementBonuses = false;

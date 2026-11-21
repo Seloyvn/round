@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::TargetModifier
+        if (ability.operation > AbilityOperation::GroundAura
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -179,9 +179,16 @@ ActionResult Game::Reset(MatchSetup setup)
                 || effect.redirectPreMitigationBasisPoints < 0
                 || effect.redirectedDamageMultiplierBasisPoints < 0
                 || effect.protectorHealFractionBasisPoints < 0
-                || effect.protectedInitiativePerHit < 0)
+                || effect.protectedInitiativePerHit < 0
+                || effect.areaRadius < 0 || effect.areaDamage < 0
+                || effect.areaInitiativeLossPerPulse < 0)
             {
                 return Failure("invalid_modifier_effect", "Modifier effects require an ID and non-negative duration and multiplier values.");
+            }
+            if ((effect.areaDamage > 0 || effect.areaInitiativeLossPerPulse > 0)
+                && !effect.areaFollowsCauser && tileIds.find(effect.areaCenterTileId) == tileIds.end())
+            {
+                return Failure("missing_area_center_tile", "Fixed ground auras must reference a board tile.");
             }
         }
         if (tileIds.find(character.tileId) == tileIds.end())
@@ -824,10 +831,9 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
         return Failure("match_not_running", "Abilities require a running match.");
     }
     const CharacterState* actor = FindCharacter(action.actorId);
-    const CharacterState* target = FindCharacter(action.targetEntityId);
-    if (!actor || !actor->alive || !target || !target->alive)
+    if (!actor || !actor->alive)
     {
-        return Failure("invalid_ability_characters", "Ability actor and target must exist and be alive.");
+        return Failure("invalid_ability_actor", "Ability actor must exist and be alive.");
     }
     if (state_.activeCharacterId != actor->id)
     {
@@ -857,6 +863,42 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     }
 
     const AbilityDefinition& definition = abilityDefinition->second;
+    const TileState* actorTile = FindTile(actor->tileId);
+    if (!actorTile)
+    {
+        return Failure("missing_ability_tile", "Ability actor must occupy a board tile.");
+    }
+    if (definition.operation == AbilityOperation::GroundAura)
+    {
+        const TileState* targetTile = FindTile(action.targetTileId);
+        if (!targetTile)
+        {
+            return Failure("missing_ability_target_tile", "Ground abilities require a board tile target.");
+        }
+        if (HexDistance(actorTile->coord, targetTile->coord) > std::max(0, definition.range))
+        {
+            return Failure("ability_target_out_of_range", "The target tile is outside ability range.");
+        }
+        if (definition.requiresVisibility)
+        {
+            const std::vector<EntityId> visibleTiles = TeamVisibleTileIds(actor->team);
+            if (!std::binary_search(visibleTiles.begin(), visibleTiles.end(), targetTile->id))
+            {
+                return Failure("ability_target_not_visible", "The ability target tile is not visible to the acting team.");
+            }
+        }
+        if (actor->initiative < std::max(0, definition.initiativeCost))
+        {
+            return Failure("insufficient_initiative", "The character cannot afford this ability.");
+        }
+        return ActionResult{true};
+    }
+
+    const CharacterState* target = FindCharacter(action.targetEntityId);
+    if (!target || !target->alive)
+    {
+        return Failure("invalid_ability_characters", "Ability target must exist and be alive.");
+    }
     const bool sameTeam = actor->team == target->team;
     const bool relationMatches = definition.targetRelation == AbilityTargetRelation::AnyCharacter
         || (definition.targetRelation == AbilityTargetRelation::Self && actor->id == target->id)
@@ -880,7 +922,6 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
                 "This ability requires recent damage prevention against the target.");
         }
     }
-    const TileState* actorTile = FindTile(actor->tileId);
     const TileState* targetTile = FindTile(target->tileId);
     if (!actorTile || !targetTile)
     {
@@ -909,9 +950,9 @@ ActionResult Game::ApplyAbility(const GameAction& action)
 {
     CharacterState* actor = FindCharacter(action.actorId);
     CharacterState* target = FindCharacter(action.targetEntityId);
-    if (!actor || !target)
+    if (!actor)
     {
-        return Failure("invalid_state", "Validated ability references missing character state.");
+        return Failure("invalid_state", "Validated ability references missing actor state.");
     }
     AbilityState* abilityState = nullptr;
     for (AbilityState& candidate : actor->abilities)
@@ -927,7 +968,10 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         return Failure("invalid_state", "Validated ability has no runtime state.");
     }
     const AbilityDefinition& definition = definitions_.abilities.at(action.abilityId);
-    const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+    if (definition.operation != AbilityOperation::GroundAura && !target)
+    {
+        return Failure("invalid_state", "Validated ability references missing target state.");
+    }
     const std::int32_t cost = std::max(0, definition.initiativeCost);
     actor->initiative -= cost;
 
@@ -957,7 +1001,28 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             action.abilityId, abilityState->cooldownDuration});
     }
 
-    if (definition.operation == AbilityOperation::TargetModifier)
+    if (definition.operation == AbilityOperation::GroundAura)
+    {
+        ModifierEffectState effect;
+        effect.id = action.abilityId + ":GroundAura";
+        effect.causerId = actor->id;
+        effect.remainingInitiative = std::max(
+            1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        effect.areaCenterTileId = action.targetTileId;
+        effect.areaRadius = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AuraRadius")));
+        effect.areaDamage = std::max(0, definition.amount);
+        effect.areaDamageType = definition.damageType;
+        effect.areaInitiativeLossPerPulse = std::max(
+            0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossPerPulse")));
+        effect.areaFollowsCauser = AbilityValue(definition, "FollowCaster") > 0.0;
+        actor->modifierEffects.erase(std::remove_if(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [&effect](const ModifierEffectState& existing) { return existing.id == effect.id; }),
+            actor->modifierEffects.end());
+        actor->modifierEffects.push_back(effect);
+        result.events.push_back(GameEvent{EventType::EffectAdded, actor->id, actor->id,
+            effect.areaCenterTileId, effect.id, effect.remainingInitiative});
+    }
+    else if (definition.operation == AbilityOperation::TargetModifier)
     {
         ModifierEffectState effect;
         effect.id = action.abilityId + ":Modifier";
@@ -1008,6 +1073,7 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     }
     else if (definition.operation == AbilityOperation::DirectHeal)
     {
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
         const std::int32_t maximumHealth = std::max(0, targetDefinition.stats.maxHealth);
         const std::int32_t healing = std::min(std::max(0, definition.amount), std::max(0, maximumHealth - target->health));
         target->health += healing;
@@ -1237,6 +1303,55 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             {
                 continue;
             }
+            for (const ModifierEffectState& area : character.modifierEffects)
+            {
+                if ((area.areaDamage <= 0 && area.areaInitiativeLossPerPulse <= 0)
+                    || area.remainingInitiative <= 0)
+                {
+                    continue;
+                }
+                const EntityId centerTileId = area.areaFollowsCauser ? character.tileId : area.areaCenterTileId;
+                const TileState* centerTile = FindTile(centerTileId);
+                if (!centerTile)
+                {
+                    continue;
+                }
+                for (CharacterState& target : state_.characters)
+                {
+                    if (!target.alive || target.team == Team::Neutral || target.team == character.team)
+                    {
+                        continue;
+                    }
+                    const TileState* targetTile = FindTile(target.tileId);
+                    if (!targetTile || HexDistance(centerTile->coord, targetTile->coord) > area.areaRadius)
+                    {
+                        continue;
+                    }
+                    std::vector<GameEvent> auraEvents;
+                    std::vector<GameEvent> modifierEvents;
+                    const std::int32_t applied = ResolveDamage(
+                        character, target, area.areaDamage, 0, auraEvents, modifierEvents);
+                    result.events.push_back(GameEvent{EventType::DamageApplied, character.id, target.id,
+                        target.tileId, area.id, applied});
+                    result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+                    result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+                    if (area.areaInitiativeLossPerPulse > 0 && target.alive)
+                    {
+                        const std::int32_t previous = target.initiative;
+                        target.initiative = std::max(0, target.initiative - area.areaInitiativeLossPerPulse);
+                        result.events.push_back(GameEvent{EventType::InitiativeChanged, character.id, target.id,
+                            target.tileId, area.id, target.initiative - previous});
+                    }
+                    if (target.health <= 0 && target.alive)
+                    {
+                        target.health = 0;
+                        target.alive = false;
+                        if (TileState* tile = FindTile(target.tileId)) tile->occupantId = InvalidEntityId;
+                        result.events.push_back(GameEvent{EventType::CharacterDied, character.id, target.id,
+                            target.tileId, area.id, 0});
+                    }
+                }
+            }
             const std::int32_t gain = std::max(0, character.initiativeGainPerTick);
             character.initiative += gain;
             if (gain > 0)
@@ -1309,6 +1424,23 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
         result.events.push_back(GameEvent{
             EventType::GlobalInitiativeAdvanced, InvalidEntityId, InvalidEntityId, InvalidEntityId, {}, 1});
         result.message = "Global initiative advanced.";
+
+        Team soleTeam = Team::Neutral;
+        bool multipleTeams = false;
+        for (const CharacterState& character : state_.characters)
+        {
+            if (!character.alive || character.team == Team::Neutral) continue;
+            if (soleTeam == Team::Neutral) soleTeam = character.team;
+            else if (soleTeam != character.team) { multipleTeams = true; break; }
+        }
+        if (!multipleTeams && soleTeam != Team::Neutral)
+        {
+            state_.status = MatchStatus::Completed;
+            state_.winner = soleTeam;
+            state_.activeCharacterId = InvalidEntityId;
+            result.events.push_back(GameEvent{EventType::MatchEnded, InvalidEntityId, InvalidEntityId,
+                InvalidEntityId, {}, static_cast<std::int64_t>(soleTeam)});
+        }
     }
     ++state_.step;
     return result;
@@ -1398,6 +1530,24 @@ std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
 
     for (const AbilityState& ability : character->abilities)
     {
+        const auto definition = definitions_.abilities.find(ability.definitionId);
+        if (definition != definitions_.abilities.end()
+            && definition->second.operation == AbilityOperation::GroundAura)
+        {
+            for (const TileState& tile : state_.tiles)
+            {
+                GameAction action;
+                action.type = ActionType::UseAbility;
+                action.actorId = actorId;
+                action.targetTileId = tile.id;
+                action.abilityId = ability.definitionId;
+                if (ValidateAbility(action).success)
+                {
+                    actions.push_back(std::move(action));
+                }
+            }
+            continue;
+        }
         for (const CharacterState& target : state_.characters)
         {
             GameAction action;
@@ -1649,6 +1799,12 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.redirectedDamageMultiplierBasisPoints);
             HashValue(hash, effect.protectorHealFractionBasisPoints);
             HashValue(hash, effect.protectedInitiativePerHit);
+            HashValue(hash, effect.areaCenterTileId);
+            HashValue(hash, effect.areaRadius);
+            HashValue(hash, effect.areaDamage);
+            HashValue(hash, effect.areaDamageType);
+            HashValue(hash, effect.areaInitiativeLossPerPulse);
+            HashValue(hash, effect.areaFollowsCauser);
             HashValue(hash, effect.onlyAffectCauserDamage);
             HashValue(hash, effect.onlyAgainstRangedSources);
             HashValue(hash, effect.blockMovementBonuses);

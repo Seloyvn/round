@@ -34,7 +34,8 @@ enum class AbilityOperation : std::uint8_t
     DirectDamage,
     DirectHeal,
     SelfModifier,
-    TargetModifier
+    TargetModifier,
+    GroundAura
 };
 
 enum class AbilityTargetRelation : std::uint8_t

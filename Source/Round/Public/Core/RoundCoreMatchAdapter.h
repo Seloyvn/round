@@ -7,6 +7,7 @@ class ARoundCharacter;
 class ARoundGameState;
 class ARoundGridTile;
 class ARoundAbilityActor;
+enum class ERoundDamageType : uint8;
 
 struct FRoundCoreAbilityRuntimeUpdate
 {
@@ -50,6 +51,7 @@ struct FRoundCoreDamageEvent
     ARoundCharacter* Target = nullptr;
     int32 Amount = 0;
     bool bTargetDied = false;
+    ERoundDamageType DamageType = static_cast<ERoundDamageType>(0);
 };
 
 struct FRoundCoreModifierEffectAddition
@@ -68,6 +70,23 @@ struct FRoundCoreModifierEffectAddition
     int32 RedirectedDamageMultiplierBasisPoints = 10000;
     int32 ProtectorHealFractionBasisPoints = 0;
     int32 ProtectedInitiativePerHit = 0;
+    ARoundGridTile* AreaCenterTile = nullptr;
+    int32 AreaRadius = 0;
+    int32 AreaDamage = 0;
+    ERoundDamageType AreaDamageType = static_cast<ERoundDamageType>(0);
+    int32 AreaInitiativeLossPerPulse = 0;
+    bool bAreaFollowsCauser = false;
+};
+
+struct FRoundCoreTurnExecution
+{
+    TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
+    TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
+    TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    TArray<FRoundCoreDamageEvent> DamageEvents;
+    TArray<TPair<ARoundCharacter*, int32>> AppliedDelays;
+    ARoundCharacter* ActiveCharacter = nullptr;
+    int32 GlobalInitiativeAdvance = 0;
 };
 
 struct FRoundCoreBasicAttackExecution
@@ -104,7 +123,7 @@ public:
     bool IsMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile, FString& OutReason) const;
     bool IsBasicAttackLegal(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter, FString& OutReason) const;
     bool IsAbilityLegal(const ARoundCharacter* Character, const ARoundAbilityActor* Ability,
-        const ARoundCharacter* TargetCharacter, FString& OutReason) const;
+        const ARoundCharacter* TargetCharacter, const ARoundGridTile* TargetTile, FString& OutReason) const;
     bool PreviewBasicAttack(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter,
         FRoundCoreBasicAttackPreview& OutPreview, FString& OutReason) const;
     bool ResolveBasicAttackCritical(const ARoundCharacter* Character, bool& bOutCritical, FString& OutReason);
@@ -117,6 +136,7 @@ public:
         const ARoundCharacter* Character,
         const ARoundAbilityActor* Ability,
         const ARoundCharacter* TargetCharacter,
+        const ARoundGridTile* TargetTile,
         FRoundCoreAbilityExecution& OutExecution,
         FString& OutReason);
     bool GetVisibleTiles(
@@ -131,10 +151,7 @@ public:
         FString& OutReason);
     bool ExecuteTurnStep(
         const ARoundCharacter* EndingCharacter,
-        TArray<TPair<ARoundCharacter*, int32>>& OutInitiatives,
-        TArray<FRoundCoreAbilityRuntimeUpdate>& OutAbilityUpdates,
-        ARoundCharacter*& OutActiveCharacter,
-        int32& OutGlobalInitiativeAdvance,
+        FRoundCoreTurnExecution& OutExecution,
         FString& OutReason);
 
     const roundcore::Game& GetGame() const { return CoreGame; }

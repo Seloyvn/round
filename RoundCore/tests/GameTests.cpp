@@ -70,6 +70,12 @@ int main()
     packageModifier.causerId = 20;
     packageModifier.remainingInitiative = 25;
     packageModifier.incomingDamageMultiplierBasisPoints = 9000;
+    packageModifier.areaCenterTileId = 4;
+    packageModifier.areaRadius = 2;
+    packageModifier.areaDamage = 17;
+    packageModifier.areaDamageType = DamageType::Holy;
+    packageModifier.areaInitiativeLossPerPulse = 3;
+    packageModifier.areaFollowsCauser = false;
     packageSource.initialState.characters[0].modifierEffects.push_back(packageModifier);
     const std::vector<std::uint8_t> packageBytes = SerializeMatchSetup(packageSource);
     const MatchSetup packageSetup = DeserializeMatchSetup(packageBytes);
@@ -716,6 +722,68 @@ int main()
     Require(std::any_of(redirectResult.events.begin(), redirectResult.events.end(),
             [](const GameEvent& event) { return event.type == EventType::DamageApplied && event.targetId == 30; }),
         "Shield Oath should emit redirected damage for Unreal presentation and training rewards");
+
+    MatchSetup groundAuraSetup = ValidSetup();
+    groundAuraSetup.initialState.activeCharacterId = InvalidEntityId;
+    groundAuraSetup.initialState.characters[0].initiative = 0;
+    groundAuraSetup.initialState.characters[1].initiative = 0;
+    ModifierEffectState sanctifiedGround;
+    sanctifiedGround.id = "SanctifyGround:GroundAura";
+    sanctifiedGround.causerId = 10;
+    sanctifiedGround.remainingInitiative = 2;
+    sanctifiedGround.areaCenterTileId = 2;
+    sanctifiedGround.areaRadius = 0;
+    sanctifiedGround.areaDamage = 20;
+    sanctifiedGround.areaDamageType = DamageType::Holy;
+    sanctifiedGround.areaInitiativeLossPerPulse = 7;
+    groundAuraSetup.initialState.characters[0].modifierEffects.push_back(sanctifiedGround);
+    Game groundAuraGame;
+    Require(groundAuraGame.Reset(std::move(groundAuraSetup)).success,
+        "Sanctify Ground setup should reset");
+    GameAction groundAuraTick;
+    groundAuraTick.type = ActionType::EndTurn;
+    const ActionResult groundAuraResult = groundAuraGame.ApplyAction(groundAuraTick);
+    Require(groundAuraResult.success
+            && groundAuraGame.State().characters[1].health == 81
+            && groundAuraGame.State().characters[1].initiative == 1
+            && groundAuraGame.State().characters[0].modifierEffects[0].remainingInitiative == 1,
+        "ground auras should pulse once per global initiative, apply delay, and expire by initiative");
+    Require(std::any_of(groundAuraResult.events.begin(), groundAuraResult.events.end(),
+            [](const GameEvent& event) { return event.type == EventType::DamageApplied && event.targetId == 20; }),
+        "ground aura pulses should emit damage events for Unreal and training");
+
+    MatchSetup groundCastSetup = ValidSetup();
+    AbilityDefinition groundCast;
+    groundCast.id = "SanctifyGround";
+    groundCast.operation = AbilityOperation::GroundAura;
+    groundCast.targetRelation = AbilityTargetRelation::AnyCharacter;
+    groundCast.initiativeCost = 9;
+    groundCast.range = 2;
+    groundCast.amount = 24;
+    groundCast.damageType = DamageType::Holy;
+    groundCast.values = {{"DurationInitiative", 60.0}, {"AuraRadius", 2.0},
+        {"InitiativeLossPerPulse", 4.0}, {"FollowCaster", 0.0}};
+    groundCastSetup.definitions.abilities.emplace(groundCast.id, groundCast);
+    groundCastSetup.definitions.characters.at("Tank").abilityIds.push_back(groundCast.id);
+    groundCastSetup.initialState.characters[0].abilities.push_back(AbilityState{groundCast.id, 0, 40, 1, 1, false});
+    Game groundCastGame;
+    Require(groundCastGame.Reset(std::move(groundCastSetup)).success, "ground aura cast setup should reset");
+    GameAction groundCastAction;
+    groundCastAction.type = ActionType::UseAbility;
+    groundCastAction.actorId = 10;
+    groundCastAction.targetTileId = 4;
+    groundCastAction.abilityId = groundCast.id;
+    const std::vector<GameAction> groundCastLegalActions = groundCastGame.LegalActions(10);
+    Require(std::any_of(groundCastLegalActions.begin(), groundCastLegalActions.end(),
+            [](const GameAction& action) { return action.type == ActionType::UseAbility && action.targetTileId != InvalidEntityId; }),
+        "ground aura abilities should expose tile-target actions to training agents");
+    const ActionResult groundCastResult = groundCastGame.ApplyAction(groundCastAction);
+    const ModifierEffectState& castGround = groundCastGame.State().characters[0].modifierEffects[0];
+    Require(groundCastResult.success && groundCastGame.State().characters[0].initiative == 91
+            && castGround.areaCenterTileId == 4 && castGround.areaRadius == 2
+            && castGround.areaDamage == 24 && castGround.areaDamageType == DamageType::Holy
+            && castGround.areaInitiativeLossPerPulse == 4 && castGround.remainingInitiative == 60,
+        "ground aura abilities should create their complete editor-authored zone contract in Core");
 
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;

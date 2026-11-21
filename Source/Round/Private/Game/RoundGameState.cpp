@@ -33,6 +33,7 @@
 #include "Effects/RoundObjectiveStatRewardEffect.h"
 #include "Effects/RoundSilenceEffect.h"
 #include "Effects/RoundShieldOathEffect.h"
+#include "Effects/RoundSanctifiedGroundAuraEffect.h"
 #include "Effects/RoundSlowEffect.h"
 #include "Game/RoundGameInstance.h"
 #include "Game/RoundPlayerPawn.h"
@@ -3908,10 +3909,11 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
 }
 
 FRoundActionResult ARoundGameState::ExecuteCoreAbility(
-    ARoundCharacter* Character, ARoundAbilityActor* Ability, ARoundCharacter* TargetCharacter)
+    ARoundCharacter* Character, ARoundAbilityActor* Ability, ARoundCharacter* TargetCharacter,
+    ARoundGridTile* TargetTile)
 {
     FRoundActionResult Result;
-    if (!HasAuthority() || !Character || !Ability || !TargetCharacter)
+    if (!HasAuthority() || !Character || !Ability || (!TargetCharacter && !TargetTile))
     {
         Result.Reason = TEXT("Invalid Core ability context.");
         return Result;
@@ -3929,7 +3931,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
     }
 
     FRoundCoreAbilityExecution Execution;
-    if (!CoreMatchAdapter->ExecuteAbility(Character, Ability, TargetCharacter, Execution, CoreReason))
+    if (!CoreMatchAdapter->ExecuteAbility(Character, Ability, TargetCharacter, TargetTile, Execution, CoreReason))
     {
         Result.Reason = CoreReason;
         return Result;
@@ -3982,7 +3984,30 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
                 ExistingEffect->RemoveEffect();
             }
         }
-        if (Addition.RedirectPreMitigationBasisPoints > 0)
+        if (Addition.AreaCenterTile || Addition.AreaDamage > 0 || Addition.AreaInitiativeLossPerPulse > 0)
+        {
+            if (ARoundSanctifiedGroundAuraEffect* Effect = GetWorld()->SpawnActor<ARoundSanctifiedGroundAuraEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = Ability->AbilityData ? Ability->AbilityData->DisplayName.ToString() : TEXT("Sanctify Ground");
+                Effect->Description = Ability->AbilityData ? Ability->AbilityData->Description.ToString() : TEXT("Heilige Bodenzone.");
+                Effect->Radius = Addition.AreaRadius;
+                Effect->bAffectEnemies = true;
+                Effect->bAffectAllies = false;
+                Effect->bAffectSelf = false;
+                Effect->bAuraUsesFixedPosition = !Addition.bAreaFollowsCauser;
+                Effect->AuraFixedPosition = Addition.AreaCenterTile
+                    ? Addition.AreaCenterTile->GridPosition
+                    : Addition.Character->CurrentTile->GridPosition;
+                Effect->AuraTriggerDamage = Addition.AreaDamage;
+                Effect->AuraTriggerDamageType = Addition.AreaDamageType;
+                Effect->InitiativeLossPerPulse = Addition.AreaInitiativeLossPerPulse;
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
+        else if (Addition.RedirectPreMitigationBasisPoints > 0)
         {
             if (ARoundShieldOathEffect* Effect = GetWorld()->SpawnActor<ARoundShieldOathEffect>())
             {
@@ -4066,9 +4091,10 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
 }
 
 bool ARoundGameState::IsCoreAbilityLegal(
-    const ARoundCharacter* Character, const ARoundAbilityActor* Ability, const ARoundCharacter* TargetCharacter) const
+    const ARoundCharacter* Character, const ARoundAbilityActor* Ability, const ARoundCharacter* TargetCharacter,
+    const ARoundGridTile* TargetTile) const
 {
-    if (!Character || !Ability || !TargetCharacter)
+    if (!Character || !Ability || (!TargetCharacter && !TargetTile))
     {
         return false;
     }
@@ -4078,7 +4104,7 @@ bool ARoundGameState::IsCoreAbilityLegal(
     }
     FString CoreReason;
     return CoreMatchAdapter->Rebuild(*this, CoreReason)
-        && CoreMatchAdapter->IsAbilityLegal(Character, Ability, TargetCharacter, CoreReason);
+        && CoreMatchAdapter->IsAbilityLegal(Character, Ability, TargetCharacter, TargetTile, CoreReason);
 }
 
 bool ARoundGameState::GetCoreVisionFields(
@@ -4262,16 +4288,10 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
     const ARoundCharacter* CoreEndingCharacter = EndingCharacter;
     for (int32 Safety = 0; Safety < 10000; ++Safety)
     {
-        TArray<TPair<ARoundCharacter*, int32>> CoreInitiatives;
-        TArray<FRoundCoreAbilityRuntimeUpdate> CoreAbilityUpdates;
-        ARoundCharacter* NextCharacter = nullptr;
-        int32 GlobalAdvance = 0;
+        FRoundCoreTurnExecution Execution;
         if (!CoreMatchAdapter->ExecuteTurnStep(
                 CoreEndingCharacter,
-                CoreInitiatives,
-                CoreAbilityUpdates,
-                NextCharacter,
-                GlobalAdvance,
+                Execution,
                 CoreReason))
         {
             UE_LOG(LogTemp, Error, TEXT("RoundCore turn step failed: %s"), *CoreReason);
@@ -4283,14 +4303,15 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
 
         CoreEndingCharacter = nullptr;
         CurrentTurnCharacter = nullptr;
-        for (const TPair<ARoundCharacter*, int32>& Entry : CoreInitiatives)
+        for (const FRoundCoreCharacterRuntimeUpdate& Update : Execution.CharacterUpdates)
         {
-            if (Entry.Key && Entry.Key->Attributes)
+            if (Update.Character && Update.Character->Attributes)
             {
-                Entry.Key->Attributes->SetCurrentInitiativeValue(Entry.Value);
+                Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
+                Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
             }
         }
-        for (const FRoundCoreAbilityRuntimeUpdate& Update : CoreAbilityUpdates)
+        for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
         {
             if (Update.Ability)
             {
@@ -4299,7 +4320,36 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             }
         }
 
-        if (GlobalAdvance > 0)
+        for (const FRoundCoreDamageEvent& Damage : Execution.DamageEvents)
+        {
+            if (Damage.Target)
+            {
+                Damage.Target->ApplyCoreDamageOutcome(
+                    Damage.Source,
+                    Damage.Amount,
+                    Damage.DamageType,
+                    Damage.bTargetDied);
+            }
+        }
+        for (const TPair<ARoundCharacter*, int32>& Delay : Execution.AppliedDelays)
+        {
+            if (Delay.Key && Delay.Value > 0) RecordDelayApplied(Delay.Key, Delay.Value);
+        }
+        for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
+        {
+            if (!Removal.Character) continue;
+            const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
+            for (ARoundEffectActor* Effect : EffectsSnapshot)
+            {
+                if (Effect && Effect->EffectId.ToString() == Removal.EffectId)
+                {
+                    Effect->RemoveEffect();
+                    break;
+                }
+            }
+        }
+
+        if (Execution.GlobalInitiativeAdvance > 0)
         {
             bApplyingCoreInitiativeAdvance = true;
             for (ARoundCharacter* Character : RegisteredCharacters)
@@ -4309,7 +4359,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                     continue;
                 }
 
-                Character->AdvanceGlobalInitiative(GlobalAdvance);
+                Character->AdvanceGlobalInitiative(Execution.GlobalInitiativeAdvance);
             }
             bApplyingCoreInitiativeAdvance = false;
 
@@ -4317,12 +4367,12 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             {
                 if (ARoundTerrainActor* TerrainActor = Field ? Cast<ARoundTerrainActor>(Field->TerrainObject) : nullptr)
                 {
-                    TerrainActor->AdvanceTerrainInitiative(GlobalAdvance);
+                    TerrainActor->AdvanceTerrainInitiative(Execution.GlobalInitiativeAdvance);
                 }
             }
 
-            MatchGlobalInitiativeElapsed += GlobalAdvance;
-            AdvanceObjectivesByInitiative(GlobalAdvance);
+            MatchGlobalInitiativeElapsed += Execution.GlobalInitiativeAdvance;
+            AdvanceObjectivesByInitiative(Execution.GlobalInitiativeAdvance);
 
             if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
             {
@@ -4332,6 +4382,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             continue;
         }
 
+        ARoundCharacter* NextCharacter = Execution.ActiveCharacter;
         if (!NextCharacter)
         {
             UE_LOG(LogTemp, Error, TEXT("RoundCore turn step produced neither initiative progress nor an active character."));

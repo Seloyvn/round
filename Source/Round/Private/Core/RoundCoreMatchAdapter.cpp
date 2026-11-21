@@ -13,6 +13,7 @@
 #include "Effects/RoundSlowEffect.h"
 #include "Effects/RoundIcebeamEffect.h"
 #include "Effects/RoundShieldOathEffect.h"
+#include "Effects/RoundSanctifiedGroundAuraEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -53,6 +54,22 @@ roundcore::DamageType ToCoreDamageType(const ERoundDamageType DamageType)
     case ERoundDamageType::TrueDamage: return roundcore::DamageType::TrueDamage;
     case ERoundDamageType::Nature: return roundcore::DamageType::Nature;
     default: return roundcore::DamageType::Physical;
+    }
+}
+
+ERoundDamageType ToRoundDamageType(const roundcore::DamageType DamageType)
+{
+    switch (DamageType)
+    {
+    case roundcore::DamageType::Magical: return ERoundDamageType::Magical;
+    case roundcore::DamageType::Fire: return ERoundDamageType::Fire;
+    case roundcore::DamageType::Ice: return ERoundDamageType::Ice;
+    case roundcore::DamageType::Lightning: return ERoundDamageType::Lightning;
+    case roundcore::DamageType::Holy: return ERoundDamageType::Holy;
+    case roundcore::DamageType::Ground: return ERoundDamageType::Ground;
+    case roundcore::DamageType::TrueDamage: return ERoundDamageType::TrueDamage;
+    case roundcore::DamageType::Nature: return ERoundDamageType::Nature;
+    default: return ERoundDamageType::Physical;
     }
 }
 }
@@ -297,7 +314,9 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                         ? roundcore::AbilityOperation::SelfModifier
                         : (CoreOperation == 4
                             ? roundcore::AbilityOperation::TargetModifier
-                            : roundcore::AbilityOperation::Unsupported)));
+                            : (CoreOperation == 5
+                                ? roundcore::AbilityOperation::GroundAura
+                                : roundcore::AbilityOperation::Unsupported))));
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
                 ? roundcore::AbilityTargetRelation::Self
                 : ((AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
@@ -311,7 +330,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             }
             AbilityDefinition.initiativeCost = Ability->GetAbilityCost();
             AbilityDefinition.range = Ability->GetAbilityRange();
-            AbilityDefinition.amount = AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
+            AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
+                || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura)
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -342,7 +362,9 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundSlowEffect* Slow = Cast<ARoundSlowEffect>(Effect);
             const ARoundIcebeamEffect* Icebeam = Cast<ARoundIcebeamEffect>(Effect);
             const ARoundShieldOathEffect* ShieldOath = Cast<ARoundShieldOathEffect>(Effect);
-            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow && !ShieldOath)
+            const ARoundSanctifiedGroundAuraEffect* SanctifiedGround = Cast<ARoundSanctifiedGroundAuraEffect>(Effect);
+            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow
+                && !ShieldOath && !SanctifiedGround)
             {
                 continue;
             }
@@ -414,6 +436,17 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                     0, FMath::RoundToInt(ShieldOath->PaladinHealFraction * 10000.0));
                 EffectState.protectedInitiativePerHit = FMath::Max(0, ShieldOath->ProtectedAllyInitiativePerHit);
             }
+            if (SanctifiedGround)
+            {
+                EffectState.areaCenterTileId = SanctifiedGround->bAuraUsesFixedPosition
+                    ? TileIds.FindRef(GameState.GetFieldAt(SanctifiedGround->AuraFixedPosition))
+                    : CharacterState.tileId;
+                EffectState.areaRadius = FMath::Max(0, SanctifiedGround->Radius);
+                EffectState.areaDamage = FMath::Max(0, SanctifiedGround->AuraTriggerDamage);
+                EffectState.areaDamageType = ToCoreDamageType(SanctifiedGround->AuraTriggerDamageType);
+                EffectState.areaInitiativeLossPerPulse = FMath::Max(0, SanctifiedGround->InitiativeLossPerPulse);
+                EffectState.areaFollowsCauser = !SanctifiedGround->bAuraUsesFixedPosition;
+            }
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
             CharacterState.modifierEffects.push_back(std::move(EffectState));
@@ -478,10 +511,12 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
     const ARoundCharacter* Character,
     const ARoundAbilityActor* Ability,
     const ARoundCharacter* TargetCharacter,
+    const ARoundGridTile* TargetTile,
     FString& OutReason) const
 {
     const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
     const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    const roundcore::EntityId* TargetTileId = TileIds.Find(TargetTile);
     FString AbilityKey;
     for (const TPair<FString, ARoundAbilityActor*>& Entry : AbilityActors)
     {
@@ -491,7 +526,8 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
             break;
         }
     }
-    if (!CharacterId || !TargetId || AbilityKey.IsEmpty())
+    const bool bGroundAura = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0) == 5;
+    if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
         return false;
@@ -499,7 +535,8 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
     roundcore::GameAction Action;
     Action.type = roundcore::ActionType::UseAbility;
     Action.actorId = *CharacterId;
-    Action.targetEntityId = *TargetId;
+    Action.targetEntityId = TargetId ? *TargetId : roundcore::InvalidEntityId;
+    Action.targetTileId = TargetTileId ? *TargetTileId : roundcore::InvalidEntityId;
     Action.abilityId = ToCoreString(AbilityKey);
     const roundcore::ActionResult Result = CoreGame.ValidateAction(Action);
     OutReason = Result.success
@@ -683,12 +720,14 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     const ARoundCharacter* Character,
     const ARoundAbilityActor* Ability,
     const ARoundCharacter* TargetCharacter,
+    const ARoundGridTile* TargetTile,
     FRoundCoreAbilityExecution& OutExecution,
     FString& OutReason)
 {
     OutExecution = {};
     const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
     const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    const roundcore::EntityId* TargetTileId = TileIds.Find(TargetTile);
     FString AbilityKey;
     for (const TPair<FString, ARoundAbilityActor*>& Entry : AbilityActors)
     {
@@ -698,7 +737,8 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
             break;
         }
     }
-    if (!CharacterId || !TargetId || AbilityKey.IsEmpty())
+    const bool bGroundAura = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0) == 5;
+    if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
         return false;
@@ -707,7 +747,8 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     roundcore::GameAction Action;
     Action.type = roundcore::ActionType::UseAbility;
     Action.actorId = *CharacterId;
-    Action.targetEntityId = *TargetId;
+    Action.targetEntityId = TargetId ? *TargetId : roundcore::InvalidEntityId;
+    Action.targetTileId = TargetTileId ? *TargetTileId : roundcore::InvalidEntityId;
     Action.abilityId = ToCoreString(AbilityKey);
     const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
     if (!Result.success)
@@ -719,11 +760,17 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
 
     for (const roundcore::GameEvent& Event : Result.events)
     {
-        if (Event.type == roundcore::EventType::DamageApplied && Event.targetId == *TargetId)
+        if (Event.type == roundcore::EventType::DamageApplied)
         {
-            OutExecution.AppliedDamage += FMath::Max(0, static_cast<int32>(Event.amount));
+            const int32 Damage = FMath::Max(0, static_cast<int32>(Event.amount));
+            if (TargetId && Event.targetId == *TargetId)
+            {
+                OutExecution.AppliedDamage += Damage;
+            }
+            OutExecution.DamageEvents.Add({CharacterActors.FindRef(Event.sourceId),
+                CharacterActors.FindRef(Event.targetId), Damage, false});
         }
-        else if (Event.type == roundcore::EventType::HealingApplied && Event.targetId == *TargetId)
+        else if (Event.type == roundcore::EventType::HealingApplied && TargetId && Event.targetId == *TargetId)
         {
             OutExecution.AppliedHealing += FMath::Max(0, static_cast<int32>(Event.amount));
             if (ARoundCharacter* const* HealedCharacter = CharacterActors.Find(Event.targetId))
@@ -739,7 +786,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
             }
         }
         else if (Event.type == roundcore::EventType::InitiativeChanged
-            && Event.targetId == *TargetId && Event.amount < 0)
+            && TargetId && Event.targetId == *TargetId && Event.amount < 0)
         {
             OutExecution.TargetInitiativeLoss += -static_cast<int32>(Event.amount);
         }
@@ -769,12 +816,22 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     Addition.RedirectedDamageMultiplierBasisPoints = EffectState->redirectedDamageMultiplierBasisPoints;
                     Addition.ProtectorHealFractionBasisPoints = EffectState->protectorHealFractionBasisPoints;
                     Addition.ProtectedInitiativePerHit = EffectState->protectedInitiativePerHit;
+                    Addition.AreaCenterTile = TileActors.FindRef(EffectState->areaCenterTileId);
+                    Addition.AreaRadius = EffectState->areaRadius;
+                    Addition.AreaDamage = EffectState->areaDamage;
+                    Addition.AreaDamageType = ToRoundDamageType(EffectState->areaDamageType);
+                    Addition.AreaInitiativeLossPerPulse = EffectState->areaInitiativeLossPerPulse;
+                    Addition.bAreaFollowsCauser = EffectState->areaFollowsCauser;
                 }
             }
         }
-        else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
+        else if (Event.type == roundcore::EventType::CharacterDied)
         {
-            OutExecution.bTargetDied = true;
+            if (TargetId && Event.targetId == *TargetId) OutExecution.bTargetDied = true;
+            for (FRoundCoreDamageEvent& DamageEvent : OutExecution.DamageEvents)
+            {
+                if (DamageEvent.Target == CharacterActors.FindRef(Event.targetId)) DamageEvent.bTargetDied = true;
+            }
         }
         else if (Event.type == roundcore::EventType::EffectRemoved)
         {
@@ -831,16 +888,10 @@ bool FRoundCoreMatchAdapter::GetVisibleTiles(
 
 bool FRoundCoreMatchAdapter::ExecuteTurnStep(
     const ARoundCharacter* EndingCharacter,
-    TArray<TPair<ARoundCharacter*, int32>>& OutInitiatives,
-    TArray<FRoundCoreAbilityRuntimeUpdate>& OutAbilityUpdates,
-    ARoundCharacter*& OutActiveCharacter,
-    int32& OutGlobalInitiativeAdvance,
+    FRoundCoreTurnExecution& OutExecution,
     FString& OutReason)
 {
-    OutInitiatives.Reset();
-    OutAbilityUpdates.Reset();
-    OutActiveCharacter = nullptr;
-    OutGlobalInitiativeAdvance = 0;
+    OutExecution = {};
 
     roundcore::GameAction Action;
     Action.type = roundcore::ActionType::EndTurn;
@@ -866,21 +917,58 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
     {
         if (Event.type == roundcore::EventType::GlobalInitiativeAdvanced)
         {
-            OutGlobalInitiativeAdvance += static_cast<int32>(Event.amount);
+            OutExecution.GlobalInitiativeAdvance += static_cast<int32>(Event.amount);
+        }
+        else if (Event.type == roundcore::EventType::DamageApplied)
+        {
+            roundcore::DamageType CoreDamageType = roundcore::DamageType::Physical;
+            const auto SourceState = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
+                [&Event](const roundcore::CharacterState& State) { return State.id == Event.sourceId; });
+            if (SourceState != CoreGame.State().characters.end())
+            {
+                const auto AreaState = std::find_if(SourceState->modifierEffects.begin(), SourceState->modifierEffects.end(),
+                    [&Event](const roundcore::ModifierEffectState& Effect) { return Effect.id == Event.definitionId; });
+                if (AreaState != SourceState->modifierEffects.end()) CoreDamageType = AreaState->areaDamageType;
+            }
+            OutExecution.DamageEvents.Add({CharacterActors.FindRef(Event.sourceId),
+                CharacterActors.FindRef(Event.targetId), FMath::Max(0, static_cast<int32>(Event.amount)),
+                false, ToRoundDamageType(CoreDamageType)});
+        }
+        else if (Event.type == roundcore::EventType::CharacterDied)
+        {
+            for (FRoundCoreDamageEvent& DamageEvent : OutExecution.DamageEvents)
+            {
+                if (DamageEvent.Target == CharacterActors.FindRef(Event.targetId)) DamageEvent.bTargetDied = true;
+            }
+        }
+        else if (Event.type == roundcore::EventType::InitiativeChanged
+            && Event.amount < 0 && !Event.definitionId.empty())
+        {
+            if (ARoundCharacter* const* Target = CharacterActors.Find(Event.targetId))
+            {
+                OutExecution.AppliedDelays.Emplace(*Target, -static_cast<int32>(Event.amount));
+            }
+        }
+        else if (Event.type == roundcore::EventType::EffectRemoved)
+        {
+            if (ARoundCharacter* const* Owner = CharacterActors.Find(Event.targetId))
+            {
+                OutExecution.RemovedEffects.Add({*Owner, UTF8_TO_TCHAR(Event.definitionId.c_str())});
+            }
         }
     }
     for (const roundcore::CharacterState& State : CoreGame.State().characters)
     {
         if (ARoundCharacter* const* Character = CharacterActors.Find(State.id))
         {
-            OutInitiatives.Emplace(*Character, State.initiative);
+            OutExecution.CharacterUpdates.Add({*Character, State.health, State.initiative, State.alive});
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {
             const FString AbilityKey = UTF8_TO_TCHAR(AbilityState.definitionId.c_str());
             if (ARoundAbilityActor* const* Ability = AbilityActors.Find(AbilityKey))
             {
-                FRoundCoreAbilityRuntimeUpdate& Update = OutAbilityUpdates.AddDefaulted_GetRef();
+                FRoundCoreAbilityRuntimeUpdate& Update = OutExecution.AbilityUpdates.AddDefaulted_GetRef();
                 Update.Ability = *Ability;
                 Update.Cooldown = AbilityState.cooldownRemaining;
                 Update.Charges = AbilityState.currentCharges;
@@ -889,7 +977,7 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
     }
     if (ARoundCharacter* const* Active = CharacterActors.Find(CoreGame.State().activeCharacterId))
     {
-        OutActiveCharacter = *Active;
+        OutExecution.ActiveCharacter = *Active;
     }
     OutReason = UTF8_TO_TCHAR(Result.message.c_str());
     return true;

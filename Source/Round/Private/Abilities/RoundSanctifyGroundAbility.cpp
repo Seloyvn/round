@@ -7,6 +7,10 @@
 
 FRoundActionResult ARoundSanctifyGroundAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 5)
+    {
+        return Super::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {

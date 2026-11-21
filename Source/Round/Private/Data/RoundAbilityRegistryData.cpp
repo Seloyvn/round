@@ -2792,6 +2792,10 @@ void URoundAbilityRegistryData::PopulatePaladinAbilityProgressionDefaults()
             Ability->Values.FindOrAdd(TEXT("CoreOperation")) = 4.0;
             Ability->Values.FindOrAdd(TEXT("CoreTargetRelation")) = 1.0;
         }
+        else if (Ability->AbilityId == FName(TEXT("SanctifyGround")))
+        {
+            Ability->Values.FindOrAdd(TEXT("CoreOperation")) = 5.0;
+        }
         Ability->MarkPackageDirty();
     }
     MarkPackageDirty();
