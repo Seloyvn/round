@@ -3897,6 +3897,91 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
     return Result;
 }
 
+FRoundActionResult ARoundGameState::ExecuteCoreAbility(
+    ARoundCharacter* Character, ARoundAbilityActor* Ability, ARoundCharacter* TargetCharacter)
+{
+    FRoundActionResult Result;
+    if (!HasAuthority() || !Character || !Ability || !TargetCharacter)
+    {
+        Result.Reason = TEXT("Invalid Core ability context.");
+        return Result;
+    }
+    if (!CoreMatchAdapter)
+    {
+        CoreMatchAdapter = MakeUnique<FRoundCoreMatchAdapter>();
+    }
+
+    FString CoreReason;
+    if (!CoreMatchAdapter->Rebuild(*this, CoreReason))
+    {
+        Result.Reason = FString::Printf(TEXT("Core snapshot failed: %s"), *CoreReason);
+        return Result;
+    }
+
+    FRoundCoreAbilityExecution Execution;
+    if (!CoreMatchAdapter->ExecuteAbility(Character, Ability, TargetCharacter, Execution, CoreReason))
+    {
+        Result.Reason = CoreReason;
+        return Result;
+    }
+
+    for (const FRoundCoreCharacterRuntimeUpdate& Update : Execution.CharacterUpdates)
+    {
+        if (Update.Character && Update.Character->Attributes)
+        {
+            Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
+            Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
+        }
+    }
+    for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
+    {
+        if (Update.Ability)
+        {
+            Update.Ability->SetCooldown(Update.Cooldown);
+            Update.Ability->CurrentCharges = Update.Charges;
+        }
+    }
+    for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
+    {
+        if (!Removal.Character)
+        {
+            continue;
+        }
+        const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
+        for (ARoundEffectActor* Effect : EffectsSnapshot)
+        {
+            if (Effect && (Effect->EffectId.ToString() == Removal.EffectId
+                || (Effect->EffectId.IsNone() && Effect->GetClass()->GetName() == Removal.EffectId)))
+            {
+                Effect->RemoveEffect();
+                break;
+            }
+        }
+    }
+
+    if (Execution.AppliedDamage > 0 || Execution.bTargetDied)
+    {
+        TargetCharacter->ApplyCoreDamageOutcome(
+            Character, Execution.AppliedDamage, Ability->GetAbilityDamageType(), Execution.bTargetDied);
+    }
+    if (Execution.AppliedHealing > 0)
+    {
+        RecordHeal(TargetCharacter, Execution.AppliedHealing);
+    }
+
+    Result.bSuccess = true;
+    Result.Reason = Execution.AppliedDamage > 0
+        ? FString::Printf(TEXT("Ability executed by RoundCore for %d damage."), Execution.AppliedDamage)
+        : FString::Printf(TEXT("Ability executed by RoundCore for %d healing."), Execution.AppliedHealing);
+
+    FString ResyncReason;
+    if (!CoreMatchAdapter->Rebuild(*this, ResyncReason))
+    {
+        UE_LOG(LogTemp, Error, TEXT("RoundCore post-ability resync failed: %s"), *ResyncReason);
+    }
+    return Result;
+}
+
 bool ARoundGameState::GetCoreVisionFields(
     const ARoundCharacter* Character,
     TArray<ARoundGridTile*>& OutVisibleFields) const

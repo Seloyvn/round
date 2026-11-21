@@ -48,6 +48,16 @@ struct FRoundCoreBasicAttackExecution
     bool bTargetDied = false;
 };
 
+struct FRoundCoreAbilityExecution
+{
+    TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
+    TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
+    TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    int32 AppliedDamage = 0;
+    int32 AppliedHealing = 0;
+    bool bTargetDied = false;
+};
+
 // Converts the live Unreal board to the standard-C++ state used by gameplay,
 // training and deterministic tests. This adapter contains no gameplay rules.
 class ROUND_API FRoundCoreMatchAdapter
@@ -63,6 +73,12 @@ public:
         const ARoundCharacter* Character,
         const ARoundCharacter* TargetCharacter,
         FRoundCoreBasicAttackExecution& OutExecution,
+        FString& OutReason);
+    bool ExecuteAbility(
+        const ARoundCharacter* Character,
+        const ARoundAbilityActor* Ability,
+        const ARoundCharacter* TargetCharacter,
+        FRoundCoreAbilityExecution& OutExecution,
         FString& OutReason);
     bool GetVisibleTiles(
         const ARoundCharacter* Character,

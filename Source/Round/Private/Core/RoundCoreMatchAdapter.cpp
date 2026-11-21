@@ -580,6 +580,88 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
     return true;
 }
 
+bool FRoundCoreMatchAdapter::ExecuteAbility(
+    const ARoundCharacter* Character,
+    const ARoundAbilityActor* Ability,
+    const ARoundCharacter* TargetCharacter,
+    FRoundCoreAbilityExecution& OutExecution,
+    FString& OutReason)
+{
+    OutExecution = {};
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    FString AbilityKey;
+    for (const TPair<FString, ARoundAbilityActor*>& Entry : AbilityActors)
+    {
+        if (Entry.Value == Ability)
+        {
+            AbilityKey = Entry.Key;
+            break;
+        }
+    }
+    if (!CharacterId || !TargetId || AbilityKey.IsEmpty())
+    {
+        OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
+        return false;
+    }
+
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::UseAbility;
+    Action.actorId = *CharacterId;
+    Action.targetEntityId = *TargetId;
+    Action.abilityId = ToCoreString(AbilityKey);
+    const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (!Result.success)
+    {
+        OutReason = FString::Printf(TEXT("%s: %s"),
+            UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+        return false;
+    }
+
+    for (const roundcore::GameEvent& Event : Result.events)
+    {
+        if (Event.type == roundcore::EventType::DamageApplied && Event.targetId == *TargetId)
+        {
+            OutExecution.AppliedDamage += FMath::Max(0, static_cast<int32>(Event.amount));
+        }
+        else if (Event.type == roundcore::EventType::HealingApplied && Event.targetId == *TargetId)
+        {
+            OutExecution.AppliedHealing += FMath::Max(0, static_cast<int32>(Event.amount));
+        }
+        else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
+        {
+            OutExecution.bTargetDied = true;
+        }
+        else if (Event.type == roundcore::EventType::EffectRemoved)
+        {
+            const roundcore::EntityId OwnerId = Event.targetId != roundcore::InvalidEntityId
+                ? Event.targetId : Event.sourceId;
+            if (ARoundCharacter* const* Owner = CharacterActors.Find(OwnerId))
+            {
+                OutExecution.RemovedEffects.Add({*Owner, UTF8_TO_TCHAR(Event.definitionId.c_str())});
+            }
+        }
+    }
+    for (const roundcore::CharacterState& State : CoreGame.State().characters)
+    {
+        if (ARoundCharacter* const* Actor = CharacterActors.Find(State.id))
+        {
+            OutExecution.CharacterUpdates.Add({*Actor, State.health, State.initiative, State.alive});
+        }
+        for (const roundcore::AbilityState& AbilityState : State.abilities)
+        {
+            const FString RuntimeAbilityKey = UTF8_TO_TCHAR(AbilityState.definitionId.c_str());
+            if (ARoundAbilityActor* const* RuntimeAbility = AbilityActors.Find(RuntimeAbilityKey))
+            {
+                OutExecution.AbilityUpdates.Add({*RuntimeAbility, AbilityState.cooldownRemaining, AbilityState.currentCharges});
+            }
+        }
+    }
+    PreservedRandomState = CoreGame.State().randomState;
+    OutReason = TEXT("Ability executed by RoundCore.");
+    return true;
+}
+
 bool FRoundCoreMatchAdapter::GetVisibleTiles(
     const ARoundCharacter* Character,
     TArray<ARoundGridTile*>& OutVisibleTiles,

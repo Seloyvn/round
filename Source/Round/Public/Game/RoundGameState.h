@@ -497,6 +497,8 @@ public:
         bool& bOutCritical, FString& OutReason);
 
     FRoundActionResult ExecuteCoreBasicAttack(ARoundCharacter* Character, ARoundCharacter* TargetCharacter);
+    FRoundActionResult ExecuteCoreAbility(
+        ARoundCharacter* Character, ARoundAbilityActor* Ability, ARoundCharacter* TargetCharacter);
 
     bool GetCoreVisionFields(const ARoundCharacter* Character, TArray<ARoundGridTile*>& OutVisibleFields) const;
 
