@@ -596,7 +596,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
         *(AbilityData ? AbilityData->AbilityId.ToString() : RowName.ToString()),
         *GetNameSafe(TargetTile));
     const int32 CoreOperation = FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation")));
-    if ((CoreOperation == 1 || CoreOperation == 2) && OwningCharacter)
+    if ((CoreOperation == 1 || CoreOperation == 2 || CoreOperation == 4) && OwningCharacter)
     {
         ARoundCharacter* TargetCharacter = ResolveTargetCharacter(TargetTile);
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())

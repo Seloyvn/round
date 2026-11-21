@@ -12,6 +12,7 @@
 #include "Effects/RoundRootEffect.h"
 #include "Effects/RoundSlowEffect.h"
 #include "Effects/RoundIcebeamEffect.h"
+#include "Effects/RoundShieldOathEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -294,10 +295,13 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                     ? roundcore::AbilityOperation::DirectHeal
                     : (CoreOperation == 3
                         ? roundcore::AbilityOperation::SelfModifier
-                        : roundcore::AbilityOperation::Unsupported));
+                        : (CoreOperation == 4
+                            ? roundcore::AbilityOperation::TargetModifier
+                            : roundcore::AbilityOperation::Unsupported)));
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
                 ? roundcore::AbilityTargetRelation::Self
-                : (AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
+                : ((AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
+                    || AbilityDefinition.operation == roundcore::AbilityOperation::TargetModifier)
                     ? roundcore::AbilityTargetRelation::Ally
                     : roundcore::AbilityTargetRelation::Enemy);
             if (ResolvedValues.Contains(TEXT("CoreTargetRelation")))
@@ -337,7 +341,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundRootEffect* Root = Cast<ARoundRootEffect>(Effect);
             const ARoundSlowEffect* Slow = Cast<ARoundSlowEffect>(Effect);
             const ARoundIcebeamEffect* Icebeam = Cast<ARoundIcebeamEffect>(Effect);
-            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow)
+            const ARoundShieldOathEffect* ShieldOath = Cast<ARoundShieldOathEffect>(Effect);
+            if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow && !ShieldOath)
             {
                 continue;
             }
@@ -398,6 +403,16 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 EffectState.movedFields = FMath::Max(0, Icebeam->MovedFields);
                 EffectState.frostbreakDamage = FMath::Max(0, Icebeam->FrostbreakDamage);
                 EffectState.firstMovePenaltyAvailable = Icebeam->bFirstMovePenaltyAvailable;
+            }
+            if (ShieldOath)
+            {
+                EffectState.redirectPreMitigationBasisPoints = FMath::Clamp(
+                    FMath::RoundToInt(ShieldOath->RedirectPreMitigationFraction * 10000.0), 0, 10000);
+                EffectState.redirectedDamageMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(ShieldOath->RedirectedDamageMultiplier * 10000.0));
+                EffectState.protectorHealFractionBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(ShieldOath->PaladinHealFraction * 10000.0));
+                EffectState.protectedInitiativePerHit = FMath::Max(0, ShieldOath->ProtectedAllyInitiativePerHit);
             }
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
@@ -611,10 +626,28 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
         if (Event.type == roundcore::EventType::DamageApplied && Event.targetId == *TargetId)
         {
             OutExecution.AppliedDamage += FMath::Max(0, static_cast<int32>(Event.amount));
+            OutExecution.DamageEvents.Add({CharacterActors.FindRef(Event.sourceId),
+                CharacterActors.FindRef(Event.targetId), FMath::Max(0, static_cast<int32>(Event.amount)), false});
+        }
+        else if (Event.type == roundcore::EventType::DamageApplied)
+        {
+            OutExecution.DamageEvents.Add({CharacterActors.FindRef(Event.sourceId),
+                CharacterActors.FindRef(Event.targetId), FMath::Max(0, static_cast<int32>(Event.amount)), false});
         }
         else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
         {
             OutExecution.bTargetDied = true;
+            for (FRoundCoreDamageEvent& DamageEvent : OutExecution.DamageEvents)
+            {
+                if (DamageEvent.Target == CharacterActors.FindRef(Event.targetId)) DamageEvent.bTargetDied = true;
+            }
+        }
+        else if (Event.type == roundcore::EventType::CharacterDied)
+        {
+            for (FRoundCoreDamageEvent& DamageEvent : OutExecution.DamageEvents)
+            {
+                if (DamageEvent.Target == CharacterActors.FindRef(Event.targetId)) DamageEvent.bTargetDied = true;
+            }
         }
         else if (Event.type == roundcore::EventType::EffectRemoved)
         {
@@ -732,6 +765,10 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     Addition.HealFractionFromDamageDealtBasisPoints = EffectState->healFractionFromDamageDealtBasisPoints;
                     Addition.MoveCostAdd = EffectState->moveCostAdd;
                     Addition.bPreventsAbilityUse = EffectState->preventsAbilityUse;
+                    Addition.RedirectPreMitigationBasisPoints = EffectState->redirectPreMitigationBasisPoints;
+                    Addition.RedirectedDamageMultiplierBasisPoints = EffectState->redirectedDamageMultiplierBasisPoints;
+                    Addition.ProtectorHealFractionBasisPoints = EffectState->protectorHealFractionBasisPoints;
+                    Addition.ProtectedInitiativePerHit = EffectState->protectedInitiativePerHit;
                 }
             }
         }

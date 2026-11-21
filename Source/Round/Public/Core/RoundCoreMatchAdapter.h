@@ -44,6 +44,14 @@ struct FRoundCoreHealingEvent
     int32 Amount = 0;
 };
 
+struct FRoundCoreDamageEvent
+{
+    ARoundCharacter* Source = nullptr;
+    ARoundCharacter* Target = nullptr;
+    int32 Amount = 0;
+    bool bTargetDied = false;
+};
+
 struct FRoundCoreModifierEffectAddition
 {
     ARoundCharacter* Character = nullptr;
@@ -56,6 +64,10 @@ struct FRoundCoreModifierEffectAddition
     int32 HealFractionFromDamageDealtBasisPoints = 0;
     int32 MoveCostAdd = 0;
     bool bPreventsAbilityUse = false;
+    int32 RedirectPreMitigationBasisPoints = 0;
+    int32 RedirectedDamageMultiplierBasisPoints = 10000;
+    int32 ProtectorHealFractionBasisPoints = 0;
+    int32 ProtectedInitiativePerHit = 0;
 };
 
 struct FRoundCoreBasicAttackExecution
@@ -63,6 +75,7 @@ struct FRoundCoreBasicAttackExecution
     TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    TArray<FRoundCoreDamageEvent> DamageEvents;
     int32 AppliedDamage = 0;
     bool bCritical = false;
     bool bTargetDied = false;
@@ -74,6 +87,7 @@ struct FRoundCoreAbilityExecution
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
     TArray<FRoundCoreHealingEvent> HealingEvents;
+    TArray<FRoundCoreDamageEvent> DamageEvents;
     TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
     int32 AppliedDamage = 0;
     int32 AppliedHealing = 0;

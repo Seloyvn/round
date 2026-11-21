@@ -32,6 +32,7 @@
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundObjectiveStatRewardEffect.h"
 #include "Effects/RoundSilenceEffect.h"
+#include "Effects/RoundShieldOathEffect.h"
 #include "Effects/RoundSlowEffect.h"
 #include "Game/RoundGameInstance.h"
 #include "Game/RoundPlayerPawn.h"
@@ -3872,8 +3873,17 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         }
     }
 
-    TargetCharacter->ApplyCoreDamageOutcome(
-        Character, Execution.AppliedDamage, ERoundDamageType::Physical, Execution.bTargetDied);
+    for (const FRoundCoreDamageEvent& Damage : Execution.DamageEvents)
+    {
+        if (Damage.Target)
+        {
+            Damage.Target->ApplyCoreDamageOutcome(
+                Damage.Source ? Damage.Source : Character,
+                Damage.Amount,
+                ERoundDamageType::Physical,
+                Damage.bTargetDied);
+        }
+    }
     const TArray<TObjectPtr<ARoundEffectActor>> AttackEffectsSnapshot = Character->ActiveEffects;
     for (ARoundEffectActor* Effect : AttackEffectsSnapshot)
     {
@@ -3972,7 +3982,23 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
                 ExistingEffect->RemoveEffect();
             }
         }
-        if (Addition.bPreventsAbilityUse)
+        if (Addition.RedirectPreMitigationBasisPoints > 0)
+        {
+            if (ARoundShieldOathEffect* Effect = GetWorld()->SpawnActor<ARoundShieldOathEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = Ability->AbilityData ? Ability->AbilityData->DisplayName.ToString() : TEXT("Shield Oath");
+                Effect->Description = TEXT("Leitet einen Teil des Schadens auf den Beschuetzer um.");
+                Effect->RedirectPreMitigationFraction = Addition.RedirectPreMitigationBasisPoints / 10000.0;
+                Effect->RedirectedDamageMultiplier = Addition.RedirectedDamageMultiplierBasisPoints / 10000.0;
+                Effect->PaladinHealFraction = Addition.ProtectorHealFractionBasisPoints / 10000.0;
+                Effect->ProtectedAllyInitiativePerHit = Addition.ProtectedInitiativePerHit;
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
+        else if (Addition.bPreventsAbilityUse)
         {
             if (ARoundSilenceEffect* Effect = GetWorld()->SpawnActor<ARoundSilenceEffect>())
             {
@@ -4001,10 +4027,16 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         }
     }
 
-    if (Execution.AppliedDamage > 0 || Execution.bTargetDied)
+    for (const FRoundCoreDamageEvent& Damage : Execution.DamageEvents)
     {
-        TargetCharacter->ApplyCoreDamageOutcome(
-            Character, Execution.AppliedDamage, Ability->GetAbilityDamageType(), Execution.bTargetDied);
+        if (Damage.Target)
+        {
+            Damage.Target->ApplyCoreDamageOutcome(
+                Damage.Source ? Damage.Source : Character,
+                Damage.Amount,
+                Ability->GetAbilityDamageType(),
+                Damage.bTargetDied);
+        }
     }
     for (const FRoundCoreHealingEvent& Healing : Execution.HealingEvents)
     {

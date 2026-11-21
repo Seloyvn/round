@@ -285,6 +285,10 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.basicAttackDamageMultiplierBasisPoints);
             writer.Integer(effect.incomingDamageMultiplierFromCauserBasisPoints);
             writer.Integer(effect.initiativeLossOnExpire);
+            writer.Integer(effect.redirectPreMitigationBasisPoints);
+            writer.Integer(effect.redirectedDamageMultiplierBasisPoints);
+            writer.Integer(effect.protectorHealFractionBasisPoints);
+            writer.Integer(effect.protectedInitiativePerHit);
             writer.Integer(effect.onlyAffectCauserDamage); writer.Integer(effect.onlyAgainstRangedSources);
             writer.Integer(effect.blockMovementBonuses); writer.Integer(effect.basicAttackCostAvailable);
             writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.preventsAbilityUse);
@@ -349,6 +353,10 @@ GameState ReadState(Reader& reader)
             value.basicAttackDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
             value.incomingDamageMultiplierFromCauserBasisPoints = reader.Integer<std::int32_t>();
             value.initiativeLossOnExpire = reader.Integer<std::int32_t>();
+            value.redirectPreMitigationBasisPoints = reader.Integer<std::int32_t>();
+            value.redirectedDamageMultiplierBasisPoints = reader.Integer<std::int32_t>();
+            value.protectorHealFractionBasisPoints = reader.Integer<std::int32_t>();
+            value.protectedInitiativePerHit = reader.Integer<std::int32_t>();
             value.onlyAffectCauserDamage = reader.Integer<bool>(); value.onlyAgainstRangedSources = reader.Integer<bool>();
             value.blockMovementBonuses = reader.Integer<bool>(); value.basicAttackCostAvailable = reader.Integer<bool>();
             value.consumeOnBasicAttack = reader.Integer<bool>(); value.preventsAbilityUse = reader.Integer<bool>();

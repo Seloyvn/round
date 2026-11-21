@@ -33,7 +33,8 @@ enum class AbilityOperation : std::uint8_t
     Unsupported,
     DirectDamage,
     DirectHeal,
-    SelfModifier
+    SelfModifier,
+    TargetModifier
 };
 
 enum class AbilityTargetRelation : std::uint8_t

@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::SelfModifier
+        if (ability.operation > AbilityOperation::TargetModifier
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -175,7 +175,11 @@ ActionResult Game::Reset(MatchSetup setup)
                 || effect.maximumMovedFields < 0 || effect.movedFields < 0
                 || effect.frostbreakDamage < 0
                 || effect.incomingDamageMultiplierFromCauserBasisPoints < 0
-                || effect.initiativeLossOnExpire < 0)
+                || effect.initiativeLossOnExpire < 0
+                || effect.redirectPreMitigationBasisPoints < 0
+                || effect.redirectedDamageMultiplierBasisPoints < 0
+                || effect.protectorHealFractionBasisPoints < 0
+                || effect.protectedInitiativePerHit < 0)
             {
                 return Failure("invalid_modifier_effect", "Modifier effects require an ID and non-negative duration and multiplier values.");
             }
@@ -510,6 +514,56 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
             modifierEvents.push_back(GameEvent{
                 EventType::HealingApplied, source.id, source.id, source.tileId, effect.id, appliedHeal});
         }
+    }
+
+    for (const ModifierEffectState& effect : target.modifierEffects)
+    {
+        if (effect.redirectPreMitigationBasisPoints <= 0 || effect.causerId == target.id)
+        {
+            continue;
+        }
+        CharacterState* protector = FindCharacter(effect.causerId);
+        if (!protector || !protector->alive)
+        {
+            continue;
+        }
+        const std::int32_t redirected = static_cast<std::int32_t>(std::min<std::int64_t>(damage,
+            ApplyBasisPoints(damage, std::clamp(effect.redirectPreMitigationBasisPoints, 0, 10000))));
+        if (redirected <= 0)
+        {
+            continue;
+        }
+        damage -= redirected;
+        const std::int32_t protectorDamage = std::min(protector->health, static_cast<std::int32_t>(
+            ApplyBasisPoints(redirected, effect.redirectedDamageMultiplierBasisPoints)));
+        protector->health -= protectorDamage;
+        modifierEvents.push_back(GameEvent{EventType::DamageApplied, source.id, protector->id,
+            protector->tileId, effect.id, protectorDamage});
+        const CharacterDefinition& protectorDefinition = definitions_.characters.at(protector->definitionId);
+        const std::int32_t requestedHeal = static_cast<std::int32_t>(
+            ApplyBasisPoints(redirected, effect.protectorHealFractionBasisPoints));
+        const std::int32_t appliedHeal = std::min(requestedHeal,
+            std::max(0, protectorDefinition.stats.maxHealth - protector->health));
+        protector->health += appliedHeal;
+        if (appliedHeal > 0)
+        {
+            modifierEvents.push_back(GameEvent{EventType::HealingApplied, protector->id, protector->id,
+                protector->tileId, effect.id, appliedHeal});
+        }
+        if (effect.protectedInitiativePerHit > 0)
+        {
+            target.initiative += effect.protectedInitiativePerHit;
+            modifierEvents.push_back(GameEvent{EventType::InitiativeChanged, protector->id, target.id,
+                target.tileId, effect.id, effect.protectedInitiativePerHit});
+        }
+        if (protector->health <= 0)
+        {
+            protector->alive = false;
+            if (TileState* tile = FindTile(protector->tileId)) tile->occupantId = InvalidEntityId;
+            modifierEvents.push_back(GameEvent{EventType::CharacterDied, source.id, protector->id,
+                protector->tileId, effect.id, 0});
+        }
+        break;
     }
 
     const TileState* protectedTargetTile = FindTile(target.tileId);
@@ -903,7 +957,31 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             action.abilityId, abilityState->cooldownDuration});
     }
 
-    if (definition.operation == AbilityOperation::SelfModifier)
+    if (definition.operation == AbilityOperation::TargetModifier)
+    {
+        ModifierEffectState effect;
+        effect.id = action.abilityId + ":Modifier";
+        effect.causerId = actor->id;
+        effect.remainingInitiative = std::max(
+            1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        const double redirectFraction = std::max(AbilityValue(definition, "RedirectPreMitigationFraction"),
+            AbilityValue(definition, "RedirectDamageFraction"));
+        effect.redirectPreMitigationBasisPoints = std::clamp(
+            static_cast<std::int32_t>(redirectFraction * 10000.0 + 0.5), 0, 10000);
+        effect.redirectedDamageMultiplierBasisPoints = std::max(0, static_cast<std::int32_t>(
+            (1.0 + AbilityValue(definition, "RedirectedDamageMultiplierAdd")) * 10000.0 + 0.5));
+        effect.protectorHealFractionBasisPoints = std::max(0, static_cast<std::int32_t>(
+            AbilityValue(definition, "PaladinHealFractionFromRedirect") * 10000.0 + 0.5));
+        effect.protectedInitiativePerHit = std::max(0,
+            static_cast<std::int32_t>(AbilityValue(definition, "ProtectedAllyInitiativePerHit")));
+        target->modifierEffects.erase(std::remove_if(target->modifierEffects.begin(), target->modifierEffects.end(),
+            [&effect](const ModifierEffectState& existing) { return existing.id == effect.id; }),
+            target->modifierEffects.end());
+        target->modifierEffects.push_back(effect);
+        result.events.push_back(GameEvent{EventType::EffectAdded, actor->id, target->id,
+            target->tileId, effect.id, effect.remainingInitiative});
+    }
+    else if (definition.operation == AbilityOperation::SelfModifier)
     {
         ModifierEffectState effect;
         effect.id = action.abilityId + ":Modifier";
@@ -1567,6 +1645,10 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, effect.basicAttackDamageMultiplierBasisPoints);
             HashValue(hash, effect.incomingDamageMultiplierFromCauserBasisPoints);
             HashValue(hash, effect.initiativeLossOnExpire);
+            HashValue(hash, effect.redirectPreMitigationBasisPoints);
+            HashValue(hash, effect.redirectedDamageMultiplierBasisPoints);
+            HashValue(hash, effect.protectorHealFractionBasisPoints);
+            HashValue(hash, effect.protectedInitiativePerHit);
             HashValue(hash, effect.onlyAffectCauserDamage);
             HashValue(hash, effect.onlyAgainstRangedSources);
             HashValue(hash, effect.blockMovementBonuses);

@@ -48,6 +48,10 @@ struct ModifierEffectState
     std::int32_t basicAttackDamageMultiplierBasisPoints = 10000;
     std::int32_t incomingDamageMultiplierFromCauserBasisPoints = 10000;
     std::int32_t initiativeLossOnExpire = 0;
+    std::int32_t redirectPreMitigationBasisPoints = 0;
+    std::int32_t redirectedDamageMultiplierBasisPoints = 10000;
+    std::int32_t protectorHealFractionBasisPoints = 0;
+    std::int32_t protectedInitiativePerHit = 0;
     bool onlyAffectCauserDamage = false;
     bool onlyAgainstRangedSources = false;
     bool blockMovementBonuses = false;

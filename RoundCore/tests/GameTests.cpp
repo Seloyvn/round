@@ -690,6 +690,33 @@ int main()
             [](const GameEvent& event) { return event.type == EventType::EffectAdded; }),
         "self modifier abilities should emit an effect-added event for Unreal presentation");
 
+    MatchSetup redirectSetup = ValidSetup();
+    CharacterState oathProtector = redirectSetup.initialState.characters[1];
+    oathProtector.id = 30;
+    oathProtector.tileId = 3;
+    oathProtector.health = 100;
+    redirectSetup.initialState.characters.push_back(oathProtector);
+    ModifierEffectState oath;
+    oath.id = "ShieldOath";
+    oath.causerId = 30;
+    oath.remainingInitiative = 80;
+    oath.redirectPreMitigationBasisPoints = 5000;
+    oath.redirectedDamageMultiplierBasisPoints = 8000;
+    oath.protectorHealFractionBasisPoints = 2000;
+    oath.protectedInitiativePerHit = 6;
+    redirectSetup.initialState.characters[1].modifierEffects.push_back(oath);
+    Game redirectGame;
+    Require(redirectGame.Reset(std::move(redirectSetup)).success, "Shield Oath redirect setup should reset");
+    const ActionResult redirectResult = redirectGame.ApplyAction(attack);
+    Require(redirectResult.success
+            && redirectGame.State().characters[1].health == 95
+            && redirectGame.State().characters[1].initiative == 106
+            && redirectGame.State().characters[2].health == 97,
+        "Shield Oath should redirect pre-mitigation damage, heal the protector, and reward the protected ally");
+    Require(std::any_of(redirectResult.events.begin(), redirectResult.events.end(),
+            [](const GameEvent& event) { return event.type == EventType::DamageApplied && event.targetId == 30; }),
+        "Shield Oath should emit redirected damage for Unreal presentation and training rewards");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;
