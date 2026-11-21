@@ -6,6 +6,7 @@
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundCharacterPaladin.h"
 #include "Actors/RoundCharacter1.h"
+#include "Actors/RoundCharacter2.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
 #include "Effects/RoundSuppressingFireEffect.h"
@@ -74,6 +75,21 @@ ERoundDamageType ToRoundDamageType(const roundcore::DamageType DamageType)
     case roundcore::DamageType::Nature: return ERoundDamageType::Nature;
     default: return ERoundDamageType::Physical;
     }
+}
+
+void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCoreCharacterRuntimeUpdate& Update)
+{
+    Update.bAttackedThisTurn = State.attackedThisTurn;
+    Update.bSpentResourceThisTurn = State.spentResourceThisTurn;
+    Update.bStartedTurnWithFullResource = State.startedTurnWithFullResource;
+    Update.bHeldPositionFromPreviousTurn = State.heldPositionFromPreviousTurn;
+    Update.bUsedFreeBasicAttackThisTurn = State.usedFreeBasicAttackThisTurn;
+    Update.bTriggeredEmptyResourceThisTurn = State.triggeredEmptyResourceThisTurn;
+    Update.bRefundedLastResourceKillThisTurn = State.refundedLastResourceKillThisTurn;
+    Update.bUsedRangeRefundThisTurn = State.usedRangeRefundThisTurn;
+    Update.bUsedKillCooldownReductionThisTurn = State.usedKillCooldownReductionThisTurn;
+    Update.StationaryShotStacks = State.stationaryShotStacks;
+    Update.bHasFreePreparedStep = State.hasFreePreparedStep;
 }
 }
 
@@ -279,6 +295,21 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 Definition.passiveValues.emplace(ToCoreString(Key), Character1->GetPassiveValueFromKey(Key));
             }
         }
+        if (const ARoundCharacter2* Character2 = Cast<ARoundCharacter2>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("AmmoRegenAdd"), TEXT("MaxAmmoAdd"), TEXT("RangedDamageMultiplier"),
+                TEXT("FirstBasicAttackFreeAmmo"), TEXT("TurnDelayAddWhileFullAmmo"),
+                TEXT("DefenseAddWhileHoldingPosition"), TEXT("RefillAmmoOnEmptyTurnStart"),
+                TEXT("RefillAmmoInitiativePenalty"), TEXT("EmptyMagazineInitiativeGain"),
+                TEXT("FullAmmoTurnStartAbilityCooldownReduction"), TEXT("LastAmmoKillRefund"),
+                TEXT("StationaryShotDamagePerStack"), TEXT("StationaryShotMaxStacks"),
+                TEXT("AllDamageMultiplierWhileOneAmmo")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Character2->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreAmmoCharacter", 1.0);
+            Definition.passiveValues.emplace("BaseAmmoRegen", Character2->GetValueFromKey(TEXT("AmmoRegen")));
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -315,6 +346,23 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             CharacterState.firstResourceSpendRefundAvailable = !Character1->bGrantedChainSpendRefundThisTurn;
             CharacterState.movedSinceLastTurn = Character1->bMovedThisTurn;
             CharacterState.stationaryGuardActive = Character1->bStationaryGuardActive;
+        }
+        if (const ARoundCharacter2* Character2 = Cast<ARoundCharacter2>(Character))
+        {
+            CharacterState.resourceCurrent = Character2->Ammo;
+            CharacterState.resourceMaximum = Character2->GetMaxAmmo();
+            CharacterState.movedSinceLastTurn = Character2->bMovedThisTurn;
+            CharacterState.attackedThisTurn = Character2->bAttackedThisTurn;
+            CharacterState.spentResourceThisTurn = Character2->bSpentAmmoThisTurn;
+            CharacterState.startedTurnWithFullResource = Character2->bStartedTurnWithFullAmmo;
+            CharacterState.heldPositionFromPreviousTurn = Character2->bHeldPositionFromPreviousTurn;
+            CharacterState.usedFreeBasicAttackThisTurn = Character2->bUsedFreeBasicAttackThisTurn;
+            CharacterState.triggeredEmptyResourceThisTurn = Character2->bTriggeredEmptyMagazineThisTurn;
+            CharacterState.refundedLastResourceKillThisTurn = Character2->bRefundedLastAmmoKillThisTurn;
+            CharacterState.usedRangeRefundThisTurn = Character2->bUsedSnipeRangeRefundThisTurn;
+            CharacterState.usedKillCooldownReductionThisTurn = Character2->bUsedSnipeKillCooldownReductionThisTurn;
+            CharacterState.stationaryShotStacks = Character2->StationaryShotStacks;
+            CharacterState.hasFreePreparedStep = Character2->bHasFreeConcentrateStep;
         }
         for (int32 AbilityIndex = 0; AbilityIndex < Character->GrantedAbilities.Num(); ++AbilityIndex)
         {
@@ -777,6 +825,7 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
             Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
             Update.bMovedSinceLastTurn = State.movedSinceLastTurn;
             Update.bStationaryGuardActive = State.stationaryGuardActive;
+            CopyExtendedCharacterState(State, Update);
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {
@@ -953,6 +1002,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
             Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
             Update.bMovedSinceLastTurn = State.movedSinceLastTurn;
             Update.bStationaryGuardActive = State.stationaryGuardActive;
+            CopyExtendedCharacterState(State, Update);
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {
@@ -1074,6 +1124,7 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
             Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
             Update.bMovedSinceLastTurn = State.movedSinceLastTurn;
             Update.bStationaryGuardActive = State.stationaryGuardActive;
+            CopyExtendedCharacterState(State, Update);
         }
         for (const roundcore::AbilityState& AbilityState : State.abilities)
         {
@@ -1203,6 +1254,7 @@ bool FRoundCoreMatchAdapter::ExecuteMove(
             Update.SpecialCooldownRemaining = State.specialCooldownRemaining;
             Update.bFirstResourceSpendRefundAvailable = State.firstResourceSpendRefundAvailable;
             Update.bMovedSinceLastTurn = State.movedSinceLastTurn; Update.bStationaryGuardActive = State.stationaryGuardActive;
+            CopyExtendedCharacterState(State, Update);
             if (State.id == *CharacterId) OutExecution.Initiative = State.initiative;
         }
     }

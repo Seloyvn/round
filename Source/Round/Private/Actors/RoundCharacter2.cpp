@@ -193,38 +193,6 @@ void ARoundCharacter2::InitializeCharacter()
 void ARoundCharacter2::BeginTurn()
 {
     Super::BeginTurn();
-    bHeldPositionFromPreviousTurn = bHasCompletedTurn && !bMovedThisTurn;
-    bAttackedThisTurn = false;
-    bSpentAmmoThisTurn = false;
-    bMovedThisTurn = false;
-    bUsedFreeBasicAttackThisTurn = false;
-    bTriggeredEmptyMagazineThisTurn = false;
-    bRefundedLastAmmoKillThisTurn = false;
-    bUsedSnipeRangeRefundThisTurn = false;
-    bUsedSnipeKillCooldownReductionThisTurn = false;
-    bStartedTurnWithFullAmmo = Ammo >= GetMaxAmmo();
-
-    if (bStartedTurnWithFullAmmo)
-    {
-        const int32 CooldownReduction = FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("FullAmmoTurnStartAbilityCooldownReduction"))));
-        if (CooldownReduction > 0)
-        {
-            for (ARoundAbilityActor* Ability : GrantedAbilities)
-            {
-                const FName AbilityId = Ability && Ability->AbilityData ? Ability->AbilityData->AbilityId : NAME_None;
-                if (Ability && (AbilityId == FName(TEXT("Snipe")) || AbilityId == FName(TEXT("PiercingShot")) || AbilityId == FName(TEXT("SuppressingFire"))))
-                {
-                    Ability->ReduceCooldown(CooldownReduction);
-                }
-            }
-        }
-    }
-
-    if (Ammo == 0 && GetPassiveValueFromKey(TEXT("RefillAmmoOnEmptyTurnStart")) > 0.0)
-    {
-        RegenerateAmmo(GetMaxAmmo());
-        ApplyDelay(FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("RefillAmmoInitiativePenalty")))));
-    }
     ForceNetUpdate();
     NotifyRoundStateChanged();
 }
@@ -272,10 +240,6 @@ FRoundActionResult ARoundCharacter2::AttackField(ARoundGridTile* TargetTile)
             if (bSuppressionFreeAttack) FreeSuppressionFollowupTarget = nullptr;
             ForceNetUpdate();
             NotifyRoundStateChanged();
-        }
-        else
-        {
-            ResolveAmmoShot(TargetCharacter && !TargetCharacter->IsAlive());
         }
         ResolveConcentrateHit(TargetCharacter, nullptr, TargetCharacter && !TargetCharacter->IsAlive(), true);
 
@@ -337,21 +301,6 @@ FRoundActionResult ARoundCharacter2::MoveAlongPath(const TArray<ARoundGridTile*>
 
 void ARoundCharacter2::EndTurn()
 {
-    bool bAmmoRegenerationBlocked = false;
-    for (ARoundEffectActor* Effect : ActiveEffects)
-    {
-        if (const ARoundConcentrateEffect* Concentrate = Cast<ARoundConcentrateEffect>(Effect))
-        {
-            bAmmoRegenerationBlocked = Concentrate->bBlockAmmoRegeneration;
-            break;
-        }
-    }
-    if (!bMovedThisTurn && !bAmmoRegenerationBlocked)
-    {
-        const int32 BaseRegeneration = FMath::TruncToInt(GetValueFromKey(TEXT("AmmoRegen")));
-        const int32 BonusRegeneration = FMath::RoundToInt(GetPassiveValueFromKey(TEXT("AmmoRegenAdd")));
-        RegenerateAmmo(FMath::Max(0, BaseRegeneration + BonusRegeneration));
-    }
     bHasCompletedTurn = true;
     Super::EndTurn();
 }

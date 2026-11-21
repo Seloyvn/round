@@ -291,7 +291,8 @@ ActionResult Game::ApplyAction(const GameAction& action)
         return Failure("invalid_state", "Validated movement references missing state.");
     }
 
-    const std::int32_t cost = MovementCost(*character, *destination);
+    const std::int32_t calculatedCost = MovementCost(*character, *destination);
+    const std::int32_t cost = character->hasFreePreparedStep ? 0 : calculatedCost;
     std::int64_t initiativeLossOnMove = 0;
     for (const ModifierEffectState& effect : character->modifierEffects)
     {
@@ -310,6 +311,8 @@ ActionResult Game::ApplyAction(const GameAction& action)
     character->tileId = destination->id;
     character->movedSinceLastTurn = true;
     character->stationaryGuardActive = false;
+    character->stationaryShotStacks = 0;
+    if (character->hasFreePreparedStep) character->hasFreePreparedStep = false;
     const CharacterDefinition& movingDefinition = definitions_.characters.at(character->definitionId);
     const double receivedDelayMultiplier = PassiveValue(movingDefinition, "DelayReceivedMultiplier");
     if (initiativeLossOnMove > 0 && receivedDelayMultiplier > 0.0)
@@ -599,6 +602,24 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
 {
     const CharacterDefinition& sourceDefinition = definitions_.characters.at(source.definitionId);
     const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
+    const TileState* initialSourceTile = FindTile(source.tileId);
+    const TileState* initialTargetTile = FindTile(target.tileId);
+    if (PassiveValue(sourceDefinition, "CoreAmmoCharacter") > 0.0)
+    {
+        if (!source.movedSinceLastTurn && source.stationaryShotStacks > 0)
+            damage = static_cast<std::int64_t>(damage * (1.0 + PassiveValue(sourceDefinition,
+                "StationaryShotDamagePerStack") * source.stationaryShotStacks) + 0.5);
+        if (source.resourceCurrent == 1)
+        {
+            const double multiplier = PassiveValue(sourceDefinition, "AllDamageMultiplierWhileOneAmmo");
+            if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+        }
+    }
+    if (initialSourceTile && initialTargetTile && HexDistance(initialSourceTile->coord, initialTargetTile->coord) > 1)
+    {
+        const double multiplier = PassiveValue(targetDefinition, "RangedDamageMultiplier");
+        if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
     for (const ModifierEffectState& effect : source.modifierEffects)
     {
         if (effect.onlyAffectCauserDamage && effect.causerId != target.id)
@@ -812,7 +833,9 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     const std::int32_t resourceDefense = target.resourceCurrent <= 0
         ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileNoChain")))
         : 0;
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense - defenseIgnore);
+    const std::int32_t heldDefense = target.heldPositionFromPreviousTurn && !target.movedSinceLastTurn
+        ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseAddWhileHoldingPosition"))) : 0;
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
         std::numeric_limits<std::int32_t>::max(), (damage * 100 + denominator / 2) / denominator));
@@ -848,6 +871,9 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     }
 
     const CharacterDefinition& attackerDefinition = definitions_.characters.at(attacker->definitionId);
+    const bool ammoCharacter = PassiveValue(attackerDefinition, "CoreAmmoCharacter") > 0.0;
+    const bool freeAmmoAttack = ammoCharacter && !attacker->usedFreeBasicAttackThisTurn
+        && PassiveValue(attackerDefinition, "FirstBasicAttackFreeAmmo") > 0.0;
     const std::int32_t attackCost = BasicAttackCost(*attacker);
     attacker->initiative -= attackCost;
 
@@ -934,6 +960,48 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         }
     }
 
+    if (ammoCharacter)
+    {
+        attacker->attackedThisTurn = true;
+        if (freeAmmoAttack)
+        {
+            attacker->usedFreeBasicAttackThisTurn = true;
+        }
+        else if (attacker->resourceCurrent > 0)
+        {
+            const std::int32_t before = attacker->resourceCurrent;
+            --attacker->resourceCurrent;
+            attacker->spentResourceThisTurn = true;
+            result.events.push_back(GameEvent{EventType::ResourceChanged, attacker->id, attacker->id,
+                attacker->tileId, "Ammo", attacker->resourceCurrent - before});
+            const bool killed = !target->alive;
+            if (killed && before == 1 && !attacker->refundedLastResourceKillThisTurn
+                && PassiveValue(attackerDefinition, "LastAmmoKillRefund") > 0.0)
+            {
+                ++attacker->resourceCurrent;
+                attacker->refundedLastResourceKillThisTurn = true;
+                result.events.push_back(GameEvent{EventType::ResourceChanged, attacker->id, attacker->id,
+                    attacker->tileId, "LastAmmoKillRefund", 1});
+            }
+            if (attacker->resourceCurrent == 0 && !attacker->triggeredEmptyResourceThisTurn)
+            {
+                attacker->triggeredEmptyResourceThisTurn = true;
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(attackerDefinition, "EmptyMagazineInitiativeGain")));
+                attacker->initiative += gain;
+                if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, attacker->id,
+                    attacker->id, attacker->tileId, "EmptyMagazine", gain});
+            }
+        }
+        if (!attacker->movedSinceLastTurn)
+        {
+            const std::int32_t maximum = std::max(1, static_cast<std::int32_t>(
+                PassiveValue(attackerDefinition, "StationaryShotMaxStacks")));
+            if (PassiveValue(attackerDefinition, "StationaryShotDamagePerStack") > 0.0)
+                attacker->stationaryShotStacks = std::min(maximum, attacker->stationaryShotStacks + 1);
+        }
+    }
+
     ++state_.step;
     return result;
 }
@@ -965,6 +1033,13 @@ ActionResult Game::ValidateBasicAttack(const GameAction& action) const
         return Failure("missing_attack_tile", "Attacker and target must occupy board tiles.");
     }
     const CharacterDefinition& definition = definitions_.characters.at(attacker->definitionId);
+    if (PassiveValue(definition, "CoreAmmoCharacter") > 0.0
+        && attacker->resourceCurrent <= 0
+        && (attacker->usedFreeBasicAttackThisTurn
+            || PassiveValue(definition, "FirstBasicAttackFreeAmmo") <= 0.0))
+    {
+        return Failure("insufficient_resource", "The character has no ammunition for a basic attack.");
+    }
     if (HexDistance(attackerTile->coord, targetTile->coord) > std::max(0, definition.stats.attackRange))
     {
         return Failure("target_out_of_range", "The target is outside basic attack range.");
@@ -1719,6 +1794,24 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
     {
         if (CharacterState* endingCharacter = FindCharacter(action.actorId))
         {
+            const CharacterDefinition& endingDefinition = definitions_.characters.at(endingCharacter->definitionId);
+            if (PassiveValue(endingDefinition, "CoreAmmoCharacter") > 0.0)
+            {
+                endingCharacter->heldPositionFromPreviousTurn = !endingCharacter->movedSinceLastTurn;
+                if (!endingCharacter->movedSinceLastTurn)
+                {
+                    const std::int32_t restored = std::max(0, static_cast<std::int32_t>(
+                        PassiveValue(endingDefinition, "BaseAmmoRegen")
+                        + PassiveValue(endingDefinition, "AmmoRegenAdd")));
+                    const std::int32_t before = endingCharacter->resourceCurrent;
+                    endingCharacter->resourceCurrent = std::min(endingCharacter->resourceMaximum,
+                        endingCharacter->resourceCurrent + restored);
+                    if (before != endingCharacter->resourceCurrent)
+                        expirationEvents.push_back(GameEvent{EventType::ResourceChanged, endingCharacter->id,
+                            endingCharacter->id, endingCharacter->tileId, "AmmoRegen",
+                            endingCharacter->resourceCurrent - before});
+                }
+            }
             if (endingCharacter->resourceMaximum > 0)
             {
                 endingCharacter->stationaryGuardActive = !endingCharacter->movedSinceLastTurn;
@@ -1797,6 +1890,45 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             selected->movedSinceLastTurn = false;
             selected->stationaryGuardActive = false;
             selected->firstResourceSpendRefundAvailable = true;
+            if (PassiveValue(definition, "CoreAmmoCharacter") > 0.0)
+            {
+                selected->attackedThisTurn = false;
+                selected->spentResourceThisTurn = false;
+                selected->usedFreeBasicAttackThisTurn = false;
+                selected->triggeredEmptyResourceThisTurn = false;
+                selected->refundedLastResourceKillThisTurn = false;
+                selected->usedRangeRefundThisTurn = false;
+                selected->usedKillCooldownReductionThisTurn = false;
+                selected->startedTurnWithFullResource = selected->resourceCurrent >= selected->resourceMaximum;
+                if (selected->startedTurnWithFullResource)
+                {
+                    const std::int32_t reduction = std::max(0, static_cast<std::int32_t>(
+                        PassiveValue(definition, "FullAmmoTurnStartAbilityCooldownReduction")));
+                    for (AbilityState& ability : selected->abilities)
+                    {
+                        const std::int32_t before = ability.cooldownRemaining;
+                        ability.cooldownRemaining = std::max(0, before - reduction);
+                        if (before != ability.cooldownRemaining) result.events.push_back(GameEvent{
+                            EventType::CooldownChanged, selected->id, selected->id, selected->tileId,
+                            ability.definitionId, ability.cooldownRemaining - before});
+                    }
+                    const std::int32_t turnDelayAdd = static_cast<std::int32_t>(
+                        PassiveValue(definition, "TurnDelayAddWhileFullAmmo"));
+                    selected->initiative = std::max(0, selected->initiative - std::max(0, turnDelayAdd));
+                }
+                if (selected->resourceCurrent <= 0 && PassiveValue(definition, "RefillAmmoOnEmptyTurnStart") > 0.0)
+                {
+                    const std::int32_t gain = selected->resourceMaximum;
+                    selected->resourceCurrent = gain;
+                    result.events.push_back(GameEvent{EventType::ResourceChanged, selected->id, selected->id,
+                        selected->tileId, "FullReload", gain});
+                    const std::int32_t penalty = std::max(0, static_cast<std::int32_t>(
+                        PassiveValue(definition, "RefillAmmoInitiativePenalty")));
+                    selected->initiative = std::max(0, selected->initiative - penalty);
+                    if (penalty > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                        selected->id, selected->id, selected->tileId, "FullReload", -penalty});
+                }
+            }
             if (selected->resourceCurrent <= 0)
             {
                 const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
@@ -2271,7 +2403,7 @@ ActionResult Game::ValidateMove(const GameAction& action) const
         return Failure("destination_occupied", "The destination is occupied by another character.");
     }
 
-    const std::int32_t cost = MovementCost(*character, *destination);
+    const std::int32_t cost = character->hasFreePreparedStep ? 0 : MovementCost(*character, *destination);
     if (cost == std::numeric_limits<std::int32_t>::max() || character->initiative < cost)
     {
         return Failure("insufficient_initiative", "The character cannot afford this movement.");
@@ -2340,6 +2472,12 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.firstResourceSpendRefundAvailable);
         HashValue(hash, character.movedSinceLastTurn);
         HashValue(hash, character.stationaryGuardActive);
+        HashValue(hash, character.attackedThisTurn); HashValue(hash, character.spentResourceThisTurn);
+        HashValue(hash, character.startedTurnWithFullResource); HashValue(hash, character.heldPositionFromPreviousTurn);
+        HashValue(hash, character.usedFreeBasicAttackThisTurn); HashValue(hash, character.triggeredEmptyResourceThisTurn);
+        HashValue(hash, character.refundedLastResourceKillThisTurn); HashValue(hash, character.usedRangeRefundThisTurn);
+        HashValue(hash, character.usedKillCooldownReductionThisTurn); HashValue(hash, character.stationaryShotStacks);
+        HashValue(hash, character.hasFreePreparedStep);
         for (const AbilityState& ability : character.abilities)
         {
             HashString(hash, ability.definitionId);

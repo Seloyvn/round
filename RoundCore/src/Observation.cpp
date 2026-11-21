@@ -133,7 +133,13 @@ NumericObservation EncodeOmniscientObservation(
             character->specialCooldownRemaining,
             character->firstResourceSpendRefundAvailable ? 1 : 0,
             character->movedSinceLastTurn ? 1 : 0,
-            character->stationaryGuardActive ? 1 : 0});
+            character->stationaryGuardActive ? 1 : 0,
+            character->attackedThisTurn ? 1 : 0, character->spentResourceThisTurn ? 1 : 0,
+            character->startedTurnWithFullResource ? 1 : 0, character->heldPositionFromPreviousTurn ? 1 : 0,
+            character->usedFreeBasicAttackThisTurn ? 1 : 0, character->triggeredEmptyResourceThisTurn ? 1 : 0,
+            character->refundedLastResourceKillThisTurn ? 1 : 0, character->usedRangeRefundThisTurn ? 1 : 0,
+            character->usedKillCooldownReductionThisTurn ? 1 : 0, character->stationaryShotStacks,
+            character->hasFreePreparedStep ? 1 : 0});
 
         for (std::size_t abilityIndex = 0; abilityIndex < character->abilities.size(); ++abilityIndex)
         {

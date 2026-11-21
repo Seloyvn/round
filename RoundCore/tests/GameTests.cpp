@@ -884,6 +884,34 @@ int main()
             && tauntGame.State().characters[1].modifierEffects[0].outgoingDamageMultiplierAgainstOtherTargetsBasisPoints == 7500,
         "Character 1 Taunt should persist its preferred target and off-target penalty in Core");
 
+    MatchSetup ammoSetup = ValidSetup();
+    CharacterDefinition& sniperDefinition = ammoSetup.definitions.characters.at("Tank");
+    sniperDefinition.passiveValues = {{"CoreAmmoCharacter", 1.0}, {"BaseAmmoRegen", 1.0},
+        {"EmptyMagazineInitiativeGain", 10.0}, {"StationaryShotDamagePerStack", 0.1},
+        {"StationaryShotMaxStacks", 3.0}, {"LastAmmoKillRefund", 1.0}};
+    ammoSetup.initialState.characters[0].resourceCurrent = 1;
+    ammoSetup.initialState.characters[0].resourceMaximum = 3;
+    ammoSetup.initialState.characters[1].health = 5;
+    Game ammoGame;
+    Require(ammoGame.Reset(std::move(ammoSetup)).success, "Character 2 ammo setup should reset");
+    GameAction ammoAttack; ammoAttack.type = ActionType::BasicAttack; ammoAttack.actorId = 10; ammoAttack.targetEntityId = 20;
+    const ActionResult ammoAttackResult = ammoGame.ApplyAction(ammoAttack);
+    Require(ammoAttackResult.success && ammoGame.State().characters[0].resourceCurrent == 1
+            && ammoGame.State().characters[0].refundedLastResourceKillThisTurn,
+        "Character 2 should spend and refund the final ammo on a configured killing shot");
+
+    MatchSetup emptyAmmoSetup = ValidSetup();
+    emptyAmmoSetup.definitions.characters.at("Tank").passiveValues = {
+        {"CoreAmmoCharacter", 1.0}, {"EmptyMagazineInitiativeGain", 10.0}};
+    emptyAmmoSetup.initialState.characters[0].resourceCurrent = 1;
+    emptyAmmoSetup.initialState.characters[0].resourceMaximum = 3;
+    Game emptyAmmoGame;
+    Require(emptyAmmoGame.Reset(std::move(emptyAmmoSetup)).success, "empty magazine setup should reset");
+    const ActionResult emptyAmmoAttack = emptyAmmoGame.ApplyAction(ammoAttack);
+    Require(emptyAmmoAttack.success && emptyAmmoGame.State().characters[0].resourceCurrent == 0
+            && emptyAmmoGame.State().characters[0].triggeredEmptyResourceThisTurn,
+        "Character 2 should enter the empty-magazine state after spending the last ammo");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

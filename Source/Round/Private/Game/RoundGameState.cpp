@@ -74,6 +74,29 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogRoundAuraRuntime, Log, All);
 
+namespace
+{
+void ApplyCharacter2CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
+{
+    if (ARoundCharacter2* Character2 = Cast<ARoundCharacter2>(Update.Character))
+    {
+        Character2->Ammo = Update.ResourceCurrent;
+        Character2->bAttackedThisTurn = Update.bAttackedThisTurn;
+        Character2->bSpentAmmoThisTurn = Update.bSpentResourceThisTurn;
+        Character2->bMovedThisTurn = Update.bMovedSinceLastTurn;
+        Character2->bStartedTurnWithFullAmmo = Update.bStartedTurnWithFullResource;
+        Character2->bHeldPositionFromPreviousTurn = Update.bHeldPositionFromPreviousTurn;
+        Character2->bUsedFreeBasicAttackThisTurn = Update.bUsedFreeBasicAttackThisTurn;
+        Character2->bTriggeredEmptyMagazineThisTurn = Update.bTriggeredEmptyResourceThisTurn;
+        Character2->bRefundedLastAmmoKillThisTurn = Update.bRefundedLastResourceKillThisTurn;
+        Character2->bUsedSnipeRangeRefundThisTurn = Update.bUsedRangeRefundThisTurn;
+        Character2->bUsedSnipeKillCooldownReductionThisTurn = Update.bUsedKillCooldownReductionThisTurn;
+        Character2->StationaryShotStacks = Update.StationaryShotStacks;
+        Character2->bHasFreeConcentrateStep = Update.bHasFreePreparedStep;
+    }
+}
+}
+
 ARoundGameState* ARoundGameState::GetRoundGameState(const UObject* WorldContextObject)
 {
     if (!WorldContextObject)
@@ -3863,6 +3886,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
             Character1->bMovedThisTurn = Update.bMovedSinceLastTurn;
             Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
         }
+        ApplyCharacter2CoreState(Update);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -3969,6 +3993,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             Character1->bMovedThisTurn = Update.bMovedSinceLastTurn;
             Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
         }
+        ApplyCharacter2CoreState(Update);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4320,6 +4345,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
                 Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
                 Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
             }
+            ApplyCharacter2CoreState(Update);
         }
         bApplyingCoreMovementCallbacks = true;
         Character->SetField(TargetTile, Index == Path.Num() - 1);
@@ -4442,6 +4468,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                 Character1->bMovedThisTurn = Update.bMovedSinceLastTurn;
                 Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
             }
+            ApplyCharacter2CoreState(Update);
         }
         for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
         {

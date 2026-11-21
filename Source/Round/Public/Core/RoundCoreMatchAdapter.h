@@ -38,6 +38,17 @@ struct FRoundCoreCharacterRuntimeUpdate
     bool bFirstResourceSpendRefundAvailable = true;
     bool bMovedSinceLastTurn = false;
     bool bStationaryGuardActive = false;
+    bool bAttackedThisTurn = false;
+    bool bSpentResourceThisTurn = false;
+    bool bStartedTurnWithFullResource = false;
+    bool bHeldPositionFromPreviousTurn = false;
+    bool bUsedFreeBasicAttackThisTurn = false;
+    bool bTriggeredEmptyResourceThisTurn = false;
+    bool bRefundedLastResourceKillThisTurn = false;
+    bool bUsedRangeRefundThisTurn = false;
+    bool bUsedKillCooldownReductionThisTurn = false;
+    int32 StationaryShotStacks = 0;
+    bool bHasFreePreparedStep = false;
 };
 
 struct FRoundCoreEffectRemoval

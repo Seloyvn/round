@@ -111,6 +111,17 @@ struct CharacterState
     bool firstResourceSpendRefundAvailable = true;
     bool movedSinceLastTurn = false;
     bool stationaryGuardActive = false;
+    bool attackedThisTurn = false;
+    bool spentResourceThisTurn = false;
+    bool startedTurnWithFullResource = false;
+    bool heldPositionFromPreviousTurn = false;
+    bool usedFreeBasicAttackThisTurn = false;
+    bool triggeredEmptyResourceThisTurn = false;
+    bool refundedLastResourceKillThisTurn = false;
+    bool usedRangeRefundThisTurn = false;
+    bool usedKillCooldownReductionThisTurn = false;
+    std::int32_t stationaryShotStacks = 0;
+    bool hasFreePreparedStep = false;
     std::vector<AbilityState> abilities;
     std::vector<ModifierEffectState> modifierEffects;
     std::vector<RecentAuraPreventionState> recentAuraPreventions;

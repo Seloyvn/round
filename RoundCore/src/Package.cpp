@@ -267,6 +267,12 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(character.resourceRechargeProgress); writer.Integer(character.resourceRechargeInterval);
         writer.Integer(character.specialCooldownRemaining); writer.Integer(character.firstResourceSpendRefundAvailable);
         writer.Integer(character.movedSinceLastTurn); writer.Integer(character.stationaryGuardActive);
+        writer.Integer(character.attackedThisTurn); writer.Integer(character.spentResourceThisTurn);
+        writer.Integer(character.startedTurnWithFullResource); writer.Integer(character.heldPositionFromPreviousTurn);
+        writer.Integer(character.usedFreeBasicAttackThisTurn); writer.Integer(character.triggeredEmptyResourceThisTurn);
+        writer.Integer(character.refundedLastResourceKillThisTurn); writer.Integer(character.usedRangeRefundThisTurn);
+        writer.Integer(character.usedKillCooldownReductionThisTurn); writer.Integer(character.stationaryShotStacks);
+        writer.Integer(character.hasFreePreparedStep);
         writer.Integer(static_cast<std::uint32_t>(character.abilities.size()));
         for (const AbilityState& ability : character.abilities)
         {
@@ -353,6 +359,12 @@ GameState ReadState(Reader& reader)
         character.firstResourceSpendRefundAvailable = reader.Integer<bool>();
         character.movedSinceLastTurn = reader.Integer<bool>();
         character.stationaryGuardActive = reader.Integer<bool>();
+        character.attackedThisTurn = reader.Integer<bool>(); character.spentResourceThisTurn = reader.Integer<bool>();
+        character.startedTurnWithFullResource = reader.Integer<bool>(); character.heldPositionFromPreviousTurn = reader.Integer<bool>();
+        character.usedFreeBasicAttackThisTurn = reader.Integer<bool>(); character.triggeredEmptyResourceThisTurn = reader.Integer<bool>();
+        character.refundedLastResourceKillThisTurn = reader.Integer<bool>(); character.usedRangeRefundThisTurn = reader.Integer<bool>();
+        character.usedKillCooldownReductionThisTurn = reader.Integer<bool>(); character.stationaryShotStacks = reader.Integer<std::int32_t>();
+        character.hasFreePreparedStep = reader.Integer<bool>();
         for (std::uint32_t ability = 0, abilityCount = reader.Count(); ability < abilityCount; ++ability)
         {
             AbilityState value; value.definitionId = reader.String(); value.cooldownRemaining = reader.Integer<std::int32_t>();
