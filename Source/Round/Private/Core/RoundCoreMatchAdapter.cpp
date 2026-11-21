@@ -512,6 +512,74 @@ bool FRoundCoreMatchAdapter::ResolveBasicAttackCritical(
     return true;
 }
 
+bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
+    const ARoundCharacter* Character,
+    const ARoundCharacter* TargetCharacter,
+    FRoundCoreBasicAttackExecution& OutExecution,
+    FString& OutReason)
+{
+    OutExecution = {};
+    const roundcore::EntityId* CharacterId = CharacterIds.Find(Character);
+    const roundcore::EntityId* TargetId = CharacterIds.Find(TargetCharacter);
+    if (!CharacterId || !TargetId)
+    {
+        OutReason = TEXT("Attacker or target is not part of the Core snapshot.");
+        return false;
+    }
+
+    roundcore::GameAction Action;
+    Action.type = roundcore::ActionType::BasicAttack;
+    Action.actorId = *CharacterId;
+    Action.targetEntityId = *TargetId;
+    const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (!Result.success)
+    {
+        OutReason = FString::Printf(TEXT("%s: %s"),
+            UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
+        return false;
+    }
+
+    OutExecution.bCritical = Result.message.find("Critical") != std::string::npos;
+    for (const roundcore::GameEvent& Event : Result.events)
+    {
+        if (Event.type == roundcore::EventType::DamageApplied && Event.targetId == *TargetId)
+        {
+            OutExecution.AppliedDamage += FMath::Max(0, static_cast<int32>(Event.amount));
+        }
+        else if (Event.type == roundcore::EventType::CharacterDied && Event.targetId == *TargetId)
+        {
+            OutExecution.bTargetDied = true;
+        }
+        else if (Event.type == roundcore::EventType::EffectRemoved)
+        {
+            const roundcore::EntityId OwnerId = Event.targetId != roundcore::InvalidEntityId
+                ? Event.targetId : Event.sourceId;
+            if (ARoundCharacter* const* Owner = CharacterActors.Find(OwnerId))
+            {
+                OutExecution.RemovedEffects.Add({*Owner, UTF8_TO_TCHAR(Event.definitionId.c_str())});
+            }
+        }
+    }
+    for (const roundcore::CharacterState& State : CoreGame.State().characters)
+    {
+        if (ARoundCharacter* const* Actor = CharacterActors.Find(State.id))
+        {
+            OutExecution.CharacterUpdates.Add({*Actor, State.health, State.initiative, State.alive});
+        }
+        for (const roundcore::AbilityState& AbilityState : State.abilities)
+        {
+            const FString AbilityKey = UTF8_TO_TCHAR(AbilityState.definitionId.c_str());
+            if (ARoundAbilityActor* const* Ability = AbilityActors.Find(AbilityKey))
+            {
+                OutExecution.AbilityUpdates.Add({*Ability, AbilityState.cooldownRemaining, AbilityState.currentCharges});
+            }
+        }
+    }
+    PreservedRandomState = CoreGame.State().randomState;
+    OutReason = TEXT("Basic attack executed by RoundCore.");
+    return true;
+}
+
 bool FRoundCoreMatchAdapter::GetVisibleTiles(
     const ARoundCharacter* Character,
     TArray<ARoundGridTile*>& OutVisibleTiles,

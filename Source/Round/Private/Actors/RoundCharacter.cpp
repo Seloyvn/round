@@ -791,6 +791,47 @@ bool ARoundCharacter::TryPreventDeathFromPassive(int32 AppliedDamage, ARoundChar
     return false;
 }
 
+void ARoundCharacter::ApplyCoreDamageOutcome(ARoundCharacter* SourceCharacter, const int32 AppliedDamage,
+    const ERoundDamageType DamageType, const bool bCoreMarkedDead)
+{
+    if (AppliedDamage > 0 && SourceCharacter)
+    {
+        SourceCharacter->HandleDamageDealt(this, AppliedDamage, DamageType);
+        if (ARoundCharacter5* Character5Source = Cast<ARoundCharacter5>(SourceCharacter))
+        {
+            Character5Source->GainBlood(AppliedDamage);
+        }
+    }
+
+    const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = ActiveEffects;
+    for (ARoundEffectActor* Effect : EffectsSnapshot)
+    {
+        if (Effect)
+        {
+            Effect->OnDamageTaken(this, SourceCharacter, AppliedDamage, DamageType);
+        }
+    }
+    HandlePassiveDamageTaken(AppliedDamage, SourceCharacter, DamageType);
+
+    if (bCoreMarkedDead && Attributes && !Attributes->IsAlive())
+    {
+        if (TryPreventDeathFromPassive(AppliedDamage, SourceCharacter, DamageType) && Attributes->IsAlive())
+        {
+            RefreshHealthbarWidget();
+        }
+        else
+        {
+            OnCharacterDied.Broadcast(this);
+            Die();
+        }
+    }
+    if (SourceCharacter)
+    {
+        SourceCharacter->HandleEnemyHitByCharacter(this, AppliedDamage, DamageType);
+    }
+    RefreshHealthbarWidget();
+}
+
 int32 ARoundCharacter::Heal(int32 Amount)
 {
     if (!Attributes)
@@ -1060,14 +1101,10 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
 
     FaceTargetTile(TargetTile);
 
-    FRoundCoreBasicAttackPreview CorePreview;
-    FString CorePreviewReason;
-    const bool bHasCorePreview = TargetCharacter
-        && RoundGameState->PreviewCoreBasicAttack(this, TargetCharacter, CorePreview, CorePreviewReason);
-    const int32 InitiativeBeforeAttack = Attributes ? Attributes->CurrentInitiative : 0;
-    const int32 TargetHealthBeforeAttack = TargetCharacter && TargetCharacter->Attributes
-        ? TargetCharacter->Attributes->CurrentHealth
-        : 0;
+    if (TargetCharacter)
+    {
+        return RoundGameState->ExecuteCoreBasicAttack(this, TargetCharacter);
+    }
 
     if (!Attributes || !Attributes->SpendInitiative(GetAttackCost()))
     {
@@ -1077,19 +1114,7 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
 
     int32 DefenseIgnore = 0;
     int32 Damage = Attributes->BaseStats.Attack;
-    bool bCritical = false;
-    FString CoreCriticalReason;
-    const bool bHasCoreCritical = bHasCorePreview
-        && RoundGameState->ResolveCoreBasicAttackCritical(this, bCritical, CoreCriticalReason);
-    if (!bHasCoreCritical)
-    {
-        bCritical = FMath::FRand() < GetCritChance();
-        UE_LOG(
-            LogTemp,
-            Warning,
-            TEXT("RoundCoreAttackParity CriticalFallback Attacker=%s Reason=%s"),
-            *GetName(), *CoreCriticalReason);
-    }
+    const bool bCritical = FMath::FRand() < GetCritChance();
     if (bCritical)
     {
         Damage = FMath::RoundToInt(static_cast<double>(Damage) * GetCritModifier());
@@ -1097,18 +1122,7 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
 
     int32 DamageDone = 0;
     bool bDidDie = false;
-    if (TargetCharacter)
-    {
-        const TArray<TObjectPtr<ARoundEffectActor>> BasicAttackEffectsSnapshot = ActiveEffects;
-        for (ARoundEffectActor* Effect : BasicAttackEffectsSnapshot)
-        {
-            if (Effect) Damage = Effect->ModifyBasicAttackDamage(this, TargetCharacter, Damage);
-        }
-        Damage = ModifyOutgoingDamage(Damage, ERoundDamageType::Physical, TargetCharacter, DefenseIgnore);
-        DamageDone = TargetCharacter->ApplyRoundDamage(Damage, ERoundDamageType::Physical, DefenseIgnore, this, bDidDie);
-        HandleEnemyHitByCharacter(TargetCharacter, DamageDone, ERoundDamageType::Physical);
-    }
-    else if (TargetBoardObject)
+    if (TargetBoardObject)
     {
         Damage = ModifyOutgoingDamage(Damage, ERoundDamageType::Physical, nullptr, DefenseIgnore);
         const FRoundBoardDamageResult BoardDamageResult = IRoundBoardDamageableInterface::Execute_ApplyBoardDamage(
@@ -1123,64 +1137,10 @@ FRoundActionResult ARoundCharacter::AttackField(ARoundGridTile* TargetTile)
 
     Result.bSuccess = true;
     Result.Reason = FString::Printf(TEXT("Attack executed for %d damage."), DamageDone);
-    if (TargetCharacter)
-    {
-        RoundGameState->RecordBasicAttack(this, TargetCharacter, DamageDone);
-    }
-
     const TArray<TObjectPtr<ARoundEffectActor>> AttackEffectsSnapshot = ActiveEffects;
     for (ARoundEffectActor* Effect : AttackEffectsSnapshot)
     {
-        if (Effect) Effect->OnBasicAttackExecuted(this, TargetCharacter);
-    }
-
-    if (TargetCharacter)
-    {
-        if (!bHasCorePreview)
-        {
-            UE_LOG(
-                LogTemp,
-                Warning,
-                TEXT("RoundCoreAttackParity PreviewFailed Attacker=%s Target=%s Reason=%s"),
-                *GetName(), *TargetCharacter->GetName(), *CorePreviewReason);
-        }
-        else
-        {
-            const int32 ActorInitiativeCost = FMath::Max(
-                0, InitiativeBeforeAttack - (Attributes ? Attributes->CurrentInitiative : InitiativeBeforeAttack));
-            const int32 ActorDamage = FMath::Max(
-                0, TargetHealthBeforeAttack - (TargetCharacter->Attributes
-                    ? TargetCharacter->Attributes->CurrentHealth
-                    : TargetHealthBeforeAttack));
-            const bool bParity = ActorInitiativeCost == CorePreview.InitiativeCost
-                && ActorDamage == CorePreview.Damage
-                && bDidDie == CorePreview.bTargetDied
-                && bCritical == CorePreview.bCritical;
-            if (bParity)
-            {
-                UE_LOG(
-                    LogTemp,
-                    Verbose,
-                    TEXT("RoundCoreAttackParity Match Attacker=%s Target=%s ActorCost=%d CoreCost=%d ActorDamage=%d CoreDamage=%d ActorDied=%d CoreDied=%d ActorCritical=%d CoreCritical=%d"),
-                    *GetName(), *TargetCharacter->GetName(),
-                    ActorInitiativeCost, CorePreview.InitiativeCost,
-                    ActorDamage, CorePreview.Damage,
-                    bDidDie ? 1 : 0, CorePreview.bTargetDied ? 1 : 0, bCritical ? 1 : 0,
-                    CorePreview.bCritical ? 1 : 0);
-            }
-            else
-            {
-                UE_LOG(
-                    LogTemp,
-                    Warning,
-                    TEXT("RoundCoreAttackParity Mismatch Attacker=%s Target=%s ActorCost=%d CoreCost=%d ActorDamage=%d CoreDamage=%d ActorDied=%d CoreDied=%d ActorCritical=%d CoreCritical=%d"),
-                    *GetName(), *TargetCharacter->GetName(),
-                    ActorInitiativeCost, CorePreview.InitiativeCost,
-                    ActorDamage, CorePreview.Damage,
-                    bDidDie ? 1 : 0, CorePreview.bTargetDied ? 1 : 0, bCritical ? 1 : 0,
-                    CorePreview.bCritical ? 1 : 0);
-            }
-        }
+        if (Effect) Effect->OnBasicAttackExecuted(this, nullptr);
     }
 
     RoundGameState->SetVision();

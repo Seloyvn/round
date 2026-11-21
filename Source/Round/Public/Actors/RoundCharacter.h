@@ -211,6 +211,8 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Round")
     virtual bool IsAlive() const;
+    void ApplyCoreDamageOutcome(ARoundCharacter* SourceCharacter, int32 AppliedDamage,
+        ERoundDamageType DamageType, bool bCoreMarkedDead);
 
 protected:
     virtual void BeginPlay() override;

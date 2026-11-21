@@ -24,6 +24,30 @@ struct FRoundCoreBasicAttackPreview
     bool bCritical = false;
 };
 
+struct FRoundCoreCharacterRuntimeUpdate
+{
+    ARoundCharacter* Character = nullptr;
+    int32 Health = 0;
+    int32 Initiative = 0;
+    bool bAlive = false;
+};
+
+struct FRoundCoreEffectRemoval
+{
+    ARoundCharacter* Character = nullptr;
+    FString EffectId;
+};
+
+struct FRoundCoreBasicAttackExecution
+{
+    TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
+    TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
+    TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    int32 AppliedDamage = 0;
+    bool bCritical = false;
+    bool bTargetDied = false;
+};
+
 // Converts the live Unreal board to the standard-C++ state used by gameplay,
 // training and deterministic tests. This adapter contains no gameplay rules.
 class ROUND_API FRoundCoreMatchAdapter
@@ -32,14 +56,13 @@ public:
     bool Rebuild(const ARoundGameState& GameState, FString& OutReason);
     bool IsMoveLegal(const ARoundCharacter* Character, const ARoundGridTile* TargetTile, FString& OutReason) const;
     bool IsBasicAttackLegal(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter, FString& OutReason) const;
-    bool PreviewBasicAttack(
+    bool PreviewBasicAttack(const ARoundCharacter* Character, const ARoundCharacter* TargetCharacter,
+        FRoundCoreBasicAttackPreview& OutPreview, FString& OutReason) const;
+    bool ResolveBasicAttackCritical(const ARoundCharacter* Character, bool& bOutCritical, FString& OutReason);
+    bool ExecuteBasicAttack(
         const ARoundCharacter* Character,
         const ARoundCharacter* TargetCharacter,
-        FRoundCoreBasicAttackPreview& OutPreview,
-        FString& OutReason) const;
-    bool ResolveBasicAttackCritical(
-        const ARoundCharacter* Character,
-        bool& bOutCritical,
+        FRoundCoreBasicAttackExecution& OutExecution,
         FString& OutReason);
     bool GetVisibleTiles(
         const ARoundCharacter* Character,
