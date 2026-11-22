@@ -40,7 +40,25 @@ enum class AbilityOperation : std::uint8_t
     DelayStrike,
     Shackle,
     Bind,
-    Taunt
+    Taunt,
+    Snipe,
+    Concentrate,
+    Aim,
+    PiercingShot,
+    SuppressingFire
+};
+
+enum class ModifierEffectKind : std::uint8_t
+{
+    Generic,
+    Concentrate,
+    AimField,
+    SuppressingFire,
+    PiercingMark,
+    TrackingMark,
+    SnipeMark,
+    AimMark,
+    AimWeakness
 };
 
 enum class AbilityTargetRelation : std::uint8_t

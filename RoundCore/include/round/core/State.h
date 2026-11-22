@@ -15,6 +15,8 @@ struct TileState
     DefinitionId terrainId;
     EntityId occupantId = InvalidEntityId;
     bool blocksMovement = false;
+    std::int32_t fieldObjectHealth = 0;
+    std::int32_t terrainObjectHealth = 0;
 };
 
 struct AbilityState
@@ -25,11 +27,14 @@ struct AbilityState
     std::int32_t currentCharges = 1;
     std::int32_t maxCharges = 1;
     bool usesCharges = false;
+    std::int32_t readyInitiativeElapsed = 0;
 };
 
 struct ModifierEffectState
 {
     DefinitionId id;
+    DefinitionId sourceAbilityId;
+    ModifierEffectKind kind = ModifierEffectKind::Generic;
     EntityId causerId = InvalidEntityId;
     EntityId preferredTargetId = InvalidEntityId;
     std::int32_t remainingInitiative = 0;
@@ -76,12 +81,21 @@ struct ModifierEffectState
     bool blockMovementBonuses = false;
     bool basicAttackCostAvailable = false;
     bool consumeOnBasicAttack = false;
+    bool consumeOnOutgoingDamage = false;
     bool preventsAbilityUse = false;
     bool preventsMovement = false;
     bool firstMovePenaltyAvailable = false;
     bool expireOnTurnEnd = false;
     bool isDebuff = false;
     bool triggerOnMove = false;
+    bool consumeOnDamageFromCauser = false;
+    std::int32_t counterA = 0;
+    std::int32_t counterB = 0;
+    std::int32_t counterC = 0;
+    std::int32_t valueA = 0;
+    std::int32_t valueB = 0;
+    std::int32_t valueC = 0;
+    std::uint32_t flags = 0;
 };
 
 struct RecentAuraPreventionState

@@ -596,7 +596,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
         *(AbilityData ? AbilityData->AbilityId.ToString() : RowName.ToString()),
         *GetNameSafe(TargetTile));
     const int32 CoreOperation = FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation")));
-    if (CoreOperation == 5 && OwningCharacter)
+    if ((CoreOperation == 5 || CoreOperation == 13) && OwningCharacter)
     {
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
         {
@@ -604,7 +604,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
         }
     }
     if ((CoreOperation == 1 || CoreOperation == 2 || CoreOperation == 4
-        || (CoreOperation >= 6 && CoreOperation <= 10)) && OwningCharacter)
+        || (CoreOperation >= 6 && CoreOperation <= 11) || CoreOperation == 14 || CoreOperation == 15) && OwningCharacter)
     {
         ARoundCharacter* TargetCharacter = ResolveTargetCharacter(TargetTile);
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
@@ -612,7 +612,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
             return RoundGameState->ExecuteCoreAbility(OwningCharacter, this, TargetCharacter);
         }
     }
-    if (CoreOperation == 3 && OwningCharacter)
+    if ((CoreOperation == 3 || CoreOperation == 12) && OwningCharacter)
     {
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
         {

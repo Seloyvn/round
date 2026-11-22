@@ -52,6 +52,8 @@ int main()
     using namespace roundcore;
 
     MatchSetup packageSource = ValidSetup();
+    packageSource.initialState.tiles[2].fieldObjectHealth = 12;
+    packageSource.initialState.tiles[2].terrainObjectHealth = 34;
     AbilityDefinition packageAbility;
     packageAbility.id = "PackageBolt";
     packageAbility.operation = AbilityOperation::DirectDamage;
@@ -64,9 +66,11 @@ int main()
     packageAbility.values = {{"BehindDistance", 2.0}, {"DamageMultiplier", 1.5}};
     packageSource.definitions.abilities.emplace(packageAbility.id, packageAbility);
     packageSource.definitions.characters.at("Tank").abilityIds.push_back(packageAbility.id);
-    packageSource.initialState.characters[0].abilities.push_back(AbilityState{packageAbility.id, 0, 8, 1, 1, false});
+    packageSource.initialState.characters[0].abilities.push_back(AbilityState{packageAbility.id, 0, 8, 1, 1, false, 37});
     ModifierEffectState packageModifier;
     packageModifier.id = "PackageModifier";
+    packageModifier.sourceAbilityId = packageAbility.id;
+    packageModifier.kind = ModifierEffectKind::Concentrate;
     packageModifier.causerId = 20;
     packageModifier.remainingInitiative = 25;
     packageModifier.incomingDamageMultiplierBasisPoints = 9000;
@@ -76,6 +80,14 @@ int main()
     packageModifier.areaDamageType = DamageType::Holy;
     packageModifier.areaInitiativeLossPerPulse = 3;
     packageModifier.areaFollowsCauser = false;
+    packageModifier.counterA = 2;
+    packageModifier.counterB = 17;
+    packageModifier.counterC = 1;
+    packageModifier.valueA = 5000;
+    packageModifier.valueB = 12500;
+    packageModifier.valueC = 3;
+    packageModifier.flags = 13u;
+    packageModifier.consumeOnOutgoingDamage = true;
     packageSource.initialState.characters[0].modifierEffects.push_back(packageModifier);
     const std::vector<std::uint8_t> packageBytes = SerializeMatchSetup(packageSource);
     const MatchSetup packageSetup = DeserializeMatchSetup(packageBytes);
@@ -91,6 +103,18 @@ int main()
             && loadedPackageAbility.values.at("BehindDistance") == 2.0
             && loadedPackageAbility.values.at("DamageMultiplier") == 1.5,
         "a match package must preserve executable ability contracts");
+    const CharacterState& loadedPackageCharacter = packageGame.State().characters[0];
+    const ModifierEffectState& loadedPackageModifier = loadedPackageCharacter.modifierEffects[0];
+    Require(packageGame.State().tiles[2].fieldObjectHealth == 12
+            && packageGame.State().tiles[2].terrainObjectHealth == 34
+            && loadedPackageCharacter.abilities[0].readyInitiativeElapsed == 37
+            && loadedPackageModifier.sourceAbilityId == packageAbility.id
+            && loadedPackageModifier.kind == ModifierEffectKind::Concentrate
+            && loadedPackageModifier.counterA == 2 && loadedPackageModifier.counterB == 17
+            && loadedPackageModifier.counterC == 1 && loadedPackageModifier.valueA == 5000
+            && loadedPackageModifier.valueB == 12500 && loadedPackageModifier.valueC == 3
+            && loadedPackageModifier.flags == 13u && loadedPackageModifier.consumeOnOutgoingDamage,
+        "a match package must preserve specialized Character 2 runtime state");
     std::vector<std::uint8_t> invalidPackage = packageBytes;
     invalidPackage[0] = 0;
     bool rejectedInvalidPackage = false;
@@ -911,6 +935,94 @@ int main()
     Require(emptyAmmoAttack.success && emptyAmmoGame.State().characters[0].resourceCurrent == 0
             && emptyAmmoGame.State().characters[0].triggeredEmptyResourceThisTurn,
         "Character 2 should enter the empty-magazine state after spending the last ammo");
+
+    AbilityDefinition snipe; snipe.id = "Snipe"; snipe.operation = AbilityOperation::Snipe;
+    snipe.range = 3; snipe.amount = 20; snipe.values = {{"InitativeScaling", 1.0},
+        {"DefenseReductionOnHit", 10.0}, {"DefenseReductionDurationInitiative", 80.0}};
+    MatchSetup snipeSetup = ValidSetup();
+    snipeSetup.definitions.abilities.emplace(snipe.id, snipe);
+    snipeSetup.definitions.characters.at("Tank").abilityIds.push_back(snipe.id);
+    snipeSetup.initialState.characters[0].abilities.push_back(AbilityState{snipe.id, 0, 40, 1, 1, false});
+    snipeSetup.initialState.characters[0].resourceCurrent = 2;
+    snipeSetup.initialState.characters[0].resourceMaximum = 3;
+    snipeSetup.initialState.characters[1].initiative = 60;
+    Game snipeGame; Require(snipeGame.Reset(std::move(snipeSetup)).success, "Snipe setup should reset");
+    GameAction snipeAction; snipeAction.type = ActionType::UseAbility; snipeAction.actorId = 10;
+    snipeAction.targetEntityId = 20; snipeAction.abilityId = snipe.id;
+    const ActionResult snipeResult = snipeGame.ApplyAction(snipeAction);
+    Require(snipeResult.success && snipeGame.State().characters[0].resourceCurrent == 1
+            && !snipeGame.State().characters[1].modifierEffects.empty(),
+        "Snipe should scale from missing initiative, spend ammo, and apply its debuff in Core");
+
+    const auto character2AbilitySetup = [](AbilityDefinition ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.characters.at("Tank").passiveValues["CoreAmmoCharacter"] = 1.0;
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds.push_back(ability.id);
+        setup.initialState.characters[0].abilities.push_back(AbilityState{ability.id, 0, 40, 1, 1, false});
+        setup.initialState.characters[0].resourceCurrent = 3; setup.initialState.characters[0].resourceMaximum = 3;
+        return setup;
+    };
+
+    AbilityDefinition concentrate; concentrate.id = "Concentrate"; concentrate.operation = AbilityOperation::Concentrate;
+    concentrate.targetRelation = AbilityTargetRelation::Self; concentrate.values = {{"ConcentrateBonusMultiplier", 1.5},
+        {"ConcentrateDurationInitiative", 40.0}, {"BasicAttackConsumesNoAmmo", 1.0}, {"EmpoweredHitCount", 1.0}};
+    Game concentrateGame; Require(concentrateGame.Reset(character2AbilitySetup(concentrate)).success, "Concentrate setup should reset");
+    GameAction concentrateAction; concentrateAction.type = ActionType::UseAbility; concentrateAction.actorId = 10;
+    concentrateAction.targetEntityId = 10; concentrateAction.abilityId = concentrate.id;
+    Require(concentrateGame.ApplyAction(concentrateAction).success
+            && concentrateGame.State().characters[0].modifierEffects[0].kind == ModifierEffectKind::Concentrate,
+        "Concentrate should create its authoritative prepared-hit state in Core");
+    Require(concentrateGame.ApplyAction(ammoAttack).success
+            && concentrateGame.State().characters[0].resourceCurrent == 3
+            && concentrateGame.State().characters[0].modifierEffects.empty(),
+        "Concentrate should empower and consume on a basic attack without ammo when configured");
+
+    AbilityDefinition aim; aim.id = "Aim"; aim.operation = AbilityOperation::Aim; aim.range = 3; aim.amount = 30;
+    aim.values = {{"DamageRange", 0.0}, {"AimFieldDurationInitiative", 160.0}, {"TriggerInitiativeLoss", 10.0}};
+    MatchSetup aimSetup = character2AbilitySetup(aim); aimSetup.initialState.characters[0].initiative = 0;
+    Game aimGame; Require(aimGame.Reset(std::move(aimSetup)).success, "Aim setup should reset");
+    GameAction aimAction; aimAction.type = ActionType::UseAbility; aimAction.actorId = 10; aimAction.targetTileId = 3; aimAction.abilityId = aim.id;
+    Require(aimGame.ApplyAction(aimAction).success && aimGame.State().characters[0].modifierEffects[0].kind == ModifierEffectKind::AimField,
+        "Aim should place a Core-owned field");
+    GameAction endAimTurn; endAimTurn.type = ActionType::EndTurn; endAimTurn.actorId = 10;
+    Require(aimGame.ApplyDecision(endAimTurn).success && aimGame.State().activeCharacterId == 20, "Aim target should receive a turn");
+    GameAction enterAim; enterAim.type = ActionType::Move; enterAim.actorId = 20; enterAim.targetTileId = 3;
+    Require(aimGame.ApplyAction(enterAim).success && aimGame.State().characters[1].health < 100
+            && aimGame.State().characters[0].modifierEffects.empty(),
+        "entering an Aim field should trigger damage and consume the field");
+
+    AbilityDefinition piercing; piercing.id = "PiercingShot"; piercing.operation = AbilityOperation::PiercingShot;
+    piercing.range = 3; piercing.amount = 25; piercing.values = {{"TargetMarkDurationInitiative", 80.0},
+        {"DefenseReductionPerHitStack", 5.0}, {"DefenseReductionDurationInitiative", 80.0},
+        {"PreparationDurationInitiative", 160.0}, {"DestroyedObjectSplashDamageMultiplier", 0.4},
+        {"ResetRangeOnEveryHit", 1.0}, {"RedirectAfterFirstHit", 1.0}};
+    MatchSetup piercingSetup = character2AbilitySetup(piercing);
+    piercingSetup.initialState.tiles[1].terrainObjectHealth = 10;
+    piercingSetup.initialState.characters.push_back(CharacterState{30, "Tank", Team::TeamB, 4, 100, 50, true, {}});
+    piercingSetup.initialState.characters.push_back(CharacterState{40, "Tank", Team::TeamB, 3, 100, 50, true, {}});
+    Game piercingGame; Require(piercingGame.Reset(std::move(piercingSetup)).success, "Piercing Shot setup should reset");
+    GameAction piercingAction; piercingAction.type = ActionType::UseAbility; piercingAction.actorId = 10;
+    piercingAction.targetEntityId = 20; piercingAction.abilityId = piercing.id;
+    Require(piercingGame.ApplyAction(piercingAction).success && piercingGame.State().characters[0].resourceCurrent == 2
+            && piercingGame.State().tiles[1].terrainObjectHealth == 0
+            && piercingGame.State().characters[2].health < 90
+            && piercingGame.State().characters[3].health < 100
+            && std::any_of(piercingGame.State().characters[1].modifierEffects.begin(), piercingGame.State().characters[1].modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::PiercingMark; }),
+        "Piercing Shot should reset range, redirect, destroy board objects, splash adjacent enemies, and mark survivors");
+
+    AbilityDefinition suppress; suppress.id = "SuppressingFire"; suppress.operation = AbilityOperation::SuppressingFire;
+    suppress.range = 3; suppress.amount = 10; suppress.values = {{"MoveCostAddOnTarget", 2.0},
+        {"SuppressionDurationInitiative", 40.0}, {"RootUntilDamaged", 1.0}};
+    Game suppressGame; Require(suppressGame.Reset(character2AbilitySetup(suppress)).success, "Suppressing Fire setup should reset");
+    GameAction suppressAction; suppressAction.type = ActionType::UseAbility; suppressAction.actorId = 10;
+    suppressAction.targetEntityId = 20; suppressAction.abilityId = suppress.id;
+    Require(suppressGame.ApplyAction(suppressAction).success && suppressGame.State().characters[0].resourceCurrent == 2
+            && suppressGame.State().characters[1].modifierEffects[0].kind == ModifierEffectKind::SuppressingFire
+            && suppressGame.State().characters[1].modifierEffects[0].moveCostAdd == 2,
+        "Suppressing Fire should spend ammo and own its debuff state in Core");
 
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;

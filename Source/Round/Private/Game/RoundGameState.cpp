@@ -9,7 +9,9 @@
 #include "Actors/RoundCharacter5.h"
 #include "Actors/RoundCharacter6.h"
 #include "Actors/RoundAbilityActor.h"
+#include "Abilities/RoundSnipeAbility.h"
 #include "Actors/RoundGridTile.h"
+#include "Actors/RoundFieldObjectActor.h"
 #include "Actors/RoundObjectiveActor.h"
 #include "Actors/RoundObjectiveRewardActor.h"
 #include "Actors/RoundTerrainActor.h"
@@ -36,6 +38,8 @@
 #include "Effects/RoundShieldOathEffect.h"
 #include "Effects/RoundSanctifiedGroundAuraEffect.h"
 #include "Effects/RoundSlowEffect.h"
+#include "Interfaces/RoundBoardDamageableInterface.h"
+#include "Triggers/RoundAimFieldTriggerActor.h"
 #include "Game/RoundGameInstance.h"
 #include "Game/RoundPlayerPawn.h"
 #include "Core/RoundCoreMatchAdapter.h"
@@ -93,6 +97,67 @@ void ApplyCharacter2CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
         Character2->bUsedSnipeKillCooldownReductionThisTurn = Update.bUsedKillCooldownReductionThisTurn;
         Character2->StationaryShotStacks = Update.StationaryShotStacks;
         Character2->bHasFreeConcentrateStep = Update.bHasFreePreparedStep;
+    }
+}
+
+void PresentCoreGenericModifier(UWorld* World, const FRoundCoreModifierEffectAddition& Addition,
+    const FString& DisplayName, const FString& Description)
+{
+    if (!World || !Addition.Character)
+    {
+        return;
+    }
+    const TArray<TObjectPtr<ARoundEffectActor>> ExistingEffects = Addition.Character->ActiveEffects;
+    for (ARoundEffectActor* ExistingEffect : ExistingEffects)
+    {
+        if (ExistingEffect && ExistingEffect->EffectId.ToString() == Addition.EffectId)
+        {
+            ExistingEffect->RemoveEffect();
+        }
+    }
+    ARoundModifierEffect* Effect = World->SpawnActor<ARoundModifierEffect>();
+    if (!Effect)
+    {
+        return;
+    }
+    Effect->EffectId = FName(*Addition.EffectId);
+    Effect->DisplayName = DisplayName;
+    Effect->Description = Description;
+    Effect->IncomingDamageMultiplier = Addition.IncomingDamageMultiplierBasisPoints / 10000.0;
+    Effect->OutgoingDamageMultiplier = Addition.OutgoingDamageMultiplierBasisPoints / 10000.0;
+    Effect->DefenseIgnoreAdd = Addition.DefenseIgnoreAdd;
+    Effect->HealFractionFromDamageDealt = Addition.HealFractionFromDamageDealtBasisPoints / 10000.0;
+    Effect->MoveCostAdd = Addition.MoveCostAdd;
+    Effect->IncomingEffectDurationAdd = Addition.IncomingEffectDurationAdd;
+    Effect->bOnlyAffectCauserDamage = Addition.bOnlyAffectCauserDamage;
+    Effect->CauserCharacter = Addition.Causer;
+    Effect->bTreatAsBuff = !Addition.bIsDebuff;
+    Effect->bTreatAsDebuff = Addition.bIsDebuff;
+    Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+    Addition.Character->AddEffect(Effect);
+    Effect->StringState.FindOrAdd(TEXT("CoreSourceAbilityId")) = Addition.SourceAbilityId;
+    Effect->StringState.FindOrAdd(TEXT("CorePreferredTarget")) = Addition.PreferredTarget
+        ? Addition.PreferredTarget->GetPathName() : FString();
+    Effect->IntegerState.FindOrAdd(TEXT("CoreEffectKind")) = Addition.CoreEffectKind;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreCounterA")) = Addition.CounterA;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreCounterB")) = Addition.CounterB;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreCounterC")) = Addition.CounterC;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreValueA")) = Addition.ValueA;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreValueB")) = Addition.ValueB;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreValueC")) = Addition.ValueC;
+    Effect->IntegerState.FindOrAdd(TEXT("CoreFlags")) = Addition.Flags;
+}
+
+void RemoveCoreAimPresentation(ARoundCharacter* Character, const FString& EffectId)
+{
+    if (!Character || !Character->GetWorld()) return;
+    for (TActorIterator<ARoundAimFieldTriggerActor> It(Character->GetWorld()); It; ++It)
+    {
+        if (It->CauserCharacter == Character && It->bPresentationOnly && It->CoreEffectId == EffectId)
+        {
+            It->RemoveTrigger();
+            break;
+        }
     }
 }
 }
@@ -3894,6 +3959,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         {
             Update.Ability->SetCooldown(Update.Cooldown);
             Update.Ability->CurrentCharges = Update.Charges;
+            if (ARoundSnipeAbility* Snipe = Cast<ARoundSnipeAbility>(Update.Ability)) Snipe->ReadyInitiativeElapsed = Update.ReadyInitiativeElapsed;
         }
     }
     for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
@@ -3902,6 +3968,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         {
             continue;
         }
+        RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
         const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
         for (ARoundEffectActor* Effect : EffectsSnapshot)
         {
@@ -3912,6 +3979,11 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
                 break;
             }
         }
+    }
+    for (const FRoundCoreModifierEffectAddition& Addition : Execution.AddedModifierEffects)
+    {
+        PresentCoreGenericModifier(GetWorld(), Addition, TEXT("Vorbereiteter Effekt"),
+            TEXT("Dieser Effekt wird von RoundCore verwaltet."));
     }
 
     for (const FRoundCoreDamageEvent& Damage : Execution.DamageEvents)
@@ -4001,6 +4073,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         {
             Update.Ability->SetCooldown(Update.Cooldown);
             Update.Ability->CurrentCharges = Update.Charges;
+            if (ARoundSnipeAbility* Snipe = Cast<ARoundSnipeAbility>(Update.Ability)) Snipe->ReadyInitiativeElapsed = Update.ReadyInitiativeElapsed;
         }
     }
     for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
@@ -4009,6 +4082,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         {
             continue;
         }
+        RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
         const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
         for (ARoundEffectActor* Effect : EffectsSnapshot)
         {
@@ -4034,7 +4108,38 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
                 ExistingEffect->RemoveEffect();
             }
         }
-        if (Addition.AreaCenterTile || Addition.AreaDamage > 0 || Addition.AreaInitiativeLossPerPulse > 0)
+        if (Addition.CoreEffectKind == static_cast<int32>(roundcore::ModifierEffectKind::AimField)
+            && Addition.AreaCenterTile)
+        {
+            TArray<ARoundGridTile*> TriggerTiles;
+            TSet<ARoundGridTile*> Visited;
+            TArray<TPair<ARoundGridTile*, int32>> Frontier;
+            Frontier.Add({Addition.AreaCenterTile, 0});
+            Visited.Add(Addition.AreaCenterTile);
+            while (!Frontier.IsEmpty())
+            {
+                const TPair<ARoundGridTile*, int32> Current = Frontier[0];
+                Frontier.RemoveAt(0);
+                TriggerTiles.Add(Current.Key);
+                if (Current.Value >= Addition.AreaRadius) continue;
+                for (ARoundGridTile* Neighbor : GetNeighborFields(Current.Key))
+                {
+                    if (Neighbor && !Visited.Contains(Neighbor))
+                    {
+                        Visited.Add(Neighbor);
+                        Frontier.Add({Neighbor, Current.Value + 1});
+                    }
+                }
+            }
+            if (ARoundAimFieldTriggerActor* Presentation = GetWorld()->SpawnActor<ARoundAimFieldTriggerActor>())
+            {
+                Presentation->bPresentationOnly = true;
+                Presentation->CoreEffectId = Addition.EffectId;
+                Presentation->InitializeTrigger(Addition.Character, TriggerTiles);
+            }
+        }
+        if (Addition.CoreEffectKind != static_cast<int32>(roundcore::ModifierEffectKind::AimField)
+            && (Addition.AreaCenterTile || Addition.AreaDamage > 0 || Addition.AreaInitiativeLossPerPulse > 0))
         {
             if (ARoundSanctifiedGroundAuraEffect* Effect = GetWorld()->SpawnActor<ARoundSanctifiedGroundAuraEffect>())
             {
@@ -4158,8 +4263,39 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
             Addition.Character->AddEffect(Effect);
         }
+        for (ARoundEffectActor* PresentedEffect : Addition.Character->ActiveEffects)
+        {
+            if (!PresentedEffect || PresentedEffect->EffectId.ToString() != Addition.EffectId) continue;
+            PresentedEffect->StringState.FindOrAdd(TEXT("CoreSourceAbilityId")) = Addition.SourceAbilityId;
+            PresentedEffect->StringState.FindOrAdd(TEXT("CorePreferredTarget")) = Addition.PreferredTarget
+                ? Addition.PreferredTarget->GetPathName() : FString();
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreEffectKind")) = Addition.CoreEffectKind;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreCounterA")) = Addition.CounterA;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreCounterB")) = Addition.CounterB;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreCounterC")) = Addition.CounterC;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreValueA")) = Addition.ValueA;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreValueB")) = Addition.ValueB;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreValueC")) = Addition.ValueC;
+            PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreFlags")) = Addition.Flags;
+            break;
+        }
     }
 
+    for (const FRoundCoreBoardDamageEvent& Damage : Execution.BoardDamageEvents)
+    {
+        if (!Damage.Tile || Damage.Amount <= 0)
+        {
+            continue;
+        }
+        AActor* BoardActor = Damage.bTerrainObject
+            ? Damage.Tile->TerrainObject.Get()
+            : Damage.Tile->OccupyingFieldObject.Get();
+        if (BoardActor && BoardActor->GetClass()->ImplementsInterface(URoundBoardDamageableInterface::StaticClass()))
+        {
+            IRoundBoardDamageableInterface::Execute_ApplyBoardDamage(
+                BoardActor, Damage.Amount, Ability->GetAbilityDamageType(), 0, Character);
+        }
+    }
     for (const FRoundCoreDamageEvent& Damage : Execution.DamageEvents)
     {
         if (Damage.Target)
@@ -4353,6 +4489,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
         for (const FRoundCoreEffectRemoval& Removal : MoveExecution.RemovedEffects)
         {
             if (!Removal.Character) continue;
+            RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
             const TArray<TObjectPtr<ARoundEffectActor>> Effects = Removal.Character->ActiveEffects;
             for (ARoundEffectActor* Effect : Effects)
             {
@@ -4378,6 +4515,22 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
                 Effect->OutgoingDamageMultiplier = Addition.OutgoingDamageMultiplierBasisPoints / 10000.0;
                 Effect->bTreatAsDebuff = true; Effect->CauserCharacter = Addition.Causer;
                 Effect->SetDurationInitiative(Addition.RemainingInitiative, false); Addition.Character->AddEffect(Effect);
+            }
+            for (ARoundEffectActor* PresentedEffect : Addition.Character->ActiveEffects)
+            {
+                if (!PresentedEffect || PresentedEffect->EffectId.ToString() != Addition.EffectId) continue;
+                PresentedEffect->StringState.FindOrAdd(TEXT("CoreSourceAbilityId")) = Addition.SourceAbilityId;
+                PresentedEffect->StringState.FindOrAdd(TEXT("CorePreferredTarget")) = Addition.PreferredTarget
+                    ? Addition.PreferredTarget->GetPathName() : FString();
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreEffectKind")) = Addition.CoreEffectKind;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreCounterA")) = Addition.CounterA;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreCounterB")) = Addition.CounterB;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreCounterC")) = Addition.CounterC;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreValueA")) = Addition.ValueA;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreValueB")) = Addition.ValueB;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreValueC")) = Addition.ValueC;
+                PresentedEffect->IntegerState.FindOrAdd(TEXT("CoreFlags")) = Addition.Flags;
+                break;
             }
         }
         for (const FRoundCoreDamageEvent& Damage : MoveExecution.DamageEvents)
@@ -4476,6 +4629,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             {
                 Update.Ability->SetCooldown(Update.Cooldown);
                 Update.Ability->CurrentCharges = Update.Charges;
+                if (ARoundSnipeAbility* Snipe = Cast<ARoundSnipeAbility>(Update.Ability)) Snipe->ReadyInitiativeElapsed = Update.ReadyInitiativeElapsed;
             }
         }
 
@@ -4497,6 +4651,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
         for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
         {
             if (!Removal.Character) continue;
+            RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
             const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
             for (ARoundEffectActor* Effect : EffectsSnapshot)
             {

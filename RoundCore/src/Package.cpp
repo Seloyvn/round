@@ -255,6 +255,7 @@ void WriteState(Writer& writer, const GameState& state)
     {
         writer.Integer(tile.id); writer.Integer(tile.coord.q); writer.Integer(tile.coord.r); writer.String(tile.terrainId);
         writer.Integer(tile.occupantId); writer.Integer(tile.blocksMovement);
+        writer.Integer(tile.fieldObjectHealth); writer.Integer(tile.terrainObjectHealth);
     }
     writer.Integer(static_cast<std::uint32_t>(state.characters.size()));
     for (const CharacterState& character : state.characters)
@@ -278,7 +279,7 @@ void WriteState(Writer& writer, const GameState& state)
         {
             writer.String(ability.definitionId); writer.Integer(ability.cooldownRemaining);
             writer.Integer(ability.cooldownDuration); writer.Integer(ability.currentCharges);
-            writer.Integer(ability.maxCharges); writer.Integer(ability.usesCharges);
+            writer.Integer(ability.maxCharges); writer.Integer(ability.usesCharges); writer.Integer(ability.readyInitiativeElapsed);
         }
         writer.Integer(static_cast<std::uint32_t>(character.modifierEffects.size()));
         for (const ModifierEffectState& effect : character.modifierEffects)
@@ -314,10 +315,14 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(effect.areaInitiativeLossPerPulse); writer.Integer(effect.areaFollowsCauser);
             writer.Integer(effect.onlyAffectCauserDamage); writer.Integer(effect.onlyAgainstRangedSources);
             writer.Integer(effect.blockMovementBonuses); writer.Integer(effect.basicAttackCostAvailable);
-            writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.preventsAbilityUse);
+            writer.Integer(effect.consumeOnBasicAttack); writer.Integer(effect.consumeOnOutgoingDamage);
+            writer.Integer(effect.preventsAbilityUse);
             writer.Integer(effect.preventsMovement); writer.Integer(effect.firstMovePenaltyAvailable);
             writer.Integer(effect.expireOnTurnEnd);
-            writer.Integer(effect.isDebuff); writer.Integer(effect.triggerOnMove);
+            writer.Integer(effect.isDebuff); writer.Integer(effect.triggerOnMove); writer.Integer(effect.consumeOnDamageFromCauser);
+            writer.String(effect.sourceAbilityId); writer.Integer(effect.kind);
+            writer.Integer(effect.counterA); writer.Integer(effect.counterB); writer.Integer(effect.counterC);
+            writer.Integer(effect.valueA); writer.Integer(effect.valueB); writer.Integer(effect.valueC); writer.Integer(effect.flags);
         }
         writer.Integer(static_cast<std::uint32_t>(character.recentAuraPreventions.size()));
         for (const RecentAuraPreventionState& prevention : character.recentAuraPreventions)
@@ -341,6 +346,8 @@ GameState ReadState(Reader& reader)
         TileState tile; tile.id = reader.Integer<EntityId>(); tile.coord.q = reader.Integer<std::int32_t>();
         tile.coord.r = reader.Integer<std::int32_t>(); tile.terrainId = reader.String();
         tile.occupantId = reader.Integer<EntityId>(); tile.blocksMovement = reader.Integer<bool>();
+        tile.fieldObjectHealth = reader.Integer<std::int32_t>();
+        tile.terrainObjectHealth = reader.Integer<std::int32_t>();
         state.tiles.push_back(std::move(tile));
     }
     for (std::uint32_t index = 0, count = reader.Count(); index < count; ++index)
@@ -370,6 +377,7 @@ GameState ReadState(Reader& reader)
             AbilityState value; value.definitionId = reader.String(); value.cooldownRemaining = reader.Integer<std::int32_t>();
             value.cooldownDuration = reader.Integer<std::int32_t>(); value.currentCharges = reader.Integer<std::int32_t>();
             value.maxCharges = reader.Integer<std::int32_t>(); value.usesCharges = reader.Integer<bool>();
+            value.readyInitiativeElapsed = reader.Integer<std::int32_t>();
             character.abilities.push_back(std::move(value));
         }
         for (std::uint32_t effect = 0, effectCount = reader.Count(); effect < effectCount; ++effect)
@@ -416,11 +424,19 @@ GameState ReadState(Reader& reader)
             value.areaFollowsCauser = reader.Integer<bool>();
             value.onlyAffectCauserDamage = reader.Integer<bool>(); value.onlyAgainstRangedSources = reader.Integer<bool>();
             value.blockMovementBonuses = reader.Integer<bool>(); value.basicAttackCostAvailable = reader.Integer<bool>();
-            value.consumeOnBasicAttack = reader.Integer<bool>(); value.preventsAbilityUse = reader.Integer<bool>();
+            value.consumeOnBasicAttack = reader.Integer<bool>();
+            value.consumeOnOutgoingDamage = reader.Integer<bool>();
+            value.preventsAbilityUse = reader.Integer<bool>();
             value.preventsMovement = reader.Integer<bool>();
             value.firstMovePenaltyAvailable = reader.Integer<bool>();
             value.expireOnTurnEnd = reader.Integer<bool>();
             value.isDebuff = reader.Integer<bool>(); value.triggerOnMove = reader.Integer<bool>();
+            value.consumeOnDamageFromCauser = reader.Integer<bool>();
+            value.sourceAbilityId = reader.String(); value.kind = reader.Integer<ModifierEffectKind>();
+            value.counterA = reader.Integer<std::int32_t>(); value.counterB = reader.Integer<std::int32_t>();
+            value.counterC = reader.Integer<std::int32_t>(); value.valueA = reader.Integer<std::int32_t>();
+            value.valueB = reader.Integer<std::int32_t>(); value.valueC = reader.Integer<std::int32_t>();
+            value.flags = reader.Integer<std::uint32_t>();
             character.modifierEffects.push_back(std::move(value));
         }
         for (std::uint32_t prevention = 0, preventionCount = reader.Count(); prevention < preventionCount; ++prevention)

@@ -51,6 +51,10 @@ void ARoundSnipeAbility::AdvanceCooldown()
 
 FRoundActionResult ARoundSnipeAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 11)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     ARoundCharacter2* AmmoCharacter = Cast<ARoundCharacter2>(OwningCharacter);
     if (!CanTargetTile(TargetTile) || !AmmoCharacter || !OwningCharacter->Attributes || !TargetTile)

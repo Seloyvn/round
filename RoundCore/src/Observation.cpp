@@ -98,7 +98,9 @@ NumericObservation EncodeOmniscientObservation(
             RequireIndex(schema.terrainIndices, tile->terrainId, "terrain"),
             tile->occupantId,
             tile->blocksMovement ? 1 : 0,
-            tile->occupantId == InvalidEntityId ? 0 : 1});
+            tile->occupantId == InvalidEntityId ? 0 : 1,
+            tile->fieldObjectHealth,
+            tile->terrainObjectHealth});
     }
 
     std::vector<const CharacterState*> characters;
@@ -152,7 +154,8 @@ NumericObservation EncodeOmniscientObservation(
                 ability.cooldownDuration,
                 ability.currentCharges,
                 ability.maxCharges,
-                ability.usesCharges ? 1 : 0});
+                ability.usesCharges ? 1 : 0,
+                ability.readyInitiativeElapsed});
         }
         for (std::size_t effectIndex = 0; effectIndex < character->modifierEffects.size(); ++effectIndex)
         {
@@ -184,10 +187,15 @@ NumericObservation EncodeOmniscientObservation(
                 effect.onlyAffectCauserDamage ? 1 : 0,
                 effect.onlyAgainstRangedSources ? 1 : 0, effect.blockMovementBonuses ? 1 : 0,
                 effect.basicAttackCostAvailable ? 1 : 0, effect.consumeOnBasicAttack ? 1 : 0,
+                effect.consumeOnOutgoingDamage ? 1 : 0,
                 effect.preventsAbilityUse ? 1 : 0, effect.preventsMovement ? 1 : 0,
                 effect.firstMovePenaltyAvailable ? 1 : 0,
                 effect.expireOnTurnEnd ? 1 : 0,
-                effect.isDebuff ? 1 : 0, effect.triggerOnMove ? 1 : 0});
+                effect.isDebuff ? 1 : 0, effect.triggerOnMove ? 1 : 0,
+                effect.consumeOnDamageFromCauser ? 1 : 0,
+                effect.sourceAbilityId.empty() ? -1 : RequireIndex(schema.abilityIndices, effect.sourceAbilityId, "effect ability"),
+                static_cast<std::int64_t>(effect.kind), effect.counterA, effect.counterB, effect.counterC,
+                effect.valueA, effect.valueB, effect.valueC, effect.flags});
         }
     }
 

@@ -4,9 +4,11 @@
 #include "Actors/RoundAbilityActor.h"
 #include "Actors/RoundGridTile.h"
 #include "Actors/RoundTerrainActor.h"
+#include "Actors/RoundEngineerDeviceActor.h"
 #include "Actors/RoundCharacterPaladin.h"
 #include "Actors/RoundCharacter1.h"
 #include "Actors/RoundCharacter2.h"
+#include "Abilities/RoundSnipeAbility.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
 #include "Effects/RoundSuppressingFireEffect.h"
@@ -77,6 +79,15 @@ ERoundDamageType ToRoundDamageType(const roundcore::DamageType DamageType)
     }
 }
 
+void CopyCoreEffectMetadata(const roundcore::ModifierEffectState& State, FRoundCoreModifierEffectAddition& Addition)
+{
+    Addition.SourceAbilityId = UTF8_TO_TCHAR(State.sourceAbilityId.c_str());
+    Addition.CoreEffectKind = static_cast<int32>(State.kind);
+    Addition.CounterA = State.counterA; Addition.CounterB = State.counterB; Addition.CounterC = State.counterC;
+    Addition.ValueA = State.valueA; Addition.ValueB = State.valueB; Addition.ValueC = State.valueC;
+    Addition.Flags = static_cast<int32>(State.flags);
+}
+
 void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCoreCharacterRuntimeUpdate& Update)
 {
     Update.bAttackedThisTurn = State.attackedThisTurn;
@@ -96,6 +107,7 @@ void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCo
 bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& OutReason)
 {
     OutReason.Reset();
+    TMap<const ARoundCharacter*, TArray<roundcore::ModifierEffectState>> PreservedCoreEffects;
     for (const roundcore::CharacterState& State : CoreGame.State().characters)
     {
         ARoundCharacter* const* Owner = CharacterActors.Find(State.id);
@@ -103,6 +115,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         {
             continue;
         }
+        PreservedCoreEffects.Add(*Owner, TArray<roundcore::ModifierEffectState>(State.modifierEffects.data(),
+            static_cast<int32>(State.modifierEffects.size())));
         for (const roundcore::RecentAuraPreventionState& Prevention : State.recentAuraPreventions)
         {
             if (ARoundCharacter* const* Source = CharacterActors.Find(Prevention.sourceId))
@@ -198,6 +212,14 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         TileState.coord = {Tile->GridCoordinate.X, Tile->GridCoordinate.Y};
         TileState.terrainId = TerrainId;
         TileState.blocksMovement = Tile->HasBlockingFieldObject();
+        if (const ARoundEngineerDeviceActor* Device = Cast<ARoundEngineerDeviceActor>(Tile->OccupyingFieldObject))
+        {
+            TileState.fieldObjectHealth = FMath::Max(0, Device->GetCurrentHealth());
+        }
+        if (TerrainActor && TerrainActor->IsDestructible())
+        {
+            TileState.terrainObjectHealth = FMath::Max(0, TerrainActor->CurrentHealth);
+        }
         Setup.initialState.tiles.push_back(std::move(TileState));
     }
 
@@ -398,7 +420,12 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                                 : (CoreOperation == 8 ? roundcore::AbilityOperation::Shackle
                                 : (CoreOperation == 9 ? roundcore::AbilityOperation::Bind
                                 : (CoreOperation == 10 ? roundcore::AbilityOperation::Taunt
-                                : roundcore::AbilityOperation::Unsupported)))))))));
+                                : (CoreOperation == 11 ? roundcore::AbilityOperation::Snipe
+                                : (CoreOperation == 12 ? roundcore::AbilityOperation::Concentrate
+                                : (CoreOperation == 13 ? roundcore::AbilityOperation::Aim
+                                : (CoreOperation == 14 ? roundcore::AbilityOperation::PiercingShot
+                                : (CoreOperation == 15 ? roundcore::AbilityOperation::SuppressingFire
+                                : roundcore::AbilityOperation::Unsupported))))))))))))));
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
                 ? roundcore::AbilityTargetRelation::Self
                 : ((AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
@@ -414,7 +441,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
                 || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
-                || (CoreOperation >= 6 && CoreOperation <= 10))
+                || (CoreOperation >= 6 && CoreOperation <= 15))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -431,6 +458,10 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityState.currentCharges = FMath::Max(0, Ability->CurrentCharges);
             AbilityState.maxCharges = FMath::Max(1, Ability->GetAbilityMaxCharges());
             AbilityState.usesCharges = Ability->UsesCharges();
+            if (const ARoundSnipeAbility* Snipe = Cast<ARoundSnipeAbility>(Ability))
+            {
+                AbilityState.readyInitiativeElapsed = Snipe->ReadyInitiativeElapsed;
+            }
             CharacterState.abilities.push_back(std::move(AbilityState));
             AbilityActors.Add(AbilityKey, Ability);
         }
@@ -566,7 +597,28 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             }
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
+            EffectState.sourceAbilityId = ToCoreString(Effect->StringState.FindRef(TEXT("CoreSourceAbilityId")));
+            EffectState.kind = static_cast<roundcore::ModifierEffectKind>(Effect->IntegerState.FindRef(TEXT("CoreEffectKind")));
+            EffectState.counterA = Effect->IntegerState.FindRef(TEXT("CoreCounterA"));
+            EffectState.counterB = Effect->IntegerState.FindRef(TEXT("CoreCounterB"));
+            EffectState.counterC = Effect->IntegerState.FindRef(TEXT("CoreCounterC"));
+            EffectState.valueA = Effect->IntegerState.FindRef(TEXT("CoreValueA"));
+            EffectState.valueB = Effect->IntegerState.FindRef(TEXT("CoreValueB"));
+            EffectState.valueC = Effect->IntegerState.FindRef(TEXT("CoreValueC"));
+            EffectState.flags = static_cast<uint32>(Effect->IntegerState.FindRef(TEXT("CoreFlags")));
             CharacterState.modifierEffects.push_back(std::move(EffectState));
+        }
+        if (const TArray<roundcore::ModifierEffectState>* PreservedEffects = PreservedCoreEffects.Find(Character))
+        {
+            for (roundcore::ModifierEffectState& SnapshotEffect : CharacterState.modifierEffects)
+            {
+                const roundcore::ModifierEffectState* Preserved = PreservedEffects->FindByPredicate(
+                    [&SnapshotEffect](const roundcore::ModifierEffectState& Existing) { return Existing.id == SnapshotEffect.id; });
+                if (Preserved && Preserved->kind != roundcore::ModifierEffectKind::Generic)
+                {
+                    SnapshotEffect = *Preserved;
+                }
+            }
         }
         if (const TMap<const ARoundCharacter*, uint64>* Preventions = PreservedAuraPreventions.Find(Character))
         {
@@ -643,7 +695,8 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
             break;
         }
     }
-    const bool bGroundAura = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0) == 5;
+    const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
+    const bool bGroundAura = CoreOperation == 5 || CoreOperation == 13;
     if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
@@ -812,6 +865,27 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
                 OutExecution.RemovedEffects.Add({*Owner, UTF8_TO_TCHAR(Event.definitionId.c_str())});
             }
         }
+        else if (Event.type == roundcore::EventType::EffectAdded)
+        {
+            const auto owner = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
+                [&Event](const roundcore::CharacterState& state) { return state.id == Event.targetId; });
+            if (owner != CoreGame.State().characters.end())
+            {
+                const auto effect = std::find_if(owner->modifierEffects.begin(), owner->modifierEffects.end(),
+                    [&Event](const roundcore::ModifierEffectState& state) { return state.id == Event.definitionId; });
+                if (effect != owner->modifierEffects.end())
+                {
+                    FRoundCoreModifierEffectAddition& addition = OutExecution.AddedModifierEffects.AddDefaulted_GetRef();
+                    addition.Character = CharacterActors.FindRef(Event.targetId); addition.Causer = CharacterActors.FindRef(effect->causerId);
+                    addition.PreferredTarget = CharacterActors.FindRef(effect->preferredTargetId);
+                    addition.EffectId = UTF8_TO_TCHAR(effect->id.c_str()); addition.RemainingInitiative = effect->remainingInitiative;
+                    addition.IncomingDamageMultiplierBasisPoints = effect->incomingDamageMultiplierBasisPoints;
+                    addition.OutgoingDamageMultiplierBasisPoints = effect->outgoingDamageMultiplierBasisPoints;
+                    addition.DefenseIgnoreAdd = effect->defenseIgnoreAdd; addition.MoveCostAdd = effect->moveCostAdd;
+                    addition.bIsDebuff = effect->isDebuff; CopyCoreEffectMetadata(*effect, addition);
+                }
+            }
+        }
     }
     for (const roundcore::CharacterState& State : CoreGame.State().characters)
     {
@@ -832,7 +906,7 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
             const FString AbilityKey = UTF8_TO_TCHAR(AbilityState.definitionId.c_str());
             if (ARoundAbilityActor* const* Ability = AbilityActors.Find(AbilityKey))
             {
-                OutExecution.AbilityUpdates.Add({*Ability, AbilityState.cooldownRemaining, AbilityState.currentCharges});
+                OutExecution.AbilityUpdates.Add({*Ability, AbilityState.cooldownRemaining, AbilityState.currentCharges, AbilityState.readyInitiativeElapsed});
             }
         }
     }
@@ -862,7 +936,8 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
             break;
         }
     }
-    const bool bGroundAura = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0) == 5;
+    const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
+    const bool bGroundAura = CoreOperation == 5 || CoreOperation == 13;
     if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
@@ -885,7 +960,17 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
 
     for (const roundcore::GameEvent& Event : Result.events)
     {
-        if (Event.type == roundcore::EventType::DamageApplied)
+        if (Event.type == roundcore::EventType::DamageApplied
+            && Event.targetId == roundcore::InvalidEntityId
+            && (Event.definitionId.find(":FieldObject") != std::string::npos
+                || Event.definitionId.find(":TerrainObject") != std::string::npos))
+        {
+            FRoundCoreBoardDamageEvent& BoardDamage = OutExecution.BoardDamageEvents.AddDefaulted_GetRef();
+            BoardDamage.Tile = TileActors.FindRef(Event.tileId);
+            BoardDamage.Amount = FMath::Max(0, static_cast<int32>(Event.amount));
+            BoardDamage.bTerrainObject = Event.definitionId.find(":TerrainObject") != std::string::npos;
+        }
+        else if (Event.type == roundcore::EventType::DamageApplied)
         {
             const int32 Damage = FMath::Max(0, static_cast<int32>(Event.amount));
             if (TargetId && Event.targetId == *TargetId)
@@ -929,6 +1014,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     FRoundCoreModifierEffectAddition& Addition = OutExecution.AddedModifierEffects.AddDefaulted_GetRef();
                     Addition.Character = *Owner;
                     Addition.Causer = CharacterActors.FindRef(EffectState->causerId);
+                    Addition.PreferredTarget = CharacterActors.FindRef(EffectState->preferredTargetId);
                     Addition.EffectId = UTF8_TO_TCHAR(EffectState->id.c_str());
                     Addition.RemainingInitiative = EffectState->remainingInitiative;
                     Addition.IncomingDamageMultiplierBasisPoints = EffectState->incomingDamageMultiplierBasisPoints;
@@ -949,7 +1035,8 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     Addition.bAreaFollowsCauser = EffectState->areaFollowsCauser;
                     Addition.bIsDebuff = EffectState->isDebuff;
                     Addition.bIsBind = EffectState->triggerOnMove;
-                    Addition.bIsTaunt = EffectState->preferredTargetId != roundcore::InvalidEntityId;
+                    Addition.bIsTaunt = EffectState->kind == roundcore::ModifierEffectKind::Generic
+                        && EffectState->preferredTargetId != roundcore::InvalidEntityId;
                     Addition.MoveCostMultiplierBasisPoints = EffectState->moveCostMultiplierBasisPoints;
                     Addition.InitiativeLossOnMove = EffectState->initiativeLossOnMove;
                     Addition.InitiativeLossOnExpire = EffectState->initiativeLossOnExpire;
@@ -968,6 +1055,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
                     Addition.InitiativeLossWhenIgnoringCauser = EffectState->initiativeLossWhenIgnoringPreferredTarget;
                     Addition.InitiativeGainForCauserWhenAttacked = EffectState->initiativeGainForCauserWhenAttacked;
                     Addition.OutgoingDamageMultiplierAgainstOtherTargetsBasisPoints = EffectState->outgoingDamageMultiplierAgainstOtherTargetsBasisPoints;
+                    CopyCoreEffectMetadata(*EffectState, Addition);
                 }
             }
         }
@@ -1009,7 +1097,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
             const FString RuntimeAbilityKey = UTF8_TO_TCHAR(AbilityState.definitionId.c_str());
             if (ARoundAbilityActor* const* RuntimeAbility = AbilityActors.Find(RuntimeAbilityKey))
             {
-                OutExecution.AbilityUpdates.Add({*RuntimeAbility, AbilityState.cooldownRemaining, AbilityState.currentCharges});
+                OutExecution.AbilityUpdates.Add({*RuntimeAbility, AbilityState.cooldownRemaining, AbilityState.currentCharges, AbilityState.readyInitiativeElapsed});
             }
         }
     }
@@ -1135,6 +1223,7 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
                 Update.Ability = *Ability;
                 Update.Cooldown = AbilityState.cooldownRemaining;
                 Update.Charges = AbilityState.currentCharges;
+                Update.ReadyInitiativeElapsed = AbilityState.readyInitiativeElapsed;
             }
         }
     }
@@ -1234,11 +1323,13 @@ bool FRoundCoreMatchAdapter::ExecuteMove(
                     FRoundCoreModifierEffectAddition& Addition = OutExecution.AddedModifierEffects.AddDefaulted_GetRef();
                     Addition.Character = CharacterActors.FindRef(Event.targetId);
                     Addition.Causer = CharacterActors.FindRef(Effect->causerId);
+                    Addition.PreferredTarget = CharacterActors.FindRef(Effect->preferredTargetId);
                     Addition.EffectId = UTF8_TO_TCHAR(Effect->id.c_str());
                     Addition.RemainingInitiative = Effect->remainingInitiative;
                     Addition.OutgoingDamageMultiplierBasisPoints = Effect->outgoingDamageMultiplierBasisPoints;
                     Addition.MoveCostMultiplierBasisPoints = Effect->moveCostMultiplierBasisPoints;
                     Addition.bIsDebuff = Effect->isDebuff;
+                    CopyCoreEffectMetadata(*Effect, Addition);
                 }
             }
         }

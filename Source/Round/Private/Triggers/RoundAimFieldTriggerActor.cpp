@@ -199,7 +199,8 @@ void ARoundAimFieldTriggerActor::ExecuteTrigger_Implementation(ARoundCharacter* 
 
 bool ARoundAimFieldTriggerActor::CanTriggerCharacter_Implementation(ARoundCharacter* EnteringCharacter, ARoundGridTile* EnteredTile, ARoundGridTile* PreviousTile) const
 {
-    return Super::CanTriggerCharacter_Implementation(EnteringCharacter, EnteredTile, PreviousTile)
+    return !bPresentationOnly
+        && Super::CanTriggerCharacter_Implementation(EnteringCharacter, EnteredTile, PreviousTile)
         && CauserCharacter
         && EnteringCharacter
         && CauserCharacter->IsEnemyFor(EnteringCharacter);
@@ -230,4 +231,6 @@ void ARoundAimFieldTriggerActor::GetLifetimeReplicatedProps(TArray<FLifetimeProp
     DOREPLIFETIME(ARoundAimFieldTriggerActor, bCoverFire);
     DOREPLIFETIME(ARoundAimFieldTriggerActor, bApplyTrackingMark);
     DOREPLIFETIME(ARoundAimFieldTriggerActor, OwnerPlacementTile);
+    DOREPLIFETIME(ARoundAimFieldTriggerActor, bPresentationOnly);
+    DOREPLIFETIME(ARoundAimFieldTriggerActor, CoreEffectId);
 }

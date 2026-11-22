@@ -77,6 +77,12 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Trigger")
     TObjectPtr<class ARoundGridTile> OwnerPlacementTile = nullptr;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Trigger")
+    bool bPresentationOnly = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Replicated, Category = "Trigger")
+    FString CoreEffectId;
+
 protected:
     virtual void ExecuteTrigger_Implementation(class ARoundCharacter* EnteringCharacter, class ARoundGridTile* EnteredTile, class ARoundGridTile* PreviousTile) override;
     virtual bool CanTriggerCharacter_Implementation(class ARoundCharacter* EnteringCharacter, class ARoundGridTile* EnteredTile, class ARoundGridTile* PreviousTile) const override;

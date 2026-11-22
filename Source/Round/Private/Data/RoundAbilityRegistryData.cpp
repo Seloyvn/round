@@ -1096,7 +1096,7 @@ void URoundAbilityRegistryData::PopulateCharacter2AbilityProgressionDefaults()
             TEXT("Concentrate"),
             TEXT("Bereitet den naechsten Treffer vor und verstaerkt Timing, Kontrolle und Rhythmus."),
             {
-                MakeAbilitySkillpoint(TEXT("Kammerpflege"), TEXT("Wird Concentrate mit 0 Ammo aktiviert, wird nach 10 Initiative 1 Ammo geladen."), {{TEXT("ReloadAmmoAfterDelay"), 1.0}}),
+                MakeAbilitySkillpoint(TEXT("Kammerpflege"), TEXT("Wird Concentrate mit 0 Ammo aktiviert, wird nach 10 Initiative 1 Ammo geladen."), {{TEXT("ReloadAmmoAfterDelay"), 1.0}, {TEXT("ReloadDelayInitiative"), 10.0}}),
                 MakeAbilitySkillpoint(TEXT("Fester Fokus"), TEXT("Concentrate hat keine Zeitbegrenzung, verfaellt aber bei Bewegung."), {{TEXT("UnlimitedUntilMove"), 1.0}, {TEXT("ExpireOnMove"), 1.0}}),
                 MakeAbilitySkillpoint(TEXT("Unter Spannung"), TEXT("Solange Concentrate aktiv ist, blockiert es Ammo-Regeneration und erhaelt pro 10 Initiative 5% Bonus, maximal 20%."), {{TEXT("BlockAmmoRegeneration"), 1.0}, {TEXT("ChargeInterval"), 10.0}, {TEXT("ChargeBonusPerInterval"), 0.05}, {TEXT("MaxChargeBonus"), 0.2}}),
                 MakeAbilitySkillpoint(TEXT("Panzerbruch"), TEXT("Der verstaerkte Treffer reduziert Defense fuer 80 Initiative um 20."), {{TEXT("DefenseReductionOnHit"), 20.0}, {TEXT("DefenseReductionDurationInitiative"), 80.0}}),
@@ -1140,7 +1140,7 @@ void URoundAbilityRegistryData::PopulateCharacter2AbilityProgressionDefaults()
                 MakeAbilitySkillpoint(TEXT("Wuchtlinie"), TEXT("Das erste getroffene Ziel wird um {KnockbackFirstTargetDistance} Feld zurueckgestossen, wenn das Feld frei ist."), {{TEXT("KnockbackFirstTargetDistance"), 1.0}}),
                 MakeAbilitySkillpoint(TEXT("Kreuzungspunkt"), TEXT("Der zweite und jeder weitere getroffene Charakter erleidet {LaterTargetDamageMultiplier}x Schaden."), {{TEXT("LaterTargetDamageMultiplier"), 1.2}}),
                 MakeAbilitySkillpoint(TEXT("Langlauf"), TEXT("Erhoeht die Reichweite um {Range}."), {{TEXT("Range"), 2.0}}),
-                MakeAbilitySkillpoint(TEXT("Verkettete Wunden"), TEXT("Getroffene Gegner werden markiert. Der naechste normale Angriff auf einen markierten Gegner verursacht {ChainMarkDamageMultiplier}x Angriffsschaden an allen anderen markierten Gegnern und entfernt alle Markierungen."), {{TEXT("ChainMarkDamageMultiplier"), 0.3}}),
+                MakeAbilitySkillpoint(TEXT("Verkettete Wunden"), TEXT("Getroffene Gegner werden markiert. Der naechste normale Angriff auf einen markierten Gegner verursacht {ChainMarkDamageMultiplier}x Angriffsschaden an allen anderen markierten Gegnern und entfernt alle Markierungen."), {{TEXT("ChainMarkDamageMultiplier"), 0.3}, {TEXT("ChainMarkDurationInitiative"), 160.0}}),
                 MakeAbilitySkillpoint(TEXT("Umlenkgeschoss"), TEXT("Nach dem ersten Treffer aendert das Projektil seine Richtung zum naechsten Gegner innerhalb der verbleibenden Reichweite."), {{TEXT("RedirectAfterFirstHit"), 1.0}}),
                 MakeAbilitySkillpoint(TEXT("Zielspur"), TEXT("Getroffene Gegner werden fuer {TargetMarkDurationInitiative} Initiative markiert. Normale Angriffe von Character 2 erhalten gegen sie {AttackRangeVsMarked} Reichweite."), {{TEXT("TargetMarkDurationInitiative"), 80.0}, {TEXT("AttackRangeVsMarked"), 2.0}}),
                 MakeAbilitySkillpoint(TEXT("Doppelladung"), TEXT("Wenn nach dem Schuss Ammo verbleibt, wird dieselbe Schussbahn mit {RepeatShotDamageMultiplier}x Schaden erneut abgefeuert. Kostet 1 Ammo, aber keine Initiative."), {{TEXT("RepeatShotDamageMultiplier"), 0.5}}),
@@ -1202,6 +1202,27 @@ void URoundAbilityRegistryData::PopulateCharacter2AbilityProgressionDefaults()
 
         AbilityData->Modify();
         AbilityData->SkillProgression = Progression;
+        const FString AbilityId = AbilityData->AbilityId.ToString();
+        const int32 CoreOperation = AbilityId.Equals(TEXT("Snipe"), ESearchCase::IgnoreCase) ? 11
+            : (AbilityId.Equals(TEXT("Concentrate"), ESearchCase::IgnoreCase) ? 12
+            : (AbilityId.Equals(TEXT("Aim"), ESearchCase::IgnoreCase) ? 13
+            : (AbilityId.Equals(TEXT("PiercingShot"), ESearchCase::IgnoreCase) ? 14
+            : (AbilityId.Equals(TEXT("SuppressingFire"), ESearchCase::IgnoreCase) ? 15 : 0))));
+        if (CoreOperation > 0)
+        {
+            AbilityData->Values.FindOrAdd(TEXT("CoreOperation")) = CoreOperation;
+            AbilityData->Values.FindOrAdd(TEXT("CoreTargetRelation")) = CoreOperation == 12 ? 0.0 : 2.0;
+            if (CoreOperation == 12) AbilityData->Values.FindOrAdd(TEXT("ConcentrateDurationInitiative")) = 40.0;
+            if (CoreOperation == 13)
+            {
+                AbilityData->Values.FindOrAdd(TEXT("AimFieldDurationInitiative")) = 160.0;
+                AbilityData->Values.FindOrAdd(TEXT("TrackingDurationInitiative")) = 160.0;
+                AbilityData->Values.FindOrAdd(TEXT("TrackingDamageMultiplier")) = 0.5;
+                AbilityData->Values.FindOrAdd(TEXT("CoverFireDamageMultiplier")) = 0.5;
+            }
+            if (CoreOperation == 14) AbilityData->Values.FindOrAdd(TEXT("PreparationDurationInitiative")) = 160.0;
+            if (CoreOperation == 15) AbilityData->Values.FindOrAdd(TEXT("SuppressionDurationInitiative")) = 40.0;
+        }
         AbilityData->MarkPackageDirty();
         ++UpdatedProgressions;
     }

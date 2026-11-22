@@ -8,6 +8,10 @@
 
 FRoundActionResult ARoundSuppressingFireAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 15)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     ARoundCharacter2* Sniper = Cast<ARoundCharacter2>(OwningCharacter);
     ARoundCharacter* Target = TargetTile ? TargetTile->OccupyingCharacter : nullptr;

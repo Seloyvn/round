@@ -130,6 +130,14 @@ std::vector<EntityId> Game::TeamVisibleTileIds(const Team team) const
             unique.insert(tileId);
         }
     }
+    for (const CharacterState& character : state_.characters)
+    {
+        if (!character.alive) continue;
+        const bool revealed = std::any_of(character.modifierEffects.begin(), character.modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::SuppressingFire
+                && (effect.flags & 4u) != 0u; });
+        if (revealed) unique.insert(character.tileId);
+    }
     std::vector<EntityId> result(unique.begin(), unique.end());
     std::sort(result.begin(), result.end());
     return result;

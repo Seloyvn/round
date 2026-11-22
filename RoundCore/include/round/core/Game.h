@@ -58,6 +58,11 @@ private:
     std::int32_t ResolveDamage(CharacterState& source, CharacterState& target, std::int64_t damage,
         std::int32_t defenseIgnore, std::vector<GameEvent>& auraEvents,
         std::vector<GameEvent>& modifierEvents);
+    void ResolveConcentrateHit(CharacterState& source, CharacterState& target, bool killed,
+        bool basicAttack, AbilityState* usedAbility, std::int32_t appliedDamage,
+        std::vector<GameEvent>& events);
+    bool ResolveAmmoShot(CharacterState& source, bool killed, bool explicitRefund,
+        const DefinitionId& sourceId, std::vector<GameEvent>& events);
     ActionResult ValidateMove(const GameAction& action) const;
     ActionResult ApplyBasicAttack(const GameAction& action);
     ActionResult ValidateBasicAttack(const GameAction& action) const;

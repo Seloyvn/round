@@ -14,6 +14,7 @@ struct FRoundCoreAbilityRuntimeUpdate
     ARoundAbilityActor* Ability = nullptr;
     int32 Cooldown = 0;
     int32 Charges = 0;
+    int32 ReadyInitiativeElapsed = 0;
 };
 
 struct FRoundCoreBasicAttackPreview
@@ -76,6 +77,7 @@ struct FRoundCoreModifierEffectAddition
 {
     ARoundCharacter* Character = nullptr;
     ARoundCharacter* Causer = nullptr;
+    ARoundCharacter* PreferredTarget = nullptr;
     FString EffectId;
     int32 RemainingInitiative = 0;
     int32 IncomingDamageMultiplierBasisPoints = 10000;
@@ -115,6 +117,15 @@ struct FRoundCoreModifierEffectAddition
     int32 InitiativeLossWhenIgnoringCauser = 0;
     int32 InitiativeGainForCauserWhenAttacked = 0;
     int32 OutgoingDamageMultiplierAgainstOtherTargetsBasisPoints = 10000;
+    FString SourceAbilityId;
+    int32 CoreEffectKind = 0;
+    int32 CounterA = 0;
+    int32 CounterB = 0;
+    int32 CounterC = 0;
+    int32 ValueA = 0;
+    int32 ValueB = 0;
+    int32 ValueC = 0;
+    int32 Flags = 0;
 };
 
 struct FRoundCoreTurnExecution
@@ -134,9 +145,17 @@ struct FRoundCoreBasicAttackExecution
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
     TArray<FRoundCoreDamageEvent> DamageEvents;
+    TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
     int32 AppliedDamage = 0;
     bool bCritical = false;
     bool bTargetDied = false;
+};
+
+struct FRoundCoreBoardDamageEvent
+{
+    ARoundGridTile* Tile = nullptr;
+    int32 Amount = 0;
+    bool bTerrainObject = false;
 };
 
 struct FRoundCoreAbilityExecution
@@ -146,6 +165,7 @@ struct FRoundCoreAbilityExecution
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
     TArray<FRoundCoreHealingEvent> HealingEvents;
     TArray<FRoundCoreDamageEvent> DamageEvents;
+    TArray<FRoundCoreBoardDamageEvent> BoardDamageEvents;
     TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
     int32 AppliedDamage = 0;
     int32 AppliedHealing = 0;

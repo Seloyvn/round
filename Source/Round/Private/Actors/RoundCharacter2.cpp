@@ -200,15 +200,34 @@ void ARoundCharacter2::BeginTurn()
 FRoundActionResult ARoundCharacter2::AttackField(ARoundGridTile* TargetTile)
 {
     FRoundActionResult Result;
+    ARoundCharacter* TargetCharacter = TargetTile ? TargetTile->OccupyingCharacter : nullptr;
     ARoundConcentrateEffect* Concentrate = nullptr;
+    bool bCoreConcentrateFreeAttack = false;
+    bool bCoreSuppressionFreeAttack = false;
     for (ARoundEffectActor* Effect : ActiveEffects)
     {
         Concentrate = Cast<ARoundConcentrateEffect>(Effect);
         if (Concentrate) break;
+        const FString* SourceAbilityId = Effect ? Effect->StringState.Find(TEXT("CoreSourceAbilityId")) : nullptr;
+        const int32 Flags = Effect ? Effect->IntegerState.FindRef(TEXT("CoreFlags")) : 0;
+        if (SourceAbilityId && SourceAbilityId->Equals(TEXT("Concentrate"), ESearchCase::IgnoreCase)
+            && (Flags & 2) != 0)
+        {
+            bCoreConcentrateFreeAttack = true;
+        }
+        const FString* PreferredTarget = Effect ? Effect->StringState.Find(TEXT("CorePreferredTarget")) : nullptr;
+        if (SourceAbilityId && SourceAbilityId->Equals(TEXT("SuppressingFire"), ESearchCase::IgnoreCase)
+            && Effect->IntegerState.FindRef(TEXT("CoreValueA")) == 1 && TargetCharacter
+            && PreferredTarget && *PreferredTarget == TargetCharacter->GetPathName())
+        {
+            bCoreSuppressionFreeAttack = true;
+        }
     }
-    const bool bConcentrateFreeAttack = Concentrate && Concentrate->bBasicAttackConsumesNoAmmo;
+    const bool bConcentrateFreeAttack = (Concentrate && Concentrate->bBasicAttackConsumesNoAmmo)
+        || bCoreConcentrateFreeAttack;
     const bool bPassiveFreeAttack = !bUsedFreeBasicAttackThisTurn && GetPassiveValueFromKey(TEXT("FirstBasicAttackFreeAmmo")) > 0.0;
-    const bool bSuppressionFreeAttack = TargetTile && TargetTile->OccupyingCharacter && TargetTile->OccupyingCharacter == FreeSuppressionFollowupTarget;
+    const bool bSuppressionFreeAttack = (TargetCharacter && TargetCharacter == FreeSuppressionFollowupTarget)
+        || bCoreSuppressionFreeAttack;
     const bool bFreeBasicAttack = bConcentrateFreeAttack || bPassiveFreeAttack || bSuppressionFreeAttack;
     if (!bFreeBasicAttack && !HasAmmo())
     {
@@ -216,15 +235,30 @@ FRoundActionResult ARoundCharacter2::AttackField(ARoundGridTile* TargetTile)
         return Result;
     }
 
-    ARoundCharacter* TargetCharacter = TargetTile ? TargetTile->OccupyingCharacter : nullptr;
     PiercingMarkedAttackRangeBonus = 0;
     if (TargetCharacter)
     {
         for (const ARoundEffectActor* Effect : TargetCharacter->ActiveEffects)
         {
-            if (Effect && Effect->EffectId == FName(TEXT("PiercingTargetMark")) && Effect->CauserCharacter == this)
+            if (!Effect || Effect->CauserCharacter != this) continue;
+            if (Effect->EffectId == FName(TEXT("PiercingTargetMark")))
             {
                 PiercingMarkedAttackRangeBonus = FMath::Max(0, FMath::RoundToInt(Effect->Amount));
+                break;
+            }
+            const FString* SourceAbilityId = Effect->StringState.Find(TEXT("CoreSourceAbilityId"));
+            if (SourceAbilityId && SourceAbilityId->Equals(TEXT("PiercingShot"), ESearchCase::IgnoreCase))
+            {
+                for (const ARoundAbilityActor* Ability : GrantedAbilities)
+                {
+                    if (Ability && Ability->AbilityData
+                        && Ability->AbilityData->AbilityId == FName(TEXT("PiercingShot")))
+                    {
+                        PiercingMarkedAttackRangeBonus = FMath::Max(0,
+                            FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("AttackRangeVsMarked"))));
+                        break;
+                    }
+                }
                 break;
             }
         }

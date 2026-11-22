@@ -57,6 +57,10 @@ void ARoundAimAbility::GetPreviewTiles(const ARoundGridTile* TargetTile, TArray<
 
 FRoundActionResult ARoundAimAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 13)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {
