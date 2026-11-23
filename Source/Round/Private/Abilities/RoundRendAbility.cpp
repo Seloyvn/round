@@ -10,6 +10,8 @@
 
 FRoundActionResult ARoundRendAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 30)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     ARoundCharacter* InitialTarget = ResolveTargetCharacter(TargetTile);
     ARoundRendEffect* ExistingRend = nullptr;
     if (InitialTarget)

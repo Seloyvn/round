@@ -9,6 +9,11 @@
 
 FRoundActionResult ARoundHealAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 29)
+    {
+        ARoundGridTile* CoreTargetTile = OwningCharacter ? OwningCharacter->CurrentTile.Get() : TargetTile;
+        return ARoundAbilityActor::ExecuteAbility(CoreTargetTile);
+    }
     FRoundActionResult Result;
     if (!OwningCharacter || !OwningCharacter->Attributes)
     {

@@ -287,6 +287,8 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(character.echoElement); writer.Integer(character.elementCycleMask);
         writer.Integer(character.elementCostReductionUsed); writer.Integer(character.elementSwapRefundUsed);
         writer.Integer(character.storedElementEmpowered); writer.Integer(character.protectionReady);
+        writer.Integer(character.firstBloodDamageReductionAvailable);
+        writer.Integer(character.basicAttackBloodAvailable); writer.Integer(character.bloodCapTriggerAvailable);
         writer.Integer(static_cast<std::uint32_t>(character.abilities.size()));
         for (const AbilityState& ability : character.abilities)
         {
@@ -398,6 +400,8 @@ GameState ReadState(Reader& reader)
         character.echoElement = reader.Integer<std::int32_t>(); character.elementCycleMask = reader.Integer<std::uint32_t>();
         character.elementCostReductionUsed = reader.Integer<bool>(); character.elementSwapRefundUsed = reader.Integer<bool>();
         character.storedElementEmpowered = reader.Integer<bool>(); character.protectionReady = reader.Integer<bool>();
+        character.firstBloodDamageReductionAvailable = reader.Integer<bool>();
+        character.basicAttackBloodAvailable = reader.Integer<bool>(); character.bloodCapTriggerAvailable = reader.Integer<bool>();
         for (std::uint32_t ability = 0, abilityCount = reader.Count(); ability < abilityCount; ++ability)
         {
             AbilityState value; value.definitionId = reader.String(); value.cooldownRemaining = reader.Integer<std::int32_t>();

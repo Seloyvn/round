@@ -26,6 +26,18 @@ int32 ARoundCharacter5::GetCurrentBlood() const
     return FMath::Max(0, NativeBlood);
 }
 
+void ARoundCharacter5::ApplyCoreBloodState(const int32 InBlood, const int32 InCheatDeathCooldown,
+    const bool bInFirstDamageReductionAvailable, const bool bInBasicAttackBloodAvailable,
+    const bool bInBloodCapTriggerAvailable)
+{
+    NativeBlood = FMath::Clamp(InBlood, 0, GetBloodCap());
+    BloodCheatDeathCooldownTurnsRemaining = FMath::Max(0, InCheatDeathCooldown);
+    bFirstDamageReductionAvailableThisTurn = bInFirstDamageReductionAvailable;
+    bBasicAttackBloodAvailableThisTurn = bInBasicAttackBloodAvailable;
+    bBloodCapTriggerAvailable = bInBloodCapTriggerAvailable;
+    NotifyRoundStateChanged();
+}
+
 int32 ARoundCharacter5::GetBloodCap() const
 {
     return FMath::Max(0, FMath::RoundToInt(GetValueFromKey(TEXT("BloodCap")) + GetPassiveValueFromKey(TEXT("BloodCapAdd"))));

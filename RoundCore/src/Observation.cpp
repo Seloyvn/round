@@ -157,7 +157,9 @@ NumericObservation EncodeOmniscientObservation(
             character->protectionRemainingInitiative, character->echoElement,
             static_cast<std::int32_t>(character->elementCycleMask),
             character->elementCostReductionUsed ? 1 : 0, character->elementSwapRefundUsed ? 1 : 0,
-            character->storedElementEmpowered ? 1 : 0, character->protectionReady ? 1 : 0});
+            character->storedElementEmpowered ? 1 : 0, character->protectionReady ? 1 : 0,
+            character->firstBloodDamageReductionAvailable ? 1 : 0,
+            character->basicAttackBloodAvailable ? 1 : 0, character->bloodCapTriggerAvailable ? 1 : 0});
 
         for (std::size_t abilityIndex = 0; abilityIndex < character->abilities.size(); ++abilityIndex)
         {

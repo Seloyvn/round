@@ -33,6 +33,11 @@ void ARoundSpinToWinAbility::GetPreviewTiles(const ARoundGridTile* TargetTile, T
 
 FRoundActionResult ARoundSpinToWinAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 28)
+    {
+        ARoundGridTile* CoreTargetTile = OwningCharacter ? OwningCharacter->CurrentTile.Get() : TargetTile;
+        return ARoundAbilityActor::ExecuteAbility(CoreTargetTile);
+    }
     FRoundActionResult Result;
     if (!OwningCharacter || !OwningCharacter->Attributes || !OwningCharacter->CurrentTile)
     {

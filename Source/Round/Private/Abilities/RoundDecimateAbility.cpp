@@ -9,6 +9,8 @@
 
 FRoundActionResult ARoundDecimateAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 27)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {

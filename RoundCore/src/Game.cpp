@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::ArcaneShift
+        if (ability.operation > AbilityOperation::Rend
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -552,10 +552,17 @@ ActionResult Game::ApplyAction(const GameAction& action)
     for (const ModifierEffectState& trigger : moveTriggers)
     {
         CharacterState* causer = FindCharacter(trigger.causerId);
-        character->modifierEffects.erase(std::remove_if(character->modifierEffects.begin(), character->modifierEffects.end(),
-            [&trigger](const ModifierEffectState& effect) { return effect.id == trigger.id; }), character->modifierEffects.end());
-        result.events.push_back(GameEvent{EventType::EffectRemoved, trigger.causerId, character->id,
-            character->tileId, trigger.id, 0});
+        if (trigger.kind == ModifierEffectKind::RendBleed)
+        {
+            for (ModifierEffectState& effect : character->modifierEffects) if (effect.id == trigger.id) effect.triggerOnMove = false;
+        }
+        else
+        {
+            character->modifierEffects.erase(std::remove_if(character->modifierEffects.begin(), character->modifierEffects.end(),
+                [&trigger](const ModifierEffectState& effect) { return effect.id == trigger.id; }), character->modifierEffects.end());
+            result.events.push_back(GameEvent{EventType::EffectRemoved, trigger.causerId, character->id,
+                character->tileId, trigger.id, 0});
+        }
         if (!causer || !causer->alive) continue;
         if (trigger.triggerDamageOnMove > 0)
         {
@@ -831,6 +838,19 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         const double multiplier = PassiveValue(sourceDefinition, "NextHitDamageMultiplierAfterMove");
         if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
     }
+    if (PassiveValue(sourceDefinition, "CoreBloodCharacter") > 0.0)
+    {
+        const double healthFraction = sourceDefinition.stats.maxHealth > 0
+            ? static_cast<double>(source.health) / sourceDefinition.stats.maxHealth : 1.0;
+        const double lowThreshold = PassiveValue(sourceDefinition, "LowHealthThresholdPercent") / 100.0;
+        const double lowMultiplier = PassiveValue(sourceDefinition, "DamageMultiplierWhileLowHealth");
+        if (lowThreshold > 0.0 && healthFraction <= lowThreshold && lowMultiplier > 0.0)
+            damage = static_cast<std::int64_t>(damage * lowMultiplier + 0.5);
+        const std::int32_t bloodThreshold = std::max(0, static_cast<std::int32_t>(PassiveValue(sourceDefinition, "HighBloodDamageThreshold")));
+        const double bloodMultiplier = PassiveValue(sourceDefinition, "HighBloodDamageMultiplier");
+        if (bloodThreshold > 0 && source.resourceCurrent >= bloodThreshold && bloodMultiplier > 0.0)
+            damage = static_cast<std::int64_t>(damage * bloodMultiplier + 0.5);
+    }
     if (initialSourceTile && initialTargetTile && HexDistance(initialSourceTile->coord, initialTargetTile->coord) > 1)
     {
         const double multiplier = PassiveValue(targetDefinition, "RangedDamageMultiplier");
@@ -902,6 +922,18 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     {
         const double multiplier = PassiveValue(targetDefinition, "NextIncomingDamageMultiplierAfterMove");
         if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
+    if (PassiveValue(targetDefinition, "CoreBloodCharacter") > 0.0)
+    {
+        if (target.firstBloodDamageReductionAvailable)
+        {
+            const double multiplier = PassiveValue(targetDefinition, "FirstIncomingDamageMultiplierPerTurn");
+            if (multiplier > 0.0 && multiplier < 1.0) { damage = static_cast<std::int64_t>(damage * multiplier + 0.5); target.firstBloodDamageReductionAvailable = false; }
+        }
+        const double fraction = targetDefinition.stats.maxHealth > 0 ? static_cast<double>(target.health) / targetDefinition.stats.maxHealth : 1.0;
+        const double threshold = PassiveValue(targetDefinition, "LowHealthThresholdPercent") / 100.0;
+        const double multiplier = PassiveValue(targetDefinition, "IncomingDamageMultiplierWhileLowHealth");
+        if (threshold > 0.0 && fraction <= threshold && multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
     }
     const bool sourceDebuffedByTarget = std::any_of(source.modifierEffects.begin(), source.modifierEffects.end(),
         [&target, &source](const ModifierEffectState& effect) { return effect.causerId == target.id && effect.causerId != source.id; });
@@ -1105,7 +1137,10 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseAddWhileHoldingPosition"))) : 0;
     const std::int32_t elementDefense = target.activeElement != 0
         ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileElementStored"))) : 0;
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense
+    const std::int32_t bloodDefenseThreshold = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "BloodDefenseThreshold")));
+    const std::int32_t bloodDefense = bloodDefenseThreshold > 0 && target.resourceCurrent >= bloodDefenseThreshold
+        ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileHighBlood"))) : 0;
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense + bloodDefense
         + elementDefense + target.rockDefenseBonus - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
@@ -1114,6 +1149,14 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     target.health -= appliedDamage;
     if (appliedDamage > 0)
     {
+        if (PassiveValue(sourceDefinition, "CoreBloodCharacter") > 0.0)
+            GainBlood(source, appliedDamage, false, "DamageDealt", modifierEvents);
+        if (PassiveValue(targetDefinition, "CoreBloodCharacter") > 0.0)
+        {
+            const std::int32_t rawGain = std::max(0, static_cast<std::int32_t>(appliedDamage
+                * PassiveValue(targetDefinition, "BloodGainFractionFromDamageTaken") + 0.5));
+            GainBlood(target, rawGain, true, "DamageTaken", modifierEvents);
+        }
         if (shadowWoundComboGain > 0)
             GainCombo(source, shadowWoundComboGain, "ShadowWound", modifierEvents);
         if (PassiveValue(targetDefinition, "CoreComboCharacter") > 0.0)
@@ -1211,6 +1254,18 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
                     }
                 }
             }
+        }
+    }
+    if (target.health <= 0 && PassiveValue(targetDefinition, "CoreBloodCharacter") > 0.0 && target.specialCooldownRemaining <= 0)
+    {
+        const std::int32_t cost = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "BloodCheatDeathCost")));
+        const std::int32_t heal = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "BloodCheatDeathHeal")));
+        if (cost > 0 && heal > 0 && target.resourceCurrent >= cost)
+        {
+            target.resourceCurrent -= cost; target.health = std::clamp(heal, 1, targetDefinition.stats.maxHealth);
+            target.specialCooldownRemaining = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "BloodCheatDeathCooldownInitiative")));
+            modifierEvents.push_back(GameEvent{EventType::ResourceChanged, target.id, target.id, target.tileId, "BloodCheatDeath", -cost});
+            modifierEvents.push_back(GameEvent{EventType::HealingApplied, target.id, target.id, target.tileId, "BloodCheatDeath", target.health});
         }
     }
     if (target.health <= 0 && target.resourceCurrent > 0 && target.specialCooldownRemaining <= 0)
@@ -1403,6 +1458,53 @@ std::int32_t Game::SpendCombo(CharacterState& source, const std::int32_t amount,
     return spent;
 }
 
+std::int32_t Game::GainBlood(CharacterState& source, const std::int32_t amount, const bool raw,
+    const DefinitionId& sourceId, std::vector<GameEvent>& events)
+{
+    if (amount <= 0 || source.resourceMaximum <= 0) return 0;
+    const CharacterDefinition& definition = definitions_.characters.at(source.definitionId);
+    const double configuredMultiplier = PassiveValue(definition, "BloodGainMultiplier");
+    const double gainMultiplier = raw ? 1.0 : std::max(0.0, PassiveValue(definition, "BloodGainFraction"))
+        * (configuredMultiplier > 0.0 ? configuredMultiplier : 1.0);
+    const std::int32_t requested = raw ? amount : std::max(0, static_cast<std::int32_t>(amount * gainMultiplier + 0.5));
+    const std::int32_t before = source.resourceCurrent;
+    const std::int32_t overflow = std::max(0, before + requested - source.resourceMaximum);
+    source.resourceCurrent = std::clamp(before + requested, 0, source.resourceMaximum);
+    const std::int32_t gained = source.resourceCurrent - before;
+    if (gained > 0) events.push_back(GameEvent{EventType::ResourceChanged, source.id, source.id, source.tileId, sourceId, gained});
+    if (overflow > 0)
+    {
+        const std::int32_t healing = std::min(std::max(0, static_cast<std::int32_t>(overflow
+            * PassiveValue(definition, "BloodOverflowHealFraction") + 0.5)), std::max(0, definition.stats.maxHealth - source.health));
+        source.health += healing;
+        if (healing > 0) events.push_back(GameEvent{EventType::HealingApplied, source.id, source.id, source.tileId, sourceId + ":Overflow", healing});
+    }
+    if (before < source.resourceMaximum && source.resourceCurrent >= source.resourceMaximum && source.bloodCapTriggerAvailable)
+    {
+        const std::int32_t reduction = std::max(0, static_cast<std::int32_t>(PassiveValue(definition, "CooldownReductionOnBloodCap")));
+        for (AbilityState& ability : source.abilities) { const std::int32_t previous = ability.cooldownRemaining; ability.cooldownRemaining = std::max(0, previous - reduction);
+            if (previous != ability.cooldownRemaining) events.push_back(GameEvent{EventType::CooldownChanged, source.id, source.id, source.tileId, ability.definitionId, ability.cooldownRemaining - previous}); }
+        source.bloodCapTriggerAvailable = false;
+    }
+    return gained;
+}
+
+std::int32_t Game::SpendBlood(CharacterState& source, const std::int32_t maximumAmount,
+    const DefinitionId& sourceId, std::vector<GameEvent>& events)
+{
+    const std::int32_t spent = maximumAmount > 0 ? std::min(source.resourceCurrent, maximumAmount) : source.resourceCurrent;
+    if (spent <= 0) return 0;
+    source.resourceCurrent -= spent;
+    events.push_back(GameEvent{EventType::ResourceChanged, source.id, source.id, source.tileId, sourceId, -spent});
+    const CharacterDefinition& definition = definitions_.characters.at(source.definitionId);
+    std::int32_t gain = std::max(0, static_cast<std::int32_t>(PassiveValue(definition, "InitiativeGainOnBloodSpend")));
+    const std::int32_t threshold = std::max(0, static_cast<std::int32_t>(PassiveValue(definition, "BloodSpendThresholdForInitiative")));
+    if (threshold > 0 && spent >= threshold) gain += std::max(0, static_cast<std::int32_t>(PassiveValue(definition, "InitiativeGainOnLargeBloodSpend")));
+    source.initiative += gain;
+    if (gain > 0) events.push_back(GameEvent{EventType::InitiativeChanged, source.id, source.id, source.tileId, sourceId + ":Spend", gain});
+    return spent;
+}
+
 void Game::ResolveAssassinHit(CharacterState& source, CharacterState& target,
     const std::int32_t appliedDamage, const bool killed, const DefinitionId& sourceId,
     std::vector<GameEvent>& events)
@@ -1571,6 +1673,13 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
     result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
     ResolveAssassinHit(*attacker, *target, appliedDamage, target->health <= 0, "BasicAttack", result.events);
+    const CharacterDefinition& attackerDefinitionForBlood = definitions_.characters.at(attacker->definitionId);
+    if (appliedDamage > 0 && attacker->basicAttackBloodAvailable
+        && PassiveValue(attackerDefinitionForBlood, "CoreBloodCharacter") > 0.0)
+    {
+        const std::int32_t bonus = std::max(0, static_cast<std::int32_t>(PassiveValue(attackerDefinitionForBlood, "FirstBasicAttackBloodGain")));
+        if (bonus > 0) { GainBlood(*attacker, bonus, true, "BasicAttackBlood", result.events); attacker->basicAttackBloodAvailable = false; }
+    }
     for (auto preparation = attacker->modifierEffects.begin(); preparation != attacker->modifierEffects.end();)
     {
         if (preparation->kind == ModifierEffectKind::PiercingMark && preparation->preferredTargetId == InvalidEntityId
@@ -3514,6 +3623,143 @@ ActionResult Game::ApplyAbility(const GameAction& action)
           effect.remainingInitiative = static_cast<std::int32_t>(AbilityValue(definition, "NextHitProtectionDurationInitiative")); addEffect(*actor, effect); }
         for (CharacterState* enemy : affected) finalizeDeath(*actor, *enemy);
     }
+    else if (definition.operation == AbilityOperation::Dash)
+    {
+        TileState* start = FindTile(actor->tileId); TileState* targetTile = FindTile(target->tileId); TileState* destination = nullptr;
+        if (start && targetTile)
+        {
+            std::int32_t best = std::numeric_limits<std::int32_t>::max();
+            for (TileState& tile : state_.tiles)
+            { const auto terrain = definitions_.terrains.find(tile.terrainId); if (HexDistance(targetTile->coord, tile.coord) != 1
+                || tile.occupantId != InvalidEntityId || tile.blocksMovement || terrain == definitions_.terrains.end() || !terrain->second.walkable) continue;
+              const std::int32_t distance = HexDistance(start->coord, tile.coord); if (distance < best || (distance == best && (!destination || tile.id < destination->id))) { destination = &tile; best = distance; } }
+        }
+        if (!destination) return Failure("dash_no_destination", "Dash has no free destination beside the target.");
+        const std::int32_t travel = start && targetTile ? HexDistance(start->coord, targetTile->coord) : 0;
+        start->occupantId = InvalidEntityId; destination->occupantId = actor->id; actor->tileId = destination->id;
+        result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, destination->id, action.abilityId, 0});
+        std::int32_t damage = definition.amount;
+        if (travel >= std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "MomentumRequiredDistance"))))
+            damage += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MomentumDamage")));
+        const std::int32_t applied = applyDamage(*actor, *target, damage, definition.defenseIgnore, {});
+        GainBlood(*actor, static_cast<std::int32_t>(applied * std::max(0.0, AbilityValue(definition, "BonusBloodFractionOfDamage")) + 0.5), true, action.abilityId, result.events);
+        const std::int32_t duration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "EffectDurationInitiative")));
+        const double guard = AbilityValue(definition, "SelfIncomingDamageMultiplierAfterUse");
+        if (guard > 0.0 && guard < 1.0 && duration > 0) { ModifierEffectState effect; effect.id = action.abilityId + ":Guard"; effect.causerId = actor->id;
+            effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(guard * 10000.0 + 0.5); effect.remainingInitiative = duration; addEffect(*actor, effect); }
+        const std::int32_t moveCost = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MoveCostAddOnTarget")));
+        if (moveCost > 0 && target->health > 0) { ModifierEffectState effect; effect.id = action.abilityId + ":Cripple"; effect.causerId = actor->id; effect.isDebuff = true;
+            effect.moveCostAdd = moveCost; effect.remainingInitiative = std::max(1, duration); addEffect(*target, effect); }
+        const double splash = AbilityValue(definition, "ImpactSplashDamageMultiplier");
+        if (targetTile && splash > 0.0) for (CharacterState& other : state_.characters)
+        { const TileState* tile = FindTile(other.tileId); if (other.alive && other.id != target->id && other.team != actor->team && other.team != Team::Neutral && tile
+            && HexDistance(targetTile->coord, tile->coord) == 1) { applyDamage(*actor, other, static_cast<std::int32_t>(definition.amount * splash + 0.5), definition.defenseIgnore, action.abilityId + ":Splash"); finalizeDeath(*actor, other); } }
+        const double refundThreshold = AbilityValue(definition, "InitiativeRefundHealthThreshold");
+        if (target->health > 0 && refundThreshold > 0.0 && target->health <= definitions_.characters.at(target->definitionId).stats.maxHealth * refundThreshold)
+        { const std::int32_t refund = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeRefundVsLowHealth"))); actor->initiative += refund;
+          if (refund > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, refund}); }
+        const double markMultiplier = AbilityValue(definition, "NextHitDamageMultiplier");
+        if (target->health > 0 && markMultiplier > 0.0) { ModifierEffectState mark; mark.id = action.abilityId + ":Mark"; mark.kind = ModifierEffectKind::BloodMark;
+            mark.causerId = actor->id; mark.isDebuff = true; mark.incomingDamageMultiplierFromCauserBasisPoints = static_cast<std::int32_t>(markMultiplier * 10000.0 + 0.5);
+            mark.consumeOnDamageFromCauser = true; mark.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "MarkDurationInitiative"))); addEffect(*target, mark); }
+        const bool killed = target->health <= 0; finalizeDeath(*actor, *target);
+        if (killed) abilityState->cooldownRemaining = std::max(0, abilityState->cooldownRemaining - std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReductionOnKill"))));
+        if (!killed && AbilityValue(definition, "CarryThrough") > 0.0 && start && targetTile)
+        { TileState* carry = nullptr; std::int32_t best = HexDistance(start->coord, targetTile->coord); for (TileState& tile : state_.tiles)
+          { const auto terrain = definitions_.terrains.find(tile.terrainId); const std::int32_t distance = HexDistance(start->coord, tile.coord); if (HexDistance(targetTile->coord, tile.coord) == 1
+            && tile.occupantId == InvalidEntityId && !tile.blocksMovement && terrain != definitions_.terrains.end() && terrain->second.walkable && distance > best) { carry = &tile; best = distance; } }
+          if (carry) { destination->occupantId = InvalidEntityId; carry->occupantId = actor->id; actor->tileId = carry->id; result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, carry->id, action.abilityId + ":Carry", 0}); } }
+    }
+    else if (definition.operation == AbilityOperation::Decimate)
+    {
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+        const std::int32_t healthBefore = target->health; const double fraction = targetDefinition.stats.maxHealth > 0 ? static_cast<double>(target->health) / targetDefinition.stats.maxHealth : 1.0;
+        std::int32_t damage = definition.amount + static_cast<std::int32_t>(targetDefinition.stats.maxHealth * std::max(0.0, AbilityValue(definition, "PercentDamage")) + 0.5);
+        if (AbilityValue(definition, "HighHealthThreshold") > 0.0 && fraction >= AbilityValue(definition, "HighHealthThreshold")) damage = static_cast<std::int32_t>(damage * std::max(1.0, AbilityValue(definition, "DamageMultiplierVsHighHealth")) + 0.5);
+        if (AbilityValue(definition, "LowHealthThreshold") > 0.0 && fraction <= AbilityValue(definition, "LowHealthThreshold")) damage = static_cast<std::int32_t>(damage * std::max(1.0, AbilityValue(definition, "DamageMultiplierVsLowHealth")) + 0.5);
+        std::int32_t ignore = definition.defenseIgnore; const std::int32_t required = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RequiredBloodForDefenseIgnore")));
+        if (required > 0 && actor->resourceCurrent >= required) ignore += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseIgnoreIfBloodAtLeast")));
+        const std::int32_t bloodCost = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BloodCostForBonusDamage")));
+        if (bloodCost > 0 && actor->resourceCurrent >= bloodCost) { SpendBlood(*actor, bloodCost, action.abilityId, result.events); damage += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusDamageForBlood"))); }
+        const std::int32_t applied = applyDamage(*actor, *target, damage, ignore, {});
+        applyDelay(*actor, *target, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), {});
+        const std::int32_t reduction = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseReduction")));
+        if (target->health > 0 && reduction > 0) { ModifierEffectState effect; effect.id = action.abilityId + ":Break"; effect.causerId = actor->id; effect.isDebuff = true; effect.onlyAffectCauserDamage = true;
+            effect.defenseIgnoreAdd = reduction; effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DebuffDurationInitiative"))); addEffect(*target, effect); }
+        const std::int32_t healing = std::min(std::max(0, static_cast<std::int32_t>(applied * AbilityValue(definition, "LifestealFractionOnHit") + 0.5)), std::max(0, castingDefinition.stats.maxHealth - actor->health));
+        actor->health += healing; if (healing > 0) result.events.push_back(GameEvent{EventType::HealingApplied, actor->id, actor->id, actor->tileId, action.abilityId, healing});
+        const bool killed = target->health <= 0;
+        if (killed) { const std::int32_t gain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnKill"))); actor->initiative += gain;
+            GainBlood(*actor, static_cast<std::int32_t>(std::max(0, applied - healthBefore) * AbilityValue(definition, "OverkillBloodFraction") + 0.5), true, action.abilityId, result.events); }
+        const TileState* targetTile = FindTile(target->tileId); const double cleave = AbilityValue(definition, "CleaveDamageMultiplier");
+        if (targetTile && cleave > 0.0) for (CharacterState& other : state_.characters) { const TileState* tile = FindTile(other.tileId); if (other.alive && other.id != target->id && other.team != actor->team && other.team != Team::Neutral && tile
+            && HexDistance(targetTile->coord, tile->coord) == 1) { applyDamage(*actor, other, static_cast<std::int32_t>(definition.amount * cleave + 0.5), ignore, action.abilityId + ":Cleave"); finalizeDeath(*actor, other); } }
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::SpinToWin)
+    {
+        const TileState* center = FindTile(actor->tileId); std::vector<CharacterState*> hit; std::int32_t totalDamage = 0;
+        for (CharacterState& enemy : state_.characters) { const TileState* tile = FindTile(enemy.tileId); if (!center || !tile || !enemy.alive || enemy.team == actor->team || enemy.team == Team::Neutral
+            || HexDistance(center->coord, tile->coord) > std::max(1, definition.range)) continue; std::int32_t damage = definition.amount;
+          const CharacterDefinition& enemyDefinition = definitions_.characters.at(enemy.definitionId); const double fraction = enemyDefinition.stats.maxHealth > 0 ? static_cast<double>(enemy.health) / enemyDefinition.stats.maxHealth : 1.0;
+          if (AbilityValue(definition, "LowHealthThreshold") > 0.0 && fraction <= AbilityValue(definition, "LowHealthThreshold")) damage = static_cast<std::int32_t>(damage * std::max(1.0, AbilityValue(definition, "DamageMultiplierVsLowHealth")) + 0.5);
+          totalDamage += applyDamage(*actor, enemy, damage, definition.defenseIgnore, {}); hit.push_back(&enemy);
+          if (enemy.health > 0 && AbilityValue(definition, "BleedDamagePerTurn") > 0.0) { ModifierEffectState bleed; bleed.id = action.abilityId + ":Bleed"; bleed.kind = ModifierEffectKind::RendBleed; bleed.causerId = actor->id; bleed.isDebuff = true;
+            bleed.valueA = static_cast<std::int32_t>(AbilityValue(definition, "BleedDamagePerTurn")); bleed.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BleedDurationInitiative"))); addEffect(enemy, bleed); } }
+        GainBlood(*actor, static_cast<std::int32_t>(totalDamage * AbilityValue(definition, "BonusBloodFractionOfDamage") + 0.5), true, action.abilityId, result.events);
+        const std::int32_t heal = std::min(std::max(0, static_cast<std::int32_t>(hit.size()) * static_cast<std::int32_t>(AbilityValue(definition, "HealPerTarget"))), std::max(0, castingDefinition.stats.maxHealth - actor->health));
+        actor->health += heal; if (heal > 0) result.events.push_back(GameEvent{EventType::HealingApplied, actor->id, actor->id, actor->tileId, action.abilityId, heal});
+        if (hit.size() > 1) { const std::int32_t gain = std::min(20, static_cast<std::int32_t>(hit.size() - 1) * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativePerExtraTarget")))); actor->initiative += gain;
+            const double guard = AbilityValue(definition, "SelfIncomingDamageMultiplierIfMultiHit"); if (guard > 0.0 && guard < 1.0) { ModifierEffectState effect; effect.id = action.abilityId + ":Guard"; effect.causerId = actor->id;
+              effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(guard * 10000.0 + 0.5); effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "GuardDurationInitiative"))); addEffect(*actor, effect); } }
+        const std::int32_t reduction = std::min(std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MaxCooldownReduction"))), static_cast<std::int32_t>(hit.size()) * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReductionPerTarget"))));
+        abilityState->cooldownRemaining = std::max(0, abilityState->cooldownRemaining - reduction);
+        if (hit.size() >= static_cast<std::size_t>(std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "RedMistRequiredTargets"))))) { GainBlood(*actor, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RedMistBloodGain"))), true, action.abilityId, result.events);
+            actor->initiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RedMistInitiativeGain"))); }
+        if (AbilityValue(definition, "EchoDamageMultiplier") > 0.0) { ModifierEffectState echo; echo.id = action.abilityId + ":Echo"; echo.kind = ModifierEffectKind::DelayedArea; echo.causerId = actor->id; echo.sourceAbilityId = action.abilityId;
+            echo.areaCenterTileId = actor->tileId; echo.areaRadius = std::max(1, definition.range); echo.valueA = static_cast<std::int32_t>(definition.amount * AbilityValue(definition, "EchoDamageMultiplier") + 0.5);
+            echo.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "EchoDelayInitiative"))); addEffect(*actor, echo); }
+        for (CharacterState* enemy : hit) finalizeDeath(*actor, *enemy);
+    }
+    else if (definition.operation == AbilityOperation::BloodHeal)
+    {
+        const std::int32_t consumed = SpendBlood(*actor, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MaximumBloodConsumed"))), action.abilityId, result.events);
+        std::int32_t bloodHealing = consumed * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "HealFromBlood")));
+        const double fraction = castingDefinition.stats.maxHealth > 0 ? static_cast<double>(actor->health) / castingDefinition.stats.maxHealth : 1.0;
+        if (AbilityValue(definition, "CriticalHealthThreshold") > 0.0 && fraction <= AbilityValue(definition, "CriticalHealthThreshold")) bloodHealing = static_cast<std::int32_t>(bloodHealing * std::max(1.0, AbilityValue(definition, "BloodHealMultiplierWhileCritical")) + 0.5);
+        const std::int32_t requested = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BaseHeal"))) + bloodHealing;
+        const std::int32_t healed = std::min(requested, std::max(0, castingDefinition.stats.maxHealth - actor->health)); actor->health += healed;
+        if (healed > 0) result.events.push_back(GameEvent{EventType::HealingApplied, actor->id, actor->id, actor->tileId, action.abilityId, healed});
+        GainBlood(*actor, static_cast<std::int32_t>(consumed * AbilityValue(definition, "BloodRetainFraction") + 0.5), true, action.abilityId + ":Retain", result.events);
+        if (AbilityValue(definition, "CleanseOneDebuff") > 0.0) { const auto debuff = std::find_if(actor->modifierEffects.begin(), actor->modifierEffects.end(), [](const ModifierEffectState& effect) { return effect.isDebuff; });
+            if (debuff != actor->modifierEffects.end()) { result.events.push_back(GameEvent{EventType::EffectRemoved, actor->id, actor->id, actor->tileId, debuff->id, 0}); actor->modifierEffects.erase(debuff); } }
+        const std::int32_t duration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "EffectDurationInitiative")));
+        if (duration > 0) { ModifierEffectState buff; buff.id = action.abilityId + ":Buff"; buff.causerId = actor->id; buff.remainingInitiative = duration;
+            const double incoming = AbilityValue(definition, "IncomingDamageMultiplierAfterUse"); const double outgoing = AbilityValue(definition, "OutgoingDamageMultiplierAfterUse");
+            buff.incomingDamageMultiplierBasisPoints = incoming > 0.0 ? static_cast<std::int32_t>(incoming * 10000.0 + 0.5) : 10000;
+            buff.outgoingDamageMultiplierBasisPoints = outgoing > 0.0 ? static_cast<std::int32_t>(outgoing * 10000.0 + 0.5) : 10000;
+            buff.healFractionFromDamageDealtBasisPoints = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "LifestealFractionAfterUse") * 10000.0 + 0.5)); addEffect(*actor, buff); }
+        const TileState* center = FindTile(actor->tileId); if (center) for (CharacterState& enemy : state_.characters) { const TileState* tile = FindTile(enemy.tileId); if (!enemy.alive || enemy.team == actor->team || enemy.team == Team::Neutral || !tile || HexDistance(center->coord, tile->coord) != 1) continue;
+            applyDelay(*actor, enemy, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AdjacentInitiativeLoss"))), action.abilityId);
+            if (healed > 0 && AbilityValue(definition, "AdjacentDamageFractionOfHealing") > 0.0) { applyDamage(*actor, enemy, static_cast<std::int32_t>(healed * AbilityValue(definition, "AdjacentDamageFractionOfHealing") + 0.5), 0, action.abilityId + ":Wave"); finalizeDeath(*actor, enemy); } }
+    }
+    else if (definition.operation == AbilityOperation::Rend)
+    {
+        ModifierEffectState* existing = nullptr; for (ModifierEffectState& effect : target->modifierEffects) if (effect.kind == ModifierEffectKind::RendBleed && effect.causerId == actor->id) { existing = &effect; break; }
+        if (existing && AbilityValue(definition, "ImmediateBleedTickOnReapply") > 0.0) applyDamage(*actor, *target, existing->valueA, 0, action.abilityId + ":Reapply");
+        target->modifierEffects.erase(std::remove_if(target->modifierEffects.begin(), target->modifierEffects.end(), [actor](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::RendBleed && effect.causerId == actor->id; }), target->modifierEffects.end());
+        applyDamage(*actor, *target, definition.amount, definition.defenseIgnore, {});
+        if (target->health > 0 && AbilityValue(definition, "BleedDamagePerTurn") > 0.0) { ModifierEffectState bleed; bleed.id = action.abilityId + ":Bleed"; bleed.kind = ModifierEffectKind::RendBleed; bleed.causerId = actor->id; bleed.isDebuff = true;
+            bleed.valueA = static_cast<std::int32_t>(AbilityValue(definition, "BleedDamagePerTurn")); bleed.valueB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BloodPerBleedTick")));
+            bleed.triggerOnMove = AbilityValue(definition, "MovementTriggerDamage") > 0.0; bleed.triggerDamageOnMove = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MovementTriggerDamage")));
+            bleed.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BleedDurationInitiative"))); addEffect(*target, bleed); }
+        GainBlood(*actor, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ImmediateBloodGain"))), true, action.abilityId, result.events);
+        const std::int32_t moveCost = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MoveCostAddOnTarget"))); const std::int32_t duration = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DebuffDurationInitiative")));
+        if (target->health > 0 && moveCost > 0) { ModifierEffectState effect; effect.id = action.abilityId + ":Hamstring"; effect.causerId = actor->id; effect.isDebuff = true; effect.moveCostAdd = moveCost; effect.remainingInitiative = duration; addEffect(*target, effect); }
+        const double markMultiplier = AbilityValue(definition, "IncomingDamageMultiplierFromCauser"); if (target->health > 0 && markMultiplier > 0.0) { ModifierEffectState mark; mark.id = action.abilityId + ":Mark"; mark.kind = ModifierEffectKind::BloodMark; mark.causerId = actor->id; mark.isDebuff = true;
+            mark.incomingDamageMultiplierFromCauserBasisPoints = static_cast<std::int32_t>(markMultiplier * 10000.0 + 0.5); mark.consumeOnDamageFromCauser = true; mark.remainingInitiative = duration; addEffect(*target, mark); }
+        finalizeDeath(*actor, *target);
+    }
     else if (definition.operation == AbilityOperation::DirectHeal)
     {
         const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
@@ -3806,12 +4052,15 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
         const CharacterDefinition& definition = definitions_.characters.at(selected->definitionId);
         for (const ModifierEffectState& effect : selected->modifierEffects)
         {
-            if ((effect.kind != ModifierEffectKind::Bleed && effect.kind != ModifierEffectKind::FireballBurn)
+            if ((effect.kind != ModifierEffectKind::Bleed && effect.kind != ModifierEffectKind::FireballBurn
+                    && effect.kind != ModifierEffectKind::RendBleed)
                 || effect.valueA <= 0) continue;
             const std::int32_t applied = std::min(selected->health, effect.valueA);
             selected->health -= applied;
             result.events.push_back(GameEvent{EventType::DamageApplied, effect.causerId, selected->id,
                 selected->tileId, effect.id, applied});
+            if (effect.kind == ModifierEffectKind::RendBleed && applied > 0 && effect.valueB > 0)
+                if (CharacterState* causer = FindCharacter(effect.causerId)) GainBlood(*causer, effect.valueB, true, effect.id, result.events);
         }
         if (selected->health <= 0)
         {
@@ -3928,6 +4177,12 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             selected->firstCastElement = 0;
             selected->elementCostReductionUsed = false;
             selected->elementSwapRefundUsed = false;
+        }
+        if (PassiveValue(definition, "CoreBloodCharacter") > 0.0)
+        {
+            selected->firstBloodDamageReductionAvailable = true;
+            selected->basicAttackBloodAvailable = true;
+            selected->bloodCapTriggerAvailable = true;
         }
         state_.activeCharacterId = selected->id;
         result.events.push_back(GameEvent{
@@ -4558,6 +4813,8 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.echoElement); HashValue(hash, character.elementCycleMask);
         HashValue(hash, character.elementCostReductionUsed); HashValue(hash, character.elementSwapRefundUsed);
         HashValue(hash, character.storedElementEmpowered); HashValue(hash, character.protectionReady);
+        HashValue(hash, character.firstBloodDamageReductionAvailable); HashValue(hash, character.basicAttackBloodAvailable);
+        HashValue(hash, character.bloodCapTriggerAvailable);
         for (const AbilityState& ability : character.abilities)
         {
             HashString(hash, ability.definitionId);

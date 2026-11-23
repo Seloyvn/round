@@ -67,6 +67,10 @@ private:
         const DefinitionId& sourceId, std::vector<GameEvent>& events);
     std::int32_t SpendCombo(CharacterState& source, std::int32_t amount,
         const DefinitionId& sourceId, std::vector<GameEvent>& events);
+    std::int32_t GainBlood(CharacterState& source, std::int32_t amount, bool raw,
+        const DefinitionId& sourceId, std::vector<GameEvent>& events);
+    std::int32_t SpendBlood(CharacterState& source, std::int32_t maximumAmount,
+        const DefinitionId& sourceId, std::vector<GameEvent>& events);
     void ResolveAssassinHit(CharacterState& source, CharacterState& target,
         std::int32_t appliedDamage, bool killed, const DefinitionId& sourceId,
         std::vector<GameEvent>& events);

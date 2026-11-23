@@ -161,6 +161,9 @@ struct CharacterState
     bool elementSwapRefundUsed = false;
     bool storedElementEmpowered = false;
     bool protectionReady = false;
+    bool firstBloodDamageReductionAvailable = true;
+    bool basicAttackBloodAvailable = true;
+    bool bloodCapTriggerAvailable = true;
     std::vector<AbilityState> abilities;
     std::vector<ModifierEffectState> modifierEffects;
     std::vector<RecentAuraPreventionState> recentAuraPreventions;

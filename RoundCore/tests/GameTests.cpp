@@ -1187,6 +1187,63 @@ int main()
                 [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::OneHitProtection; }),
         "Arcane Shift should relocate the mage and persist its one-hit protection in Core");
 
+    const auto character5AbilitySetup = [](AbilityDefinition ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.characters.at("Tank").passiveValues = {{"CoreBloodCharacter", 1.0},
+            {"BloodGainFraction", 0.1}, {"BloodGainMultiplier", 1.0}, {"BloodCap", 100.0},
+            {"BloodGainFractionFromDamageTaken", 0.1}, {"BloodCheatDeathCost", 75.0},
+            {"BloodCheatDeathHeal", 20.0}, {"BloodCheatDeathCooldownInitiative", 160.0}};
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds.push_back(ability.id);
+        setup.initialState.characters[0].abilities.push_back(AbilityState{ability.id, 0, 40, 1, 1, false});
+        setup.initialState.characters[0].resourceMaximum = 100;
+        return setup;
+    };
+
+    AbilityDefinition dash; dash.id = "Dash"; dash.operation = AbilityOperation::Dash; dash.targetRelation = AbilityTargetRelation::Enemy;
+    dash.range = 3; dash.amount = 20; dash.values = {{"BonusBloodFractionOfDamage", 0.5}, {"NextHitDamageMultiplier", 1.3}, {"MarkDurationInitiative", 80.0}};
+    Game dashGame; Require(dashGame.Reset(character5AbilitySetup(dash)).success, "Dash setup should reset");
+    GameAction bloodTargetCast{ActionType::UseAbility, 10, 20, InvalidEntityId, dash.id};
+    Require(dashGame.ApplyAction(bloodTargetCast).success && dashGame.State().characters[0].tileId != 1
+            && dashGame.State().characters[0].resourceCurrent > 0
+            && std::any_of(dashGame.State().characters[1].modifierEffects.begin(), dashGame.State().characters[1].modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BloodMark; }),
+        "Dash should close distance, deal damage, generate Blood, and create its follow-up mark in Core");
+
+    AbilityDefinition decimate; decimate.id = "Decimate"; decimate.operation = AbilityOperation::Decimate; decimate.targetRelation = AbilityTargetRelation::Enemy;
+    decimate.range = 1; decimate.amount = 30; decimate.values = {{"BloodCostForBonusDamage", 25.0}, {"BonusDamageForBlood", 30.0}, {"LifestealFractionOnHit", 0.5}};
+    MatchSetup decimateSetup = character5AbilitySetup(decimate); decimateSetup.initialState.characters[0].resourceCurrent = 50; decimateSetup.initialState.characters[0].health = 50;
+    Game decimateGame; Require(decimateGame.Reset(std::move(decimateSetup)).success, "Decimate setup should reset"); bloodTargetCast.abilityId = decimate.id;
+    Require(decimateGame.ApplyAction(bloodTargetCast).success && decimateGame.State().characters[0].resourceCurrent < 50
+            && decimateGame.State().characters[0].health > 50 && decimateGame.State().characters[1].health < 70,
+        "Decimate should spend Blood for bonus damage and heal from its applied damage in Core");
+
+    AbilityDefinition spin; spin.id = "SpinToWin"; spin.operation = AbilityOperation::SpinToWin; spin.targetRelation = AbilityTargetRelation::Self;
+    spin.range = 1; spin.amount = 15; spin.values = {{"HealPerTarget", 5.0}, {"BonusBloodFractionOfDamage", 0.5}};
+    MatchSetup spinSetup = character5AbilitySetup(spin); spinSetup.initialState.characters[0].health = 50;
+    Game spinGame; Require(spinGame.Reset(std::move(spinSetup)).success, "Spin setup should reset");
+    GameAction bloodSelfCast{ActionType::UseAbility, 10, 10, InvalidEntityId, spin.id};
+    Require(spinGame.ApplyAction(bloodSelfCast).success && spinGame.State().characters[1].health < 100
+            && spinGame.State().characters[0].health > 50 && spinGame.State().characters[0].resourceCurrent > 0,
+        "SpinToWin should resolve nearby targets, healing, and Blood gain in Core");
+
+    AbilityDefinition bloodHeal; bloodHeal.id = "Heal"; bloodHeal.operation = AbilityOperation::BloodHeal; bloodHeal.targetRelation = AbilityTargetRelation::Self;
+    bloodHeal.values = {{"BaseHeal", 10.0}, {"HealFromBlood", 1.0}, {"MaximumBloodConsumed", 30.0}};
+    MatchSetup healSetup = character5AbilitySetup(bloodHeal); healSetup.initialState.characters[0].health = 40; healSetup.initialState.characters[0].resourceCurrent = 50;
+    Game bloodHealGame; Require(bloodHealGame.Reset(std::move(healSetup)).success, "Blood Heal setup should reset"); bloodSelfCast.abilityId = bloodHeal.id;
+    Require(bloodHealGame.ApplyAction(bloodSelfCast).success && bloodHealGame.State().characters[0].health == 80
+            && bloodHealGame.State().characters[0].resourceCurrent == 20,
+        "Heal should consume its configured Blood limit and convert it into healing in Core");
+
+    AbilityDefinition rend; rend.id = "Rend"; rend.operation = AbilityOperation::Rend; rend.targetRelation = AbilityTargetRelation::Enemy;
+    rend.range = 1; rend.amount = 10; rend.values = {{"BleedDamagePerTurn", 5.0}, {"BleedDurationInitiative", 80.0}, {"BloodPerBleedTick", 3.0}};
+    Game rendGame; Require(rendGame.Reset(character5AbilitySetup(rend)).success, "Rend setup should reset"); bloodTargetCast.abilityId = rend.id;
+    Require(rendGame.ApplyAction(bloodTargetCast).success
+            && std::any_of(rendGame.State().characters[1].modifierEffects.begin(), rendGame.State().characters[1].modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::RendBleed && effect.valueB == 3; }),
+        "Rend should persist its bleed and Blood-per-tick contract in Core");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

@@ -10,6 +10,7 @@
 #include "Actors/RoundCharacter2.h"
 #include "Actors/RoundCharacter3.h"
 #include "Actors/RoundCharacter4.h"
+#include "Actors/RoundCharacter5.h"
 #include "Abilities/RoundSnipeAbility.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
@@ -128,6 +129,9 @@ void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCo
     Update.ElementCycleMask = State.elementCycleMask; Update.bElementCostReductionUsed = State.elementCostReductionUsed;
     Update.bElementSwapRefundUsed = State.elementSwapRefundUsed; Update.bStoredElementEmpowered = State.storedElementEmpowered;
     Update.bProtectionReady = State.protectionReady;
+    Update.bFirstBloodDamageReductionAvailable = State.firstBloodDamageReductionAvailable;
+    Update.bBasicAttackBloodAvailable = State.basicAttackBloodAvailable;
+    Update.bBloodCapTriggerAvailable = State.bloodCapTriggerAvailable;
 }
 }
 
@@ -393,6 +397,30 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 Definition.passiveValues.emplace(ToCoreString(Key), Character4->GetPassiveValueFromKey(Key));
             Definition.passiveValues.emplace("CoreMageCharacter", 1.0);
         }
+        if (const ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("BloodGainMultiplier"), TEXT("BloodCapAdd"), TEXT("BloodGainFractionFromDamageTaken"),
+                TEXT("BloodDefenseThreshold"), TEXT("DefenseWhileHighBlood"), TEXT("FirstBasicAttackBloodGain"),
+                TEXT("BloodSpendThresholdForInitiative"), TEXT("InitiativeGainOnLargeBloodSpend"),
+                TEXT("InitiativeGainOnBloodSpend"), TEXT("LowHealthThresholdPercent"),
+                TEXT("DamageMultiplierWhileLowHealth"), TEXT("IncomingDamageMultiplierWhileLowHealth"),
+                TEXT("FirstIncomingDamageMultiplierPerTurn"), TEXT("CooldownReductionOnBloodCap"),
+                TEXT("BloodCheatDeathCost"), TEXT("BloodCheatDeathHeal"), TEXT("BloodCheatDeathCooldownInitiative"),
+                TEXT("BloodOverflowHealFraction"), TEXT("HighBloodDamageThreshold"), TEXT("HighBloodDamageMultiplier")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Character5->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreBloodCharacter", 1.0);
+            double BloodGainFraction = Character5->GetValueFromKey(TEXT("BloodGainFraction"));
+            if (BloodGainFraction <= 0.0)
+            {
+                BloodGainFraction = Character5->GetValueFromKey(TEXT("BloodGainPercent"));
+                if (BloodGainFraction > 0.0)
+                    BloodGainFraction /= 100.0;
+            }
+            Definition.passiveValues.emplace("BloodGainFraction", BloodGainFraction > 0.0 ? BloodGainFraction : 0.1);
+            Definition.passiveValues.emplace("BloodCap", Character5->GetBloodCap());
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -482,6 +510,15 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             CharacterState.storedElementEmpowered = Character4->bStoredElementEmpowered;
             CharacterState.protectionReady = Character4->bProtectionReady;
         }
+        if (const ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Character))
+        {
+            CharacterState.resourceCurrent = Character5->NativeBlood;
+            CharacterState.resourceMaximum = Character5->GetBloodCap();
+            CharacterState.specialCooldownRemaining = Character5->BloodCheatDeathCooldownTurnsRemaining;
+            CharacterState.firstBloodDamageReductionAvailable = Character5->bFirstDamageReductionAvailableThisTurn;
+            CharacterState.basicAttackBloodAvailable = Character5->bBasicAttackBloodAvailableThisTurn;
+            CharacterState.bloodCapTriggerAvailable = Character5->bBloodCapTriggerAvailable;
+        }
         for (int32 AbilityIndex = 0; AbilityIndex < Character->GrantedAbilities.Num(); ++AbilityIndex)
         {
             ARoundAbilityActor* Ability = Character->GrantedAbilities[AbilityIndex];
@@ -501,7 +538,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 25
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 30
                 ? static_cast<roundcore::AbilityOperation>(CoreOperation)
                 : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
@@ -519,7 +556,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
                 || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
-                || (CoreOperation >= 6 && CoreOperation <= 25))
+                || (CoreOperation >= 6 && CoreOperation <= 30))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(

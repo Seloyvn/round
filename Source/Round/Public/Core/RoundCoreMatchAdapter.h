@@ -75,6 +75,9 @@ struct FRoundCoreCharacterRuntimeUpdate
     bool bElementSwapRefundUsed = false;
     bool bStoredElementEmpowered = false;
     bool bProtectionReady = false;
+    bool bFirstBloodDamageReductionAvailable = true;
+    bool bBasicAttackBloodAvailable = true;
+    bool bBloodCapTriggerAvailable = true;
 };
 
 struct FRoundCoreEffectRemoval

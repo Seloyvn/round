@@ -55,7 +55,12 @@ enum class AbilityOperation : std::uint8_t
     Icebeam,
     Lightningstrike,
     Rockblast,
-    ArcaneShift
+    ArcaneShift,
+    Dash,
+    Decimate,
+    SpinToWin,
+    BloodHeal,
+    Rend
 };
 
 enum class ModifierEffectKind : std::uint8_t
@@ -83,7 +88,10 @@ enum class ModifierEffectKind : std::uint8_t
     DelayedArea,
     RockEcho,
     OneHitProtection,
-    IcebeamSlow
+    IcebeamSlow,
+    BloodMark,
+    SpinEcho,
+    RendBleed
 };
 
 enum class AbilityTargetRelation : std::uint8_t

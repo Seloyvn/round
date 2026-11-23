@@ -10,6 +10,8 @@ class ROUND_API ARoundCharacter5 : public ARoundCharacter
     GENERATED_BODY()
 
 public:
+    friend class FRoundCoreMatchAdapter;
+    friend class ARoundGameState;
     ARoundCharacter5();
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginTurn() override;
@@ -47,6 +49,10 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Round|Character5")
     double GetBloodGainFractionValue() const { return GetBloodGainFraction(); }
+
+    void ApplyCoreBloodState(int32 InBlood, int32 InCheatDeathCooldown,
+        bool bInFirstDamageReductionAvailable, bool bInBasicAttackBloodAvailable,
+        bool bInBloodCapTriggerAvailable);
 
 protected:
     double GetBloodGainFraction() const;

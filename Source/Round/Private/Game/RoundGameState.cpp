@@ -1,5 +1,4 @@
 #include "Game/RoundGameState.h"
-
 #include "UObject/UnrealType.h"
 #include "Actors/RoundCharacter.h"
 #include "Actors/RoundCharacter1.h"
@@ -3996,6 +3995,9 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         ApplyCharacter2CoreState(Update);
         ApplyCharacter3CoreState(Update);
         ApplyCharacter4CoreState(Update);
+        if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
+            Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
+                Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4118,6 +4120,9 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         ApplyCharacter2CoreState(Update);
         ApplyCharacter3CoreState(Update);
         ApplyCharacter4CoreState(Update);
+        if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
+            Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
+                Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4552,6 +4557,9 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
             ApplyCharacter2CoreState(Update);
             ApplyCharacter3CoreState(Update);
             ApplyCharacter4CoreState(Update);
+            if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
+                Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
+                    Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
         }
         bApplyingCoreMovementCallbacks = true;
         Character->SetField(TargetTile, Index == Path.Num() - 1);
@@ -4694,6 +4702,9 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             ApplyCharacter2CoreState(Update);
             ApplyCharacter3CoreState(Update);
             ApplyCharacter4CoreState(Update);
+            if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
+                Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
+                    Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
         }
         for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
         {
@@ -7260,4 +7271,3 @@ static FAutoConsoleCommand GExportRoundInitiativeMigrationCommand(
                 FString::Printf(TEXT("Initiative migration CSV saved: %s"), *SavedPath));
         }
     }));
-

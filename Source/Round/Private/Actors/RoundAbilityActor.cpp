@@ -604,7 +604,8 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
         }
     }
     if ((CoreOperation == 1 || CoreOperation == 2 || CoreOperation == 4
-        || (CoreOperation >= 6 && CoreOperation <= 11) || CoreOperation == 14 || CoreOperation == 15) && OwningCharacter)
+        || (CoreOperation >= 6 && CoreOperation <= 11) || CoreOperation == 14 || CoreOperation == 15
+        || CoreOperation == 26 || CoreOperation == 27 || CoreOperation == 30) && OwningCharacter)
     {
         ARoundCharacter* TargetCharacter = ResolveTargetCharacter(TargetTile);
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
@@ -612,7 +613,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
             return RoundGameState->ExecuteCoreAbility(OwningCharacter, this, TargetCharacter);
         }
     }
-    if ((CoreOperation == 3 || CoreOperation == 12) && OwningCharacter)
+    if ((CoreOperation == 3 || CoreOperation == 12 || CoreOperation == 28 || CoreOperation == 29) && OwningCharacter)
     {
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
         {

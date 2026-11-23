@@ -1821,6 +1821,17 @@ void URoundAbilityRegistryData::PopulateCharacter5AbilityProgressionDefaults()
         {
             AbilityData->Range = 1;
         }
+        const FString CoreAbilityId = AbilityData->AbilityId.ToString();
+        const int32 CoreOperation = CoreAbilityId.Equals(TEXT("Dash"), ESearchCase::IgnoreCase) ? 26
+            : CoreAbilityId.Equals(TEXT("Decimate"), ESearchCase::IgnoreCase) ? 27
+            : CoreAbilityId.Equals(TEXT("SpinToWin"), ESearchCase::IgnoreCase) ? 28
+            : CoreAbilityId.Equals(TEXT("Heal"), ESearchCase::IgnoreCase) ? 29
+            : CoreAbilityId.Equals(TEXT("Rend"), ESearchCase::IgnoreCase) ? 30 : 0;
+        if (CoreOperation > 0)
+        {
+            AbilityData->Values.FindOrAdd(TEXT("CoreOperation")) = CoreOperation;
+            AbilityData->Values.FindOrAdd(TEXT("CoreTargetRelation")) = (CoreOperation == 28 || CoreOperation == 29) ? 0.0 : 2.0;
+        }
         AbilityData->SkillProgression = Progression;
         AbilityData->MarkPackageDirty();
         ++UpdatedProgressions;

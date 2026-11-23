@@ -10,6 +10,8 @@
 
 FRoundActionResult ARoundDashAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 26)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {
