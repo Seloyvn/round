@@ -61,6 +61,20 @@ struct FRoundCoreCharacterRuntimeUpdate
     bool bNextDamageAfterMoveReady = false;
     bool bNextReductionAfterMoveReady = false;
     bool bStartInvisibilityApplied = false;
+    int32 ActiveElement = 0;
+    uint32 UsedElementMask = 0;
+    int32 LastCastElement = 0;
+    int32 FirstCastElement = 0;
+    int32 ElementSwapCooldownRemaining = 0;
+    int32 RockDefenseBonus = 0;
+    int32 RockDefenseRemainingInitiative = 0;
+    int32 ProtectionRemainingInitiative = 0;
+    int32 EchoElement = 0;
+    uint32 ElementCycleMask = 0;
+    bool bElementCostReductionUsed = false;
+    bool bElementSwapRefundUsed = false;
+    bool bStoredElementEmpowered = false;
+    bool bProtectionReady = false;
 };
 
 struct FRoundCoreEffectRemoval
@@ -178,6 +192,7 @@ struct FRoundCoreAbilityExecution
     TArray<FRoundCoreDamageEvent> DamageEvents;
     TArray<FRoundCoreBoardDamageEvent> BoardDamageEvents;
     TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
+    TArray<TPair<ARoundGridTile*, int32>> TerrainUpdates;
     int32 AppliedDamage = 0;
     int32 AppliedHealing = 0;
     int32 TargetInitiativeLoss = 0;

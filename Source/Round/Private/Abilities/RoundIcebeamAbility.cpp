@@ -11,6 +11,8 @@
 
 FRoundActionResult ARoundIcebeamAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 22)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     ARoundCharacter* InitialTarget = ResolveTargetCharacter(TargetTile);
     bool bHadIcebeamSlow = false;
     if (InitialTarget)

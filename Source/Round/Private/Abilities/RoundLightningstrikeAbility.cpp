@@ -21,6 +21,8 @@ void ARoundLightningstrikeAbility::GetPreviewTiles(const ARoundGridTile* TargetT
 
 FRoundActionResult ARoundLightningstrikeAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 23)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile || !OwningCharacter->CurrentTile)
     {

@@ -150,7 +150,14 @@ NumericObservation EncodeOmniscientObservation(
             character->freeAdjacentMoveUsedThisTurn ? 1 : 0,
             character->nextDamageAfterMoveReady ? 1 : 0,
             character->nextReductionAfterMoveReady ? 1 : 0,
-            character->startInvisibilityApplied ? 1 : 0});
+            character->startInvisibilityApplied ? 1 : 0,
+            character->activeElement, static_cast<std::int32_t>(character->usedElementMask),
+            character->lastCastElement, character->firstCastElement, character->elementSwapCooldownRemaining,
+            character->rockDefenseBonus, character->rockDefenseRemainingInitiative,
+            character->protectionRemainingInitiative, character->echoElement,
+            static_cast<std::int32_t>(character->elementCycleMask),
+            character->elementCostReductionUsed ? 1 : 0, character->elementSwapRefundUsed ? 1 : 0,
+            character->storedElementEmpowered ? 1 : 0, character->protectionReady ? 1 : 0});
 
         for (std::size_t abilityIndex = 0; abilityIndex < character->abilities.size(); ++abilityIndex)
         {

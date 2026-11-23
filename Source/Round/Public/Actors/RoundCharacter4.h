@@ -20,6 +20,8 @@ class ROUND_API ARoundCharacter4 : public ARoundCharacter
     GENERATED_BODY()
 
 public:
+    friend class FRoundCoreMatchAdapter;
+    friend class ARoundGameState;
     ARoundCharacter4();
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -85,6 +87,12 @@ public:
         ERoundMageElementBonus InFirstCastElementBonusThisTurn,
         int32 InElementSwapCooldownTurnsRemaining,
         double InCurrentAbilityDamageMultiplier);
+
+    void ApplyCoreMageState(int32 InActiveElement, uint32 InUsedElementMask, int32 InLastCastElement,
+        int32 InFirstCastElement, int32 InElementSwapCooldownRemaining, int32 InRockDefenseBonus,
+        int32 InRockDefenseRemainingInitiative, int32 InProtectionRemainingInitiative,
+        int32 InEchoElement, uint32 InElementCycleMask, bool bInElementCostReductionUsed,
+        bool bInElementSwapRefundUsed, bool bInStoredElementEmpowered, bool bInProtectionReady);
 
     virtual int32 AdjustEffectDuration(int32 Duration);
 

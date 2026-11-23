@@ -1619,6 +1619,17 @@ void URoundAbilityRegistryData::PopulateCharacter4AbilityProgressionDefaults()
 
         AbilityData->Modify();
         AbilityData->SkillProgression = Progression;
+        const FString CoreAbilityId = AbilityData->AbilityId.ToString();
+        const int32 CoreOperation = CoreAbilityId.Equals(TEXT("Fireball"), ESearchCase::IgnoreCase) ? 21
+            : (CoreAbilityId.Equals(TEXT("Icebeam"), ESearchCase::IgnoreCase) ? 22
+            : (CoreAbilityId.Equals(TEXT("Lightningstrike"), ESearchCase::IgnoreCase) ? 23
+            : (CoreAbilityId.Equals(TEXT("Rockblast"), ESearchCase::IgnoreCase) ? 24
+            : (CoreAbilityId.Equals(TEXT("ArcaneShift"), ESearchCase::IgnoreCase) ? 25 : 0))));
+        if (CoreOperation > 0)
+        {
+            AbilityData->Values.FindOrAdd(TEXT("CoreOperation")) = CoreOperation;
+            AbilityData->Values.FindOrAdd(TEXT("CoreTargetRelation")) = CoreOperation == 22 ? 2.0 : 3.0;
+        }
         AbilityData->MarkPackageDirty();
         ++UpdatedProgressions;
     }

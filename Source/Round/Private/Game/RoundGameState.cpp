@@ -114,6 +114,18 @@ void ApplyCharacter3CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
     }
 }
 
+void ApplyCharacter4CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
+{
+    if (ARoundCharacter4* Character4 = Cast<ARoundCharacter4>(Update.Character))
+    {
+        Character4->ApplyCoreMageState(Update.ActiveElement, Update.UsedElementMask, Update.LastCastElement,
+            Update.FirstCastElement, Update.ElementSwapCooldownRemaining, Update.RockDefenseBonus,
+            Update.RockDefenseRemainingInitiative, Update.ProtectionRemainingInitiative,
+            Update.EchoElement, Update.ElementCycleMask, Update.bElementCostReductionUsed,
+            Update.bElementSwapRefundUsed, Update.bStoredElementEmpowered, Update.bProtectionReady);
+    }
+}
+
 void PresentCoreGenericModifier(UWorld* World, const FRoundCoreModifierEffectAddition& Addition,
     const FString& DisplayName, const FString& Description)
 {
@@ -3983,6 +3995,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         }
         ApplyCharacter2CoreState(Update);
         ApplyCharacter3CoreState(Update);
+        ApplyCharacter4CoreState(Update);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4104,6 +4117,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         }
         ApplyCharacter2CoreState(Update);
         ApplyCharacter3CoreState(Update);
+        ApplyCharacter4CoreState(Update);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4113,6 +4127,10 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             Update.Ability->CurrentCharges = Update.Charges;
             if (ARoundSnipeAbility* Snipe = Cast<ARoundSnipeAbility>(Update.Ability)) Snipe->ReadyInitiativeElapsed = Update.ReadyInitiativeElapsed;
         }
+    }
+    for (const TPair<ARoundGridTile*, int32>& Update : Execution.TerrainUpdates)
+    {
+        if (Update.Key) Update.Key->SetTerrainType(static_cast<ERoundTerrainType>(Update.Value));
     }
     for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
     {
@@ -4533,6 +4551,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
             }
             ApplyCharacter2CoreState(Update);
             ApplyCharacter3CoreState(Update);
+            ApplyCharacter4CoreState(Update);
         }
         bApplyingCoreMovementCallbacks = true;
         Character->SetField(TargetTile, Index == Path.Num() - 1);
@@ -4674,6 +4693,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             }
             ApplyCharacter2CoreState(Update);
             ApplyCharacter3CoreState(Update);
+            ApplyCharacter4CoreState(Update);
         }
         for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
         {

@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::DeathMark
+        if (ability.operation > AbilityOperation::ArcaneShift
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -1087,6 +1087,8 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
             consumedDamageEffects.push_back(effect.id);
         if (effect.kind == ModifierEffectKind::AssassinFollowup && (effect.flags & 2u) != 0u)
             consumedDamageEffects.push_back(effect.id);
+        if (effect.kind == ModifierEffectKind::OneHitProtection)
+            consumedDamageEffects.push_back(effect.id);
     }
     for (const DefinitionId& effectId : consumedDamageEffects)
     {
@@ -1101,7 +1103,10 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         : 0;
     const std::int32_t heldDefense = target.heldPositionFromPreviousTurn && !target.movedSinceLastTurn
         ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseAddWhileHoldingPosition"))) : 0;
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense - defenseIgnore);
+    const std::int32_t elementDefense = target.activeElement != 0
+        ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileElementStored"))) : 0;
+    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense
+        + elementDefense + target.rockDefenseBonus - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
         std::numeric_limits<std::int32_t>::max(), (damage * 100 + denominator / 2) / denominator));
@@ -1840,14 +1845,19 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
         return Failure("missing_ability_tile", "Ability actor must occupy a board tile.");
     }
     if (definition.operation == AbilityOperation::GroundAura || definition.operation == AbilityOperation::Aim
-        || definition.operation == AbilityOperation::HookShot)
+        || definition.operation == AbilityOperation::HookShot || definition.operation == AbilityOperation::Fireball
+        || definition.operation == AbilityOperation::Lightningstrike || definition.operation == AbilityOperation::Rockblast
+        || definition.operation == AbilityOperation::ArcaneShift)
     {
         const TileState* targetTile = FindTile(action.targetTileId);
         if (!targetTile)
         {
             return Failure("missing_ability_target_tile", "Ground abilities require a board tile target.");
         }
-        if (HexDistance(actorTile->coord, targetTile->coord) > std::max(0, definition.range))
+        const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
+        const std::int32_t elementRange = actor->activeElement == 2
+            ? std::max(0, static_cast<std::int32_t>(PassiveValue(actorDefinition, "ElementIceRangeAdd"))) : 0;
+        if (HexDistance(actorTile->coord, targetTile->coord) > std::max(0, definition.range + elementRange))
         {
             return Failure("ability_target_out_of_range", "The target tile is outside ability range.");
         }
@@ -1862,6 +1872,19 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
                 if (!occupant || occupant->team != actor->team || occupant->id == actor->id
                     || AbilityValue(definition, "CanSwapWithAlly") <= 0.0)
                     return Failure("ability_target_occupied", "Hook Shot destination is occupied.");
+            }
+        }
+        if (definition.operation == AbilityOperation::ArcaneShift)
+        {
+            const auto terrain = definitions_.terrains.find(targetTile->terrainId);
+            if (terrain == definitions_.terrains.end() || !terrain->second.walkable || targetTile->blocksMovement)
+                return Failure("ability_target_blocked", "Arcane Shift requires a walkable destination.");
+            if (targetTile->occupantId != InvalidEntityId)
+            {
+                const CharacterState* occupant = FindCharacter(targetTile->occupantId);
+                if (!occupant || occupant->team != actor->team || occupant->id == actor->id
+                    || AbilityValue(definition, "CanSwapWithAlly") <= 0.0)
+                    return Failure("ability_target_occupied", "Arcane Shift destination is occupied.");
             }
         }
         if (definition.requiresVisibility)
@@ -1920,6 +1943,9 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
         return Failure("missing_ability_tile", "Ability actor and target must occupy board tiles.");
     }
     std::int32_t abilityRange = std::max(0, definition.range);
+    const CharacterDefinition& actorDefinitionForRange = definitions_.characters.at(actor->definitionId);
+    if (actor->activeElement == 2)
+        abilityRange += std::max(0, static_cast<std::int32_t>(PassiveValue(actorDefinitionForRange, "ElementIceRangeAdd")));
     if (definition.operation == AbilityOperation::Shadowstrike
         && std::any_of(target->modifierEffects.begin(), target->modifierEffects.end(),
             [](const ModifierEffectState& effect) { return effect.isDebuff; }))
@@ -1982,7 +2008,9 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     }
     const AbilityDefinition& definition = definitions_.abilities.at(action.abilityId);
     if (definition.operation != AbilityOperation::GroundAura && definition.operation != AbilityOperation::Aim
-        && definition.operation != AbilityOperation::HookShot && !target)
+        && definition.operation != AbilityOperation::HookShot && definition.operation != AbilityOperation::Fireball
+        && definition.operation != AbilityOperation::Lightningstrike && definition.operation != AbilityOperation::Rockblast
+        && definition.operation != AbilityOperation::ArcaneShift && !target)
     {
         return Failure("invalid_state", "Validated ability references missing target state.");
     }
@@ -2011,8 +2039,15 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             return anchorResult;
         }
     }
-    const std::int32_t cost = std::max(0, definition.initiativeCost);
+    const CharacterDefinition& castingDefinition = definitions_.characters.at(actor->definitionId);
+    const bool mageCast = definition.operation >= AbilityOperation::Fireball
+        && definition.operation <= AbilityOperation::ArcaneShift;
+    const std::int32_t storedElement = mageCast ? actor->activeElement : 0;
+    const std::int32_t elementCostReduction = mageCast && storedElement != 0 && !actor->elementCostReductionUsed
+        ? std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "FirstElementUseCostReduction"))) : 0;
+    const std::int32_t cost = std::max(0, definition.initiativeCost - elementCostReduction);
     actor->initiative -= cost;
+    if (elementCostReduction > 0) actor->elementCostReductionUsed = true;
 
     ActionResult result;
     result.success = true;
@@ -3197,6 +3232,288 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             | (AbilityValue(definition, "PreventInvisibility") > 0.0 ? 4u : 0u);
         addEffect(*target, mark);
     }
+    else if (definition.operation == AbilityOperation::Fireball)
+    {
+        TileState* center = FindTile(action.targetTileId);
+        const std::int32_t radius = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DamageRange")));
+        const double fireMultiplier = storedElement == 1
+            ? std::max(1.0, PassiveValue(castingDefinition, "ElementFireDamageMultiplier")) : 1.0;
+        std::vector<CharacterState*> hit;
+        for (CharacterState& candidate : state_.characters)
+        {
+            TileState* tile = FindTile(candidate.tileId);
+            if (!center || !tile || !candidate.alive || candidate.team == actor->team || candidate.team == Team::Neutral
+                || HexDistance(center->coord, tile->coord) > radius) continue;
+            double multiplier = fireMultiplier;
+            if (radius > 0 && HexDistance(center->coord, tile->coord) == radius
+                && AbilityValue(definition, "OuterRingDamageMultiplier") > 0.0)
+                multiplier *= AbilityValue(definition, "OuterRingDamageMultiplier");
+            std::int32_t damage = static_cast<std::int32_t>(definition.amount * multiplier + 0.5);
+            if (tile->id == center->id) damage += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CenterDamageAdd")));
+            applyDamage(*actor, candidate, damage, definition.defenseIgnore, {}); hit.push_back(&candidate);
+            applyDelay(*actor, candidate, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), {});
+            if (candidate.health > 0 && AbilityValue(definition, "BurnDamageOnTurnStart") > 0.0)
+            {
+                ModifierEffectState burn; burn.id = action.abilityId + ":Burn"; burn.kind = ModifierEffectKind::FireballBurn;
+                burn.causerId = actor->id; burn.isDebuff = true; burn.valueA = static_cast<std::int32_t>(AbilityValue(definition, "BurnDamageOnTurnStart"));
+                burn.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BurnDurationInitiative"))); addEffect(candidate, burn);
+            }
+            if (candidate.health > 0 && AbilityValue(definition, "DefenseReductionOnHit") > 0.0)
+            {
+                ModifierEffectState melt; melt.id = action.abilityId + ":Melt"; melt.causerId = actor->id; melt.isDebuff = true;
+                melt.defenseIgnoreAdd = static_cast<std::int32_t>(AbilityValue(definition, "DefenseReductionOnHit"));
+                melt.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DefenseReductionDurationInitiative"))); addEffect(candidate, melt);
+            }
+            if (candidate.health > 0 && AbilityValue(definition, "KnockbackDistance") > 0.0)
+            {
+                TileState* current = FindTile(candidate.tileId); TileState* destination = nullptr;
+                std::int32_t bestDistance = current && center ? HexDistance(center->coord, current->coord) : -1;
+                for (TileState& tileCandidate : state_.tiles)
+                {
+                    const auto terrain = definitions_.terrains.find(tileCandidate.terrainId);
+                    if (!current || !center || HexDistance(current->coord, tileCandidate.coord) != 1
+                        || tileCandidate.occupantId != InvalidEntityId || tileCandidate.blocksMovement
+                        || terrain == definitions_.terrains.end() || !terrain->second.walkable) continue;
+                    const std::int32_t distance = HexDistance(center->coord, tileCandidate.coord);
+                    if (distance > bestDistance && (!destination || tileCandidate.id < destination->id)) { destination = &tileCandidate; bestDistance = distance; }
+                }
+                if (destination) { current->occupantId = InvalidEntityId; destination->occupantId = candidate.id; candidate.tileId = destination->id;
+                    result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, candidate.id, destination->id, action.abilityId + ":Knockback", 0}); }
+            }
+        }
+        if (center && AbilityValue(definition, "CreateFireTerrainOnTarget") > 0.0)
+        {
+            for (const auto& entry : definitions_.terrains)
+            {
+                std::string id = entry.first; std::transform(id.begin(), id.end(), id.begin(), [](const unsigned char value) { return static_cast<char>(std::tolower(value)); });
+                if (id.find("fire") != std::string::npos || id.rfind("terrain:9:", 0) == 0) { center->terrainId = entry.first; break; }
+            }
+        }
+        const std::int32_t recoil = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfKnockbackDistance")));
+        if (center && recoil > 0)
+        {
+            TileState* current = FindTile(actor->tileId);
+            for (std::int32_t step = 0; step < recoil && current; ++step)
+            {
+                TileState* destination = nullptr; std::int32_t bestDistance = HexDistance(center->coord, current->coord);
+                for (TileState& tileCandidate : state_.tiles)
+                { const auto terrain = definitions_.terrains.find(tileCandidate.terrainId); if (HexDistance(current->coord, tileCandidate.coord) != 1
+                    || tileCandidate.occupantId != InvalidEntityId || tileCandidate.blocksMovement || terrain == definitions_.terrains.end() || !terrain->second.walkable) continue;
+                  const std::int32_t distance = HexDistance(center->coord, tileCandidate.coord); if (distance > bestDistance && (!destination || tileCandidate.id < destination->id)) { destination = &tileCandidate; bestDistance = distance; } }
+                if (!destination) break; current->occupantId = InvalidEntityId; destination->occupantId = actor->id; actor->tileId = destination->id; current = destination;
+                result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, destination->id, action.abilityId + ":Recoil", 0});
+            }
+        }
+        if (AbilityValue(definition, "AfterburnDelayInitiative") > 0.0 && AbilityValue(definition, "AfterburnDamageMultiplier") > 0.0)
+        {
+            ModifierEffectState delayed; delayed.id = action.abilityId + ":Afterburn:" + std::to_string(state_.step);
+            delayed.kind = ModifierEffectKind::DelayedArea; delayed.causerId = actor->id; delayed.sourceAbilityId = action.abilityId;
+            delayed.areaCenterTileId = action.targetTileId; delayed.areaRadius = radius;
+            delayed.valueA = static_cast<std::int32_t>(definition.amount * fireMultiplier * AbilityValue(definition, "AfterburnDamageMultiplier") + 0.5);
+            delayed.remainingInitiative = static_cast<std::int32_t>(AbilityValue(definition, "AfterburnDelayInitiative")); addEffect(*actor, delayed);
+        }
+        for (CharacterState* candidate : hit) finalizeDeath(*actor, *candidate);
+    }
+    else if (definition.operation == AbilityOperation::Icebeam)
+    {
+        const bool alreadySlowed = std::any_of(target->modifierEffects.begin(), target->modifierEffects.end(),
+            [actor](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::IcebeamSlow && effect.causerId == actor->id; });
+        const double fireMultiplier = storedElement == 1 ? std::max(1.0, PassiveValue(castingDefinition, "ElementFireDamageMultiplier")) : 1.0;
+        const std::int32_t applied = applyDamage(*actor, *target,
+            static_cast<std::int32_t>(definition.amount * fireMultiplier + 0.5), definition.defenseIgnore, {});
+        applyDelay(*actor, *target, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), {});
+        if (target->health > 0)
+        {
+            target->modifierEffects.erase(std::remove_if(target->modifierEffects.begin(), target->modifierEffects.end(),
+                [actor](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::IcebeamSlow && effect.causerId == actor->id; }), target->modifierEffects.end());
+            ModifierEffectState ice; ice.id = action.abilityId + (alreadySlowed && AbilityValue(definition, "RootIfAlreadySlowed") > 0.0 ? ":Root" : ":Slow");
+            ice.kind = ModifierEffectKind::IcebeamSlow; ice.causerId = actor->id; ice.isDebuff = true;
+            ice.preventsMovement = alreadySlowed && AbilityValue(definition, "RootIfAlreadySlowed") > 0.0;
+            const std::int32_t iceDurationAdd = storedElement == 2 ? std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "PassiveIceBonusDuration"))) : 0;
+            ice.remainingInitiative = std::max(1, static_cast<std::int32_t>(ice.preventsMovement
+                ? AbilityValue(definition, "RootDurationInitiative") : AbilityValue(definition, "SlowDuration")) + iceDurationAdd);
+            ice.moveCostMultiplierBasisPoints = ice.preventsMovement ? 10000 : static_cast<std::int32_t>((1.0 + std::max(0.0, AbilityValue(definition, "SlowAmount"))) * 10000.0 + 0.5);
+            ice.firstMoveInitiativeLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FirstMoveInitiativeLoss")));
+            ice.firstMovePenaltyAvailable = ice.firstMoveInitiativeLoss > 0;
+            ice.maximumMovedFields = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SlowEndsAfterMovedFields")));
+            ice.frostbreakDamage = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FrostbreakDamage"))); addEffect(*target, ice);
+            const double brittle = AbilityValue(definition, "BrittleIncomingDamageMultiplier");
+            if (brittle > 1.0) { ModifierEffectState effect; effect.id = action.abilityId + ":Brittle"; effect.causerId = actor->id; effect.isDebuff = true;
+                effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(brittle * 10000.0 + 0.5);
+                effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BrittleDurationInitiative"))); addEffect(*target, effect); }
+        }
+        const TileState* targetTile = FindTile(target->tileId);
+        const double splashSlow = AbilityValue(definition, "SplashSlowAmount");
+        const std::int32_t splashDuration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SplashSlowDurationInitiative")));
+        if (targetTile && splashSlow > 0.0 && splashDuration > 0)
+        {
+            for (CharacterState& candidate : state_.characters)
+            {
+                const TileState* tile = FindTile(candidate.tileId);
+                if (!candidate.alive || candidate.id == target->id || candidate.team == actor->team || !tile
+                    || HexDistance(targetTile->coord, tile->coord) != 1) continue;
+                ModifierEffectState slow; slow.id = action.abilityId + ":Splash"; slow.kind = ModifierEffectKind::IcebeamSlow;
+                slow.causerId = actor->id; slow.isDebuff = true; slow.remainingInitiative = splashDuration;
+                slow.moveCostMultiplierBasisPoints = static_cast<std::int32_t>((1.0 + splashSlow) * 10000.0 + 0.5);
+                addEffect(candidate, slow);
+            }
+        }
+        const double chainMultiplier = AbilityValue(definition, "ChainDamageMultiplier");
+        const std::int32_t chainRange = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ChainSearchRange")));
+        if (targetTile && chainMultiplier > 0.0)
+        {
+            CharacterState* chain = nullptr; std::int32_t best = chainRange + 1;
+            for (CharacterState& candidate : state_.characters)
+            {
+                const TileState* tile = FindTile(candidate.tileId); const std::int32_t distance = tile ? HexDistance(targetTile->coord, tile->coord) : best;
+                if (candidate.alive && candidate.id != target->id && candidate.team != actor->team && candidate.team != Team::Neutral
+                    && tile && distance <= chainRange && (distance < best || (distance == best && (!chain || candidate.id < chain->id))))
+                { chain = &candidate; best = distance; }
+            }
+            if (chain)
+            {
+                applyDamage(*actor, *chain, static_cast<std::int32_t>(definition.amount * fireMultiplier * chainMultiplier + 0.5), definition.defenseIgnore, action.abilityId + ":Chain");
+                const double chainSlow = AbilityValue(definition, "ChainSlowAmount");
+                if (chain->health > 0 && chainSlow > 0.0)
+                { ModifierEffectState slow; slow.id = action.abilityId + ":ChainSlow"; slow.kind = ModifierEffectKind::IcebeamSlow; slow.causerId = actor->id; slow.isDebuff = true;
+                  slow.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ChainSlowDurationInitiative")));
+                  slow.moveCostMultiplierBasisPoints = static_cast<std::int32_t>((1.0 + chainSlow) * 10000.0 + 0.5); addEffect(*chain, slow); }
+                finalizeDeath(*actor, *chain);
+            }
+        }
+        (void)applied; finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::Lightningstrike)
+    {
+        TileState* origin = FindTile(actor->tileId); TileState* end = FindTile(action.targetTileId);
+        std::vector<CharacterState*> hits;
+        if (origin && end)
+        {
+            const std::int32_t total = HexDistance(origin->coord, end->coord);
+            for (CharacterState& candidate : state_.characters)
+            {
+                TileState* tile = FindTile(candidate.tileId);
+                if (!candidate.alive || candidate.team == actor->team || candidate.team == Team::Neutral || !tile
+                    || HexDistance(origin->coord, tile->coord) + HexDistance(tile->coord, end->coord) != total) continue;
+                hits.push_back(&candidate);
+            }
+            std::sort(hits.begin(), hits.end(), [origin, this](const CharacterState* a, const CharacterState* b)
+                { return HexDistance(origin->coord, FindTile(a->tileId)->coord) < HexDistance(origin->coord, FindTile(b->tileId)->coord); });
+        }
+        const double fireMultiplier = storedElement == 1 ? std::max(1.0, PassiveValue(castingDefinition, "ElementFireDamageMultiplier")) : 1.0;
+        for (std::size_t index = 0; index < hits.size(); ++index)
+        {
+            const double scaling = 1.0 + index * std::max(0.0, AbilityValue(definition, "DamageMultiplierAddPerPreviousTarget"));
+            applyDamage(*actor, *hits[index], static_cast<std::int32_t>(definition.amount * fireMultiplier * scaling + 0.5), definition.defenseIgnore, {});
+            applyDelay(*actor, *hits[index], std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), {});
+            if (hits[index]->health > 0 && AbilityValue(definition, "StaticChargeMoveDamage") > 0.0)
+            { ModifierEffectState charge; charge.id = action.abilityId + ":Static"; charge.kind = ModifierEffectKind::StaticCharge; charge.causerId = actor->id; charge.isDebuff = true;
+                charge.triggerOnMove = true; charge.triggerDamageOnMove = static_cast<std::int32_t>(AbilityValue(definition, "StaticChargeMoveDamage"));
+                charge.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "StaticChargeDurationInitiative"))); addEffect(*hits[index], charge); }
+            finalizeDeath(*actor, *hits[index]);
+        }
+        const double forkMultiplier = AbilityValue(definition, "EndpointForkDamageMultiplier");
+        if (end && forkMultiplier > 0.0)
+        {
+            for (CharacterState& candidate : state_.characters)
+            {
+                const TileState* tile = FindTile(candidate.tileId);
+                if (!candidate.alive || candidate.team == actor->team || candidate.team == Team::Neutral || !tile
+                    || HexDistance(end->coord, tile->coord) != 1 || std::find(hits.begin(), hits.end(), &candidate) != hits.end()) continue;
+                applyDamage(*actor, candidate, static_cast<std::int32_t>(definition.amount * fireMultiplier * forkMultiplier + 0.5), definition.defenseIgnore, action.abilityId + ":Fork");
+                finalizeDeath(*actor, candidate);
+            }
+        }
+        const std::int32_t finalRange = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FinalChainRange")));
+        const double finalMultiplier = AbilityValue(definition, "FinalChainDamageMultiplier");
+        if (!hits.empty() && finalRange > 0 && finalMultiplier > 0.0)
+        {
+            const TileState* lastTile = FindTile(hits.back()->tileId); CharacterState* chain = nullptr; std::int32_t best = finalRange + 1;
+            for (CharacterState& candidate : state_.characters)
+            {
+                const TileState* tile = FindTile(candidate.tileId); const std::int32_t distance = lastTile && tile ? HexDistance(lastTile->coord, tile->coord) : best;
+                if (candidate.alive && candidate.team != actor->team && candidate.team != Team::Neutral && tile
+                    && std::find(hits.begin(), hits.end(), &candidate) == hits.end() && distance <= finalRange
+                    && (distance < best || (distance == best && (!chain || candidate.id < chain->id)))) { chain = &candidate; best = distance; }
+            }
+            if (chain) { applyDamage(*actor, *chain, static_cast<std::int32_t>(definition.amount * fireMultiplier * finalMultiplier + 0.5), definition.defenseIgnore, action.abilityId + ":FinalChain"); finalizeDeath(*actor, *chain); }
+        }
+        if (hits.size() >= 2 && AbilityValue(definition, "InitiativeGainOnMultiHit") > 0.0)
+            actor->initiative += static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnMultiHit"));
+        const std::int32_t reduction = std::min(std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MaximumHitCooldownReduction"))),
+            static_cast<std::int32_t>(hits.size()) * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReductionPerEnemyHit"))));
+        abilityState->cooldownRemaining = std::max(0, abilityState->cooldownRemaining - reduction);
+    }
+    else if (definition.operation == AbilityOperation::Rockblast)
+    {
+        TileState* center = FindTile(action.targetTileId); CharacterState* primary = center ? FindCharacter(center->occupantId) : nullptr;
+        if (primary && primary->team != actor->team)
+        { applyDamage(*actor, *primary, definition.amount, definition.defenseIgnore, {}); applyDelay(*actor, *primary,
+            std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), {}); }
+        auto terrainByWord = [this](const std::string& word, const DefinitionId& fallback)
+        { for (const auto& entry : definitions_.terrains) { std::string id = entry.first; std::transform(id.begin(), id.end(), id.begin(),
+                [](const unsigned char value) { return static_cast<char>(std::tolower(value)); });
+            if (id.find(word) != std::string::npos || (word == "rock" && id.rfind("terrain:6:", 0) == 0)
+                || (word == "rubble" && id.rfind("terrain:7:", 0) == 0)) return entry.first; } return fallback; };
+        const DefinitionId rocks = terrainByWord("rock", center ? center->terrainId : DefinitionId{});
+        const DefinitionId rubble = terrainByWord("rubble", center ? center->terrainId : DefinitionId{});
+        const bool wasRock = center && center->terrainId == rocks;
+        std::vector<TileState*> created;
+        if (center) center->terrainId = wasRock ? rubble : rocks;
+        if (center && !wasRock) created.push_back(center);
+        if (wasRock && center && AbilityValue(definition, "ShatterSplashDamageMultiplier") > 0.0)
+        {
+            for (CharacterState& candidate : state_.characters)
+            { const TileState* tile = FindTile(candidate.tileId); if (candidate.alive && candidate.team != actor->team && candidate.team != Team::Neutral && tile
+                && HexDistance(center->coord, tile->coord) == 1) { applyDamage(*actor, candidate, static_cast<std::int32_t>(definition.amount * AbilityValue(definition, "ShatterSplashDamageMultiplier") + 0.5), 0, action.abilityId + ":Shatter"); finalizeDeath(*actor, candidate); } }
+        }
+        std::int32_t remaining = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AdditionalRockCount")));
+        if (center) for (TileState& tile : state_.tiles) if (remaining > 0 && tile.occupantId == InvalidEntityId
+            && HexDistance(center->coord, tile.coord) == 1) { tile.terrainId = rocks; created.push_back(&tile); --remaining; }
+        const double cover = AbilityValue(definition, "SelfIncomingDamageMultiplierAfterRockCreate");
+        if (!created.empty() && cover > 0.0 && cover < 1.0)
+        { ModifierEffectState effect; effect.id = action.abilityId + ":Cover"; effect.causerId = actor->id; effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(cover * 10000.0 + 0.5);
+          effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "RockCoverDurationInitiative"))); addEffect(*actor, effect); }
+        if (primary && primary->health > 0 && AbilityValue(definition, "RootIfSurroundedByRocks") > 0.0 && center)
+        {
+            const std::int32_t adjacent = static_cast<std::int32_t>(std::count_if(state_.tiles.begin(), state_.tiles.end(), [center, &rocks](const TileState& tile)
+                { return tile.terrainId == rocks && HexDistance(center->coord, tile.coord) == 1; }));
+            if (adjacent >= std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "RequiredAdjacentRocks"))))
+            { ModifierEffectState root; root.id = action.abilityId + ":Prison"; root.causerId = actor->id; root.isDebuff = true; root.preventsMovement = true;
+              root.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "RockPrisonDurationInitiative"))); addEffect(*primary, root); }
+        }
+        if (primary) finalizeDeath(*actor, *primary);
+    }
+    else if (definition.operation == AbilityOperation::ArcaneShift)
+    {
+        TileState* origin = FindTile(actor->tileId); TileState* destination = FindTile(action.targetTileId);
+        CharacterState* ally = destination && destination->occupantId != InvalidEntityId ? FindCharacter(destination->occupantId) : nullptr;
+        if (origin && destination)
+        { if (ally) { origin->occupantId = ally->id; ally->tileId = origin->id; result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, ally->id, origin->id, action.abilityId, 0}); }
+          else origin->occupantId = InvalidEntityId; destination->occupantId = actor->id; actor->tileId = destination->id;
+          result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, destination->id, action.abilityId, 0}); }
+        std::vector<CharacterState*> affected;
+        for (CharacterState& enemy : state_.characters)
+        { TileState* tile = FindTile(enemy.tileId); if (!tile || !enemy.alive || enemy.team == actor->team || enemy.team == Team::Neutral) continue;
+          const bool nearStart = origin && HexDistance(origin->coord, tile->coord) == 1;
+          const bool nearEnd = destination && HexDistance(destination->coord, tile->coord) == 1;
+          if (!nearStart && !nearEnd) continue;
+          if (nearStart) applyDelay(*actor, enemy, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossAroundStart"))), {});
+          if (AbilityValue(definition, "SpatialRuptureDamage") > 0.0) applyDamage(*actor, enemy, static_cast<std::int32_t>(AbilityValue(definition, "SpatialRuptureDamage")), 0, {});
+          if (nearEnd && AbilityValue(definition, "DamageAroundDestination") > 0.0) applyDamage(*actor, enemy, static_cast<std::int32_t>(AbilityValue(definition, "DamageAroundDestination")), 0, {});
+          const std::int32_t trailCost = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MoveCostAddNearShiftEndpoints")));
+          if (trailCost > 0) { ModifierEffectState trail; trail.id = action.abilityId + ":Trail"; trail.causerId = actor->id; trail.isDebuff = true; trail.moveCostAdd = trailCost;
+            trail.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ShiftEndpointDebuffDurationInitiative"))); addEffect(enemy, trail); }
+          affected.push_back(&enemy); }
+        if (affected.empty() && AbilityValue(definition, "InitiativeRefundIfNoAdjacentEnemy") > 0.0)
+            actor->initiative += static_cast<std::int32_t>(AbilityValue(definition, "InitiativeRefundIfNoAdjacentEnemy"));
+        double protection = AbilityValue(definition, "NegateNextHit") > 0.0 ? 0.0 : AbilityValue(definition, "NextHitIncomingDamageMultiplier");
+        if (protection >= 0.0 && protection < 1.0 && AbilityValue(definition, "NextHitProtectionDurationInitiative") > 0.0)
+        { ModifierEffectState effect; effect.id = action.abilityId + ":Protection"; effect.kind = ModifierEffectKind::OneHitProtection; effect.causerId = actor->id;
+          effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(protection * 10000.0 + 0.5); effect.flags = 2u;
+          effect.remainingInitiative = static_cast<std::int32_t>(AbilityValue(definition, "NextHitProtectionDurationInitiative")); addEffect(*actor, effect); }
+        for (CharacterState* enemy : affected) finalizeDeath(*actor, *enemy);
+    }
     else if (definition.operation == AbilityOperation::DirectHeal)
     {
         const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
@@ -3325,6 +3642,55 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             }
         }
     }
+    if (mageCast)
+    {
+        std::int32_t castElement = 0;
+        if (definition.damageType == DamageType::Fire) castElement = 1;
+        else if (definition.damageType == DamageType::Ice) castElement = 2;
+        else if (definition.damageType == DamageType::Lightning) castElement = 3;
+        else if (definition.damageType == DamageType::Ground) castElement = 4;
+        if (storedElement != 0) actor->usedElementMask |= (1u << static_cast<std::uint32_t>(storedElement));
+        if (!actor->elementSwapRefundUsed && storedElement != 0 && castElement != 0 && storedElement != castElement)
+        {
+            const std::int32_t refund = std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "DifferentElementInitiativeRefund")));
+            actor->initiative += refund; actor->elementSwapRefundUsed = refund > 0;
+            if (refund > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+                actor->tileId, action.abilityId + ":ElementSwap", refund});
+        }
+        if (storedElement == 3)
+        {
+            const double multiplier = PassiveValue(castingDefinition, "ElementLightningCooldownMultiplier");
+            if (multiplier > 0.0 && multiplier < 1.0)
+                abilityState->cooldownRemaining = std::max(0, static_cast<std::int32_t>(abilityState->cooldownRemaining * multiplier + 0.5));
+        }
+        if (storedElement == 4)
+        {
+            const std::int32_t hitCount = static_cast<std::int32_t>(std::count_if(result.events.begin(), result.events.end(),
+                [actor](const GameEvent& event) { return event.type == EventType::DamageApplied && event.sourceId == actor->id && event.amount > 0; }));
+            const std::int32_t perHit = std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "ElementRockDefensePerEnemyHit")));
+            const std::int32_t maximum = std::max(1, static_cast<std::int32_t>(PassiveValue(castingDefinition, "ElementRockMaxDefenseStacks"))) * perHit;
+            actor->rockDefenseBonus = std::min(maximum, actor->rockDefenseBonus + hitCount * perHit);
+            actor->rockDefenseRemainingInitiative = std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "ElementRockDefenseDurationInitiative")));
+        }
+        const double protection = PassiveValue(castingDefinition, "ElementProtectionIncomingDamageMultiplier");
+        if (storedElement != 0 && protection > 0.0 && protection < 1.0)
+        {
+            ModifierEffectState effect; effect.id = "Character4ElementProtection"; effect.kind = ModifierEffectKind::OneHitProtection;
+            effect.causerId = actor->id; effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(protection * 10000.0 + 0.5);
+            effect.flags = 2u; effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(PassiveValue(castingDefinition, "ElementProtectionDurationInitiative")));
+            addEffect(*actor, effect); actor->protectionReady = true; actor->protectionRemainingInitiative = effect.remainingInitiative;
+        }
+        actor->echoElement = PassiveValue(castingDefinition, "ElementEcho") > 0.0 ? storedElement : 0;
+        if (castElement == 0) actor->elementCycleMask = 0;
+        else
+        {
+            const std::uint32_t bit = 1u << static_cast<std::uint32_t>(castElement);
+            actor->elementCycleMask = (actor->elementCycleMask & bit) != 0u ? bit : actor->elementCycleMask | bit;
+        }
+        actor->lastCastElement = castElement;
+        if (actor->firstCastElement == 0) actor->firstCastElement = castElement;
+        actor->activeElement = castElement;
+    }
     ++state_.step;
     return result;
 }
@@ -3440,7 +3806,8 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
         const CharacterDefinition& definition = definitions_.characters.at(selected->definitionId);
         for (const ModifierEffectState& effect : selected->modifierEffects)
         {
-            if (effect.kind != ModifierEffectKind::Bleed || effect.valueA <= 0) continue;
+            if ((effect.kind != ModifierEffectKind::Bleed && effect.kind != ModifierEffectKind::FireballBurn)
+                || effect.valueA <= 0) continue;
             const std::int32_t applied = std::min(selected->health, effect.valueA);
             selected->health -= applied;
             result.events.push_back(GameEvent{EventType::DamageApplied, effect.causerId, selected->id,
@@ -3555,6 +3922,13 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
             }
         }
+        if (PassiveValue(definition, "CoreMageCharacter") > 0.0)
+        {
+            selected->usedElementMask = 0;
+            selected->firstCastElement = 0;
+            selected->elementCostReductionUsed = false;
+            selected->elementSwapRefundUsed = false;
+        }
         state_.activeCharacterId = selected->id;
         result.events.push_back(GameEvent{
             EventType::ActiveCharacterChanged, selected->id, selected->id, selected->tileId, {}, 0});
@@ -3574,6 +3948,11 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             }
             if (character.secondaryCooldownRemaining > 0)
                 --character.secondaryCooldownRemaining;
+            if (character.elementSwapCooldownRemaining > 0) --character.elementSwapCooldownRemaining;
+            if (character.rockDefenseRemainingInitiative > 0 && --character.rockDefenseRemainingInitiative == 0)
+                character.rockDefenseBonus = 0;
+            if (character.protectionRemainingInitiative > 0 && --character.protectionRemainingInitiative == 0)
+                character.protectionReady = false;
             if (character.resourceMaximum > 0 && character.resourceRechargeInterval > 0)
             {
                 ++character.resourceRechargeProgress;
@@ -3732,6 +4111,33 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
                 if (effect->remainingInitiative <= 0 && effect->remainingTurns <= 0)
                 {
+                    if (effect->kind == ModifierEffectKind::DelayedArea && effect->valueA > 0)
+                    {
+                        CharacterState* causer = FindCharacter(effect->causerId);
+                        const TileState* center = FindTile(effect->areaCenterTileId);
+                        if (causer && center)
+                        {
+                            for (CharacterState& target : state_.characters)
+                            {
+                                const TileState* tile = FindTile(target.tileId);
+                                if (!target.alive || target.team == causer->team || target.team == Team::Neutral || !tile
+                                    || HexDistance(center->coord, tile->coord) > effect->areaRadius) continue;
+                                std::vector<GameEvent> auraEvents; std::vector<GameEvent> modifierEvents;
+                                const std::int32_t applied = ResolveDamage(*causer, target, effect->valueA, 0, auraEvents, modifierEvents);
+                                result.events.push_back(GameEvent{EventType::DamageApplied, causer->id, target.id,
+                                    target.tileId, effect->id, applied});
+                                result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+                                result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+                                if (target.health <= 0 && target.alive)
+                                {
+                                    target.health = 0; target.alive = false;
+                                    if (TileState* occupied = FindTile(target.tileId)) occupied->occupantId = InvalidEntityId;
+                                    result.events.push_back(GameEvent{EventType::CharacterDied, causer->id, target.id,
+                                        target.tileId, effect->id, 0});
+                                }
+                            }
+                        }
+                    }
                     if (effect->kind == ModifierEffectKind::DeathMark && character.alive && effect->valueC > 0)
                     {
                         if (CharacterState* causer = FindCharacter(effect->causerId))
@@ -3879,7 +4285,11 @@ std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
         const auto definition = definitions_.abilities.find(ability.definitionId);
         if (definition != definitions_.abilities.end()
             && (definition->second.operation == AbilityOperation::GroundAura
-                || definition->second.operation == AbilityOperation::HookShot))
+                || definition->second.operation == AbilityOperation::HookShot
+                || definition->second.operation == AbilityOperation::Fireball
+                || definition->second.operation == AbilityOperation::Lightningstrike
+                || definition->second.operation == AbilityOperation::Rockblast
+                || definition->second.operation == AbilityOperation::ArcaneShift))
         {
             for (const TileState& tile : state_.tiles)
             {
@@ -4141,6 +4551,13 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.freeAdjacentMoveAvailable); HashValue(hash, character.freeAdjacentMoveUsedThisTurn);
         HashValue(hash, character.nextDamageAfterMoveReady); HashValue(hash, character.nextReductionAfterMoveReady);
         HashValue(hash, character.startInvisibilityApplied);
+        HashValue(hash, character.activeElement); HashValue(hash, character.usedElementMask);
+        HashValue(hash, character.lastCastElement); HashValue(hash, character.firstCastElement);
+        HashValue(hash, character.elementSwapCooldownRemaining); HashValue(hash, character.rockDefenseBonus);
+        HashValue(hash, character.rockDefenseRemainingInitiative); HashValue(hash, character.protectionRemainingInitiative);
+        HashValue(hash, character.echoElement); HashValue(hash, character.elementCycleMask);
+        HashValue(hash, character.elementCostReductionUsed); HashValue(hash, character.elementSwapRefundUsed);
+        HashValue(hash, character.storedElementEmpowered); HashValue(hash, character.protectionReady);
         for (const AbilityState& ability : character.abilities)
         {
             HashString(hash, ability.definitionId);

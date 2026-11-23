@@ -1114,6 +1114,79 @@ int main()
             && markGame.State().characters[0].resourceCurrent == 1,
         "Death Mark should amplify only its causer's hit and grant combo when triggered");
 
+    const auto character4AbilitySetup = [](AbilityDefinition ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.terrains.emplace("Rocks", TerrainDefinition{"Rocks", true, true, false, 1, 10000, {}});
+        setup.definitions.terrains.emplace("Fire", TerrainDefinition{"Fire", true, false, false, 1, 10000, {}});
+        setup.definitions.characters.at("Tank").passiveValues = {{"CoreMageCharacter", 1.0},
+            {"ElementFireDamageMultiplier", 1.25}, {"ElementIceRangeAdd", 1.0},
+            {"ElementLightningCooldownMultiplier", 0.5}, {"ElementRockDefensePerEnemyHit", 4.0},
+            {"ElementRockMaxDefenseStacks", 4.0}, {"ElementRockDefenseDurationInitiative", 80.0}};
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds.push_back(ability.id);
+        setup.initialState.characters[0].abilities.push_back(AbilityState{ability.id, 0, 40, 1, 1, false});
+        return setup;
+    };
+
+    AbilityDefinition fireball; fireball.id = "Fireball"; fireball.operation = AbilityOperation::Fireball;
+    fireball.damageType = DamageType::Fire; fireball.range = 3; fireball.amount = 20;
+    fireball.values = {{"DamageRange", 1.0}, {"BurnDamageOnTurnStart", 3.0},
+        {"BurnDurationInitiative", 80.0}, {"CreateFireTerrainOnTarget", 1.0}};
+    MatchSetup fireSetup = character4AbilitySetup(fireball);
+    fireSetup.initialState.characters.push_back(CharacterState{30, "Tank", Team::TeamB, 3, 100, 50, true, {}});
+    Game fireGame; Require(fireGame.Reset(std::move(fireSetup)).success, "Fireball setup should reset");
+    GameAction mageTileCast{ActionType::UseAbility, 10, InvalidEntityId, 2, fireball.id};
+    Require(fireGame.ApplyAction(mageTileCast).success && fireGame.State().characters[1].health < 100
+            && fireGame.State().characters[2].health < 100 && fireGame.State().tiles[1].terrainId == "Fire"
+            && fireGame.State().characters[0].activeElement == 1,
+        "Fireball should damage its area, create fire terrain, and store Fire in Core");
+
+    AbilityDefinition icebeam; icebeam.id = "Icebeam"; icebeam.operation = AbilityOperation::Icebeam;
+    icebeam.damageType = DamageType::Ice; icebeam.targetRelation = AbilityTargetRelation::Enemy;
+    icebeam.range = 2; icebeam.amount = 20; icebeam.values = {{"SlowAmount", 0.5}, {"SlowDuration", 80.0}};
+    MatchSetup iceSetup = character4AbilitySetup(icebeam); iceSetup.initialState.characters[0].activeElement = 1;
+    Game iceGame; Require(iceGame.Reset(std::move(iceSetup)).success, "Icebeam setup should reset");
+    GameAction mageTargetCast{ActionType::UseAbility, 10, 20, InvalidEntityId, icebeam.id};
+    const ActionResult iceResult = iceGame.ApplyAction(mageTargetCast);
+    Require(iceResult.success && iceGame.State().characters[1].health == 76
+            && iceGame.State().characters[1].modifierEffects[0].kind == ModifierEffectKind::IcebeamSlow
+            && iceGame.State().characters[0].activeElement == 2,
+        "Icebeam should consume stored Fire for damage, apply slow, and store Ice in Core");
+
+    AbilityDefinition lightning; lightning.id = "Lightningstrike"; lightning.operation = AbilityOperation::Lightningstrike;
+    lightning.damageType = DamageType::Lightning; lightning.range = 3; lightning.amount = 12;
+    lightning.values = {{"InitiativeLossOnHit", 4.0}, {"StaticChargeMoveDamage", 5.0},
+        {"StaticChargeDurationInitiative", 80.0}, {"CooldownReductionPerEnemyHit", 2.0}, {"MaximumHitCooldownReduction", 4.0}};
+    MatchSetup lightningSetup = character4AbilitySetup(lightning);
+    lightningSetup.initialState.characters.push_back(CharacterState{30, "Tank", Team::TeamB, 4, 100, 50, true, {}});
+    Game lightningGame; Require(lightningGame.Reset(std::move(lightningSetup)).success, "Lightning setup should reset");
+    mageTileCast.targetTileId = 4; mageTileCast.abilityId = lightning.id;
+    Require(lightningGame.ApplyAction(mageTileCast).success && lightningGame.State().characters[1].health < 100
+            && lightningGame.State().characters[2].health < 100
+            && lightningGame.State().characters[0].abilities[0].cooldownRemaining == 36,
+        "Lightningstrike should resolve its line and per-target cooldown reduction in Core");
+
+    AbilityDefinition rock; rock.id = "Rockblast"; rock.operation = AbilityOperation::Rockblast;
+    rock.damageType = DamageType::Ground; rock.range = 3; rock.amount = 15;
+    rock.values = {{"AdditionalRockCount", 2.0}, {"SelfIncomingDamageMultiplierAfterRockCreate", 0.75},
+        {"RockCoverDurationInitiative", 80.0}};
+    Game rockGame; Require(rockGame.Reset(character4AbilitySetup(rock)).success, "Rockblast setup should reset");
+    mageTileCast.targetTileId = 2; mageTileCast.abilityId = rock.id;
+    Require(rockGame.ApplyAction(mageTileCast).success
+            && std::count_if(rockGame.State().tiles.begin(), rockGame.State().tiles.end(), [](const TileState& tile) { return tile.terrainId == "Rocks"; }) >= 1
+            && !rockGame.State().characters[0].modifierEffects.empty(),
+        "Rockblast should create terrain and its configured cover in Core");
+
+    AbilityDefinition shift; shift.id = "ArcaneShift"; shift.operation = AbilityOperation::ArcaneShift;
+    shift.range = 3; shift.values = {{"NextHitIncomingDamageMultiplier", 0.5}, {"NextHitProtectionDurationInitiative", 80.0}};
+    Game shiftGame; Require(shiftGame.Reset(character4AbilitySetup(shift)).success, "Arcane Shift setup should reset");
+    mageTileCast.targetTileId = 4; mageTileCast.abilityId = shift.id;
+    Require(shiftGame.ApplyAction(mageTileCast).success && shiftGame.State().characters[0].tileId == 4
+            && std::any_of(shiftGame.State().characters[0].modifierEffects.begin(), shiftGame.State().characters[0].modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::OneHitProtection; }),
+        "Arcane Shift should relocate the mage and persist its one-hit protection in Core");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

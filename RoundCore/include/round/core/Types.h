@@ -50,7 +50,12 @@ enum class AbilityOperation : std::uint8_t
     Armorpen,
     Execute,
     HookShot,
-    DeathMark
+    DeathMark,
+    Fireball,
+    Icebeam,
+    Lightningstrike,
+    Rockblast,
+    ArcaneShift
 };
 
 enum class ModifierEffectKind : std::uint8_t
@@ -72,7 +77,13 @@ enum class ModifierEffectKind : std::uint8_t
     BasicAttackWeakness,
     Bleed,
     AssassinFollowup,
-    HookAnchor
+    HookAnchor,
+    FireballBurn,
+    StaticCharge,
+    DelayedArea,
+    RockEcho,
+    OneHitProtection,
+    IcebeamSlow
 };
 
 enum class AbilityTargetRelation : std::uint8_t

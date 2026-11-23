@@ -106,6 +106,36 @@ void ARoundCharacter4::ApplySimMageState(
     NotifyRoundStateChanged();
 }
 
+void ARoundCharacter4::ApplyCoreMageState(const int32 InActiveElement, const uint32 InUsedElementMask,
+    const int32 InLastCastElement, const int32 InFirstCastElement, const int32 InElementSwapCooldownRemaining,
+    const int32 InRockDefenseBonus, const int32 InRockDefenseRemainingInitiative,
+    const int32 InProtectionRemainingInitiative, const int32 InEchoElement, const uint32 InElementCycleMask,
+    const bool bInElementCostReductionUsed, const bool bInElementSwapRefundUsed,
+    const bool bInStoredElementEmpowered, const bool bInProtectionReady)
+{
+    ActiveElementBonuses.Reset();
+    if (InActiveElement > 0 && InActiveElement <= static_cast<int32>(ERoundMageElementBonus::RockGuard))
+        ActiveElementBonuses.Add(static_cast<ERoundMageElementBonus>(InActiveElement));
+    UsedElementBonusesThisTurn.Reset();
+    for (int32 Element = 1; Element <= static_cast<int32>(ERoundMageElementBonus::RockGuard); ++Element)
+        if ((InUsedElementMask & (1u << Element)) != 0u) UsedElementBonusesThisTurn.Add(static_cast<ERoundMageElementBonus>(Element));
+    LastCastElementBonus = static_cast<ERoundMageElementBonus>(FMath::Clamp(InLastCastElement, 0, 4));
+    FirstCastElementBonusThisTurn = static_cast<ERoundMageElementBonus>(FMath::Clamp(InFirstCastElement, 0, 4));
+    ElementSwapCooldownTurnsRemaining = FMath::Max(0, InElementSwapCooldownRemaining);
+    ElementalRockDefenseBonus = FMath::Max(0, InRockDefenseBonus);
+    ElementalRockDefenseRemainingInitiative = FMath::Max(0, InRockDefenseRemainingInitiative);
+    ProtectionRemainingInitiative = FMath::Max(0, InProtectionRemainingInitiative);
+    EchoElement = static_cast<ERoundMageElementBonus>(FMath::Clamp(InEchoElement, 0, 4));
+    ElementCycle.Reset();
+    for (int32 Element = 1; Element <= 4; ++Element)
+        if ((InElementCycleMask & (1u << Element)) != 0u) ElementCycle.Add(static_cast<ERoundMageElementBonus>(Element));
+    bElementCostReductionUsedThisTurn = bInElementCostReductionUsed;
+    bElementSwapRefundUsedThisTurn = bInElementSwapRefundUsed;
+    bStoredElementEmpowered = bInStoredElementEmpowered;
+    bProtectionReady = bInProtectionReady;
+    NotifyRoundStateChanged();
+}
+
 void ARoundCharacter4::BeginTurn()
 {
     Super::BeginTurn();

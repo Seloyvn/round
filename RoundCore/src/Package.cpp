@@ -280,6 +280,13 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(character.freeAdjacentMoveAvailable); writer.Integer(character.freeAdjacentMoveUsedThisTurn);
         writer.Integer(character.nextDamageAfterMoveReady); writer.Integer(character.nextReductionAfterMoveReady);
         writer.Integer(character.startInvisibilityApplied);
+        writer.Integer(character.activeElement); writer.Integer(character.usedElementMask);
+        writer.Integer(character.lastCastElement); writer.Integer(character.firstCastElement);
+        writer.Integer(character.elementSwapCooldownRemaining); writer.Integer(character.rockDefenseBonus);
+        writer.Integer(character.rockDefenseRemainingInitiative); writer.Integer(character.protectionRemainingInitiative);
+        writer.Integer(character.echoElement); writer.Integer(character.elementCycleMask);
+        writer.Integer(character.elementCostReductionUsed); writer.Integer(character.elementSwapRefundUsed);
+        writer.Integer(character.storedElementEmpowered); writer.Integer(character.protectionReady);
         writer.Integer(static_cast<std::uint32_t>(character.abilities.size()));
         for (const AbilityState& ability : character.abilities)
         {
@@ -384,6 +391,13 @@ GameState ReadState(Reader& reader)
         character.freeAdjacentMoveAvailable = reader.Integer<bool>(); character.freeAdjacentMoveUsedThisTurn = reader.Integer<bool>();
         character.nextDamageAfterMoveReady = reader.Integer<bool>(); character.nextReductionAfterMoveReady = reader.Integer<bool>();
         character.startInvisibilityApplied = reader.Integer<bool>();
+        character.activeElement = reader.Integer<std::int32_t>(); character.usedElementMask = reader.Integer<std::uint32_t>();
+        character.lastCastElement = reader.Integer<std::int32_t>(); character.firstCastElement = reader.Integer<std::int32_t>();
+        character.elementSwapCooldownRemaining = reader.Integer<std::int32_t>(); character.rockDefenseBonus = reader.Integer<std::int32_t>();
+        character.rockDefenseRemainingInitiative = reader.Integer<std::int32_t>(); character.protectionRemainingInitiative = reader.Integer<std::int32_t>();
+        character.echoElement = reader.Integer<std::int32_t>(); character.elementCycleMask = reader.Integer<std::uint32_t>();
+        character.elementCostReductionUsed = reader.Integer<bool>(); character.elementSwapRefundUsed = reader.Integer<bool>();
+        character.storedElementEmpowered = reader.Integer<bool>(); character.protectionReady = reader.Integer<bool>();
         for (std::uint32_t ability = 0, abilityCount = reader.Count(); ability < abilityCount; ++ability)
         {
             AbilityState value; value.definitionId = reader.String(); value.cooldownRemaining = reader.Integer<std::int32_t>();

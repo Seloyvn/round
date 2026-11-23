@@ -9,6 +9,7 @@
 #include "Actors/RoundCharacter1.h"
 #include "Actors/RoundCharacter2.h"
 #include "Actors/RoundCharacter3.h"
+#include "Actors/RoundCharacter4.h"
 #include "Abilities/RoundSnipeAbility.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
@@ -119,6 +120,14 @@ void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCo
     Update.bNextDamageAfterMoveReady = State.nextDamageAfterMoveReady;
     Update.bNextReductionAfterMoveReady = State.nextReductionAfterMoveReady;
     Update.bStartInvisibilityApplied = State.startInvisibilityApplied;
+    Update.ActiveElement = State.activeElement; Update.UsedElementMask = State.usedElementMask;
+    Update.LastCastElement = State.lastCastElement; Update.FirstCastElement = State.firstCastElement;
+    Update.ElementSwapCooldownRemaining = State.elementSwapCooldownRemaining;
+    Update.RockDefenseBonus = State.rockDefenseBonus; Update.RockDefenseRemainingInitiative = State.rockDefenseRemainingInitiative;
+    Update.ProtectionRemainingInitiative = State.protectionRemainingInitiative; Update.EchoElement = State.echoElement;
+    Update.ElementCycleMask = State.elementCycleMask; Update.bElementCostReductionUsed = State.elementCostReductionUsed;
+    Update.bElementSwapRefundUsed = State.elementSwapRefundUsed; Update.bStoredElementEmpowered = State.storedElementEmpowered;
+    Update.bProtectionReady = State.protectionReady;
 }
 }
 
@@ -368,6 +377,22 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             Definition.passiveValues.emplace("BaseComboStart", Character3->GetValueFromKey(TEXT("ComboPointsStart")));
             Definition.passiveValues.emplace("StartInvisibilityDurationInitiative", Character3->GetValueFromKey(TEXT("StartInvisibilityDurationInitiative")));
         }
+        if (const ARoundCharacter4* Character4 = Cast<ARoundCharacter4>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("ElementFireDamageMultiplier"), TEXT("ElementIceRangeAdd"), TEXT("PassiveIceBonusDuration"),
+                TEXT("ElementLightningCooldownMultiplier"), TEXT("ElementRockDefensePerEnemyHit"),
+                TEXT("ElementRockMaxDefenseStacks"), TEXT("ElementRockDefenseDurationInitiative"),
+                TEXT("FirstElementUseCostReduction"), TEXT("DifferentElementInitiativeRefund"),
+                TEXT("ElementProtectionIncomingDamageMultiplier"), TEXT("ElementProtectionDurationInitiative"),
+                TEXT("DefenseWhileElementStored"), TEXT("ElementEcho"), TEXT("AllElementsOnCompletedCycle"),
+                TEXT("ElementMasteryMultiplier"), TEXT("EmpoweredStoredElementMultiplier"),
+                TEXT("SameElementEffectMultiplier"), TEXT("EmpowerStoredElementOnMultiHit"),
+                TEXT("CooldownReductionWithoutElement"), TEXT("ArcaneShiftPreservesElement")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Character4->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreMageCharacter", 1.0);
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -438,6 +463,25 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             CharacterState.nextReductionAfterMoveReady = Character3->bDamageReductionAfterMoveReady;
             CharacterState.startInvisibilityApplied = Character3->bNativeStartInvisibilityApplied;
         }
+        if (const ARoundCharacter4* Character4 = Cast<ARoundCharacter4>(Character))
+        {
+            CharacterState.activeElement = static_cast<int32>(Character4->GetActiveElementBonus());
+            for (const ERoundMageElementBonus Element : Character4->UsedElementBonusesThisTurn)
+                CharacterState.usedElementMask |= 1u << static_cast<uint32>(Element);
+            CharacterState.lastCastElement = static_cast<int32>(Character4->LastCastElementBonus);
+            CharacterState.firstCastElement = static_cast<int32>(Character4->FirstCastElementBonusThisTurn);
+            CharacterState.elementSwapCooldownRemaining = Character4->ElementSwapCooldownTurnsRemaining;
+            CharacterState.rockDefenseBonus = Character4->ElementalRockDefenseBonus;
+            CharacterState.rockDefenseRemainingInitiative = Character4->ElementalRockDefenseRemainingInitiative;
+            CharacterState.protectionRemainingInitiative = Character4->ProtectionRemainingInitiative;
+            CharacterState.echoElement = static_cast<int32>(Character4->EchoElement);
+            for (const ERoundMageElementBonus Element : Character4->ElementCycle)
+                CharacterState.elementCycleMask |= 1u << static_cast<uint32>(Element);
+            CharacterState.elementCostReductionUsed = Character4->bElementCostReductionUsedThisTurn;
+            CharacterState.elementSwapRefundUsed = Character4->bElementSwapRefundUsedThisTurn;
+            CharacterState.storedElementEmpowered = Character4->bStoredElementEmpowered;
+            CharacterState.protectionReady = Character4->bProtectionReady;
+        }
         for (int32 AbilityIndex = 0; AbilityIndex < Character->GrantedAbilities.Num(); ++AbilityIndex)
         {
             ARoundAbilityActor* Ability = Character->GrantedAbilities[AbilityIndex];
@@ -457,32 +501,9 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation == 1
-                ? roundcore::AbilityOperation::DirectDamage
-                : (CoreOperation == 2
-                    ? roundcore::AbilityOperation::DirectHeal
-                    : (CoreOperation == 3
-                        ? roundcore::AbilityOperation::SelfModifier
-                        : (CoreOperation == 4
-                            ? roundcore::AbilityOperation::TargetModifier
-                            : (CoreOperation == 5
-                                ? roundcore::AbilityOperation::GroundAura
-                                : (CoreOperation == 6 ? roundcore::AbilityOperation::Knockback
-                                : (CoreOperation == 7 ? roundcore::AbilityOperation::DelayStrike
-                                : (CoreOperation == 8 ? roundcore::AbilityOperation::Shackle
-                                : (CoreOperation == 9 ? roundcore::AbilityOperation::Bind
-                                : (CoreOperation == 10 ? roundcore::AbilityOperation::Taunt
-                                : (CoreOperation == 11 ? roundcore::AbilityOperation::Snipe
-                                : (CoreOperation == 12 ? roundcore::AbilityOperation::Concentrate
-                                : (CoreOperation == 13 ? roundcore::AbilityOperation::Aim
-                                : (CoreOperation == 14 ? roundcore::AbilityOperation::PiercingShot
-                                : (CoreOperation == 15 ? roundcore::AbilityOperation::SuppressingFire
-                                : (CoreOperation == 16 ? roundcore::AbilityOperation::Shadowstrike
-                                : (CoreOperation == 17 ? roundcore::AbilityOperation::Armorpen
-                                : (CoreOperation == 18 ? roundcore::AbilityOperation::Execute
-                                : (CoreOperation == 19 ? roundcore::AbilityOperation::HookShot
-                                : (CoreOperation == 20 ? roundcore::AbilityOperation::DeathMark
-                                : roundcore::AbilityOperation::Unsupported)))))))))))))))))));
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 25
+                ? static_cast<roundcore::AbilityOperation>(CoreOperation)
+                : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
                 ? roundcore::AbilityTargetRelation::Self
                 : ((AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
@@ -498,7 +519,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
                 || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
-                || (CoreOperation >= 6 && CoreOperation <= 20))
+                || (CoreOperation >= 6 && CoreOperation <= 25))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -806,8 +827,9 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
         }
     }
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
-    const bool bGroundAura = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19;
-    if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
+    const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
+        || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25;
+    if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
         return false;
@@ -1047,8 +1069,9 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
         }
     }
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
-    const bool bGroundAura = CoreOperation == 5 || CoreOperation == 13;
-    if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
+    const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
+        || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25;
+    if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
         return false;
@@ -1066,6 +1089,20 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
         OutReason = FString::Printf(TEXT("%s: %s"),
             UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
         return false;
+    }
+    for (const roundcore::TileState& TileState : CoreGame.State().tiles)
+    {
+        ARoundGridTile* Tile = TileActors.FindRef(TileState.id);
+        if (!Tile) continue;
+        int32 TerrainType = static_cast<int32>(Tile->TerrainType);
+        const std::string Prefix = "Terrain:";
+        if (TileState.terrainId.rfind(Prefix, 0) == 0)
+        {
+            const std::size_t End = TileState.terrainId.find(':', Prefix.size());
+            try { TerrainType = std::stoi(TileState.terrainId.substr(Prefix.size(), End - Prefix.size())); }
+            catch (...) { TerrainType = static_cast<int32>(Tile->TerrainType); }
+        }
+        if (TerrainType != static_cast<int32>(Tile->TerrainType)) OutExecution.TerrainUpdates.Add({Tile, TerrainType});
     }
 
     for (const roundcore::GameEvent& Event : Result.events)

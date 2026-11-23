@@ -85,6 +85,8 @@ void ARoundFireballAbility::GetPreviewTiles(const ARoundGridTile* TargetTile, TA
 
 FRoundActionResult ARoundFireballAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 21)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     return ExecuteDefaultAbility(TargetTile);
 }
 

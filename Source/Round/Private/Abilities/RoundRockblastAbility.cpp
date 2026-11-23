@@ -38,6 +38,8 @@ ARoundGridTile* FindRockblastPushTile(ARoundGameState* GameState, ARoundGridTile
 
 FRoundActionResult ARoundRockblastAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 24)
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
     const bool bTargetWasRock = TargetTile && TargetTile->TerrainType == ERoundTerrainType::Rocks;
     bool bAdjacentRockOrWall = false;
     if (OwningCharacter && TargetTile)
