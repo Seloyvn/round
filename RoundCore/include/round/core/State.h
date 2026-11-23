@@ -136,6 +136,17 @@ struct CharacterState
     bool usedKillCooldownReductionThisTurn = false;
     std::int32_t stationaryShotStacks = 0;
     bool hasFreePreparedStep = false;
+    std::int32_t movedFieldsThisTurn = 0;
+    std::int32_t resourceSpentThisTurnCount = 0;
+    std::int32_t secondaryCooldownRemaining = 0;
+    std::int32_t turnSequence = 0;
+    bool openingRewardUsedThisTurn = false;
+    bool overflowRewardUsedThisTurn = false;
+    bool freeAdjacentMoveAvailable = false;
+    bool freeAdjacentMoveUsedThisTurn = false;
+    bool nextDamageAfterMoveReady = false;
+    bool nextReductionAfterMoveReady = false;
+    bool startInvisibilityApplied = false;
     std::vector<AbilityState> abilities;
     std::vector<ModifierEffectState> modifierEffects;
     std::vector<RecentAuraPreventionState> recentAuraPreventions;

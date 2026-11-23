@@ -1024,6 +1024,96 @@ int main()
             && suppressGame.State().characters[1].modifierEffects[0].moveCostAdd == 2,
         "Suppressing Fire should spend ammo and own its debuff state in Core");
 
+    const auto character3AbilitySetup = [](AbilityDefinition ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.characters.at("Tank").passiveValues = {
+            {"CoreComboCharacter", 1.0}, {"BaseComboMaximum", 5.0}};
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds.push_back(ability.id);
+        setup.initialState.characters[0].abilities.push_back(AbilityState{ability.id, 0, 40, 1, 1, false});
+        setup.initialState.characters[0].resourceCurrent = 0;
+        setup.initialState.characters[0].resourceMaximum = 5;
+        return setup;
+    };
+
+    AbilityDefinition shadowstrike; shadowstrike.id = "Shadowstrike";
+    shadowstrike.operation = AbilityOperation::Shadowstrike; shadowstrike.range = 2; shadowstrike.amount = 20;
+    shadowstrike.values = {{"ComboPointsGain", 2.0}, {"ShadowWoundDurationInitiative", 80.0},
+        {"ShadowWoundBonusDamage", 6.0}, {"ShadowWoundComboGain", 1.0},
+        {"FollowupBasicAttackCostReduction", 4.0}};
+    Game shadowGame; Require(shadowGame.Reset(character3AbilitySetup(shadowstrike)).success,
+        "Shadowstrike setup should reset");
+    GameAction assassinCast{ActionType::UseAbility, 10, 20, InvalidEntityId, shadowstrike.id};
+    const ActionResult shadowResult = shadowGame.ApplyAction(assassinCast);
+    Require(shadowResult.success && shadowGame.State().characters[0].tileId == 3
+            && shadowGame.State().characters[0].resourceCurrent == 2
+            && std::any_of(shadowGame.State().characters[1].modifierEffects.begin(),
+                shadowGame.State().characters[1].modifierEffects.end(), [](const ModifierEffectState& effect)
+                { return effect.kind == ModifierEffectKind::ShadowWound; })
+            && std::any_of(shadowGame.State().characters[0].modifierEffects.begin(),
+                shadowGame.State().characters[0].modifierEffects.end(), [](const ModifierEffectState& effect)
+                { return effect.kind == ModifierEffectKind::AssassinFollowup; }),
+        "Shadowstrike should relocate Character 3, grant combo, and prepare its wound and follow-up in Core");
+
+    AbilityDefinition armorpen; armorpen.id = "Armorpen"; armorpen.operation = AbilityOperation::Armorpen;
+    armorpen.range = 2; armorpen.amount = 16; armorpen.values = {{"Armorpen", 8.0},
+        {"ComboPointsGain", 1.0}, {"DefenseReduction", 5.0},
+        {"DefenseReductionDurationInitiative", 80.0}, {"SharedBreachDurationInitiative", 80.0}};
+    Game armorpenGame; Require(armorpenGame.Reset(character3AbilitySetup(armorpen)).success,
+        "Armorpen setup should reset");
+    assassinCast.abilityId = armorpen.id;
+    Require(armorpenGame.ApplyAction(assassinCast).success
+            && armorpenGame.State().characters[0].resourceCurrent == 1
+            && std::any_of(armorpenGame.State().characters[1].modifierEffects.begin(),
+                armorpenGame.State().characters[1].modifierEffects.end(), [](const ModifierEffectState& effect)
+                { return effect.kind == ModifierEffectKind::SharedBreach && effect.valueA == 8; }),
+        "Armorpen should grant combo and create its team-usable breach state in Core");
+
+    AbilityDefinition execute; execute.id = "Execute"; execute.operation = AbilityOperation::Execute;
+    execute.range = 2; execute.amount = 10; execute.values = {{"DamagePerCombopoint", 8.0},
+        {"MaxComboConsumed", 5.0}, {"ComboRefundOnSurvive", 1.0}};
+    MatchSetup executeSetup = character3AbilitySetup(execute);
+    executeSetup.initialState.characters[0].resourceCurrent = 5;
+    Game executeGame; Require(executeGame.Reset(std::move(executeSetup)).success, "Execute setup should reset");
+    assassinCast.abilityId = execute.id;
+    Require(executeGame.ApplyAction(assassinCast).success
+            && executeGame.State().characters[0].resourceCurrent == 1
+            && executeGame.State().characters[1].health < 60,
+        "Execute should spend combo, scale its damage, and apply its survivor refund in Core");
+
+    AbilityDefinition hook; hook.id = "HookShot"; hook.operation = AbilityOperation::HookShot;
+    hook.targetRelation = AbilityTargetRelation::AnyCharacter; hook.range = 3;
+    hook.values = {{"ComboDistanceThreshold", 2.0}, {"ComboGainAtDistance", 2.0},
+        {"InvisibilityDurationInitiative", 40.0}, {"CreateReturnAnchor", 1.0}};
+    Game hookGame; Require(hookGame.Reset(character3AbilitySetup(hook)).success, "Hook Shot setup should reset");
+    GameAction hookCast{ActionType::UseAbility, 10, InvalidEntityId, 4, hook.id};
+    Require(hookGame.ApplyAction(hookCast).success && hookGame.State().characters[0].tileId == 4
+            && hookGame.State().characters[0].resourceCurrent == 2
+            && std::any_of(hookGame.State().characters[0].modifierEffects.begin(),
+                hookGame.State().characters[0].modifierEffects.end(), [](const ModifierEffectState& effect)
+                { return effect.kind == ModifierEffectKind::Invisibility; })
+            && std::any_of(hookGame.State().characters[0].modifierEffects.begin(),
+                hookGame.State().characters[0].modifierEffects.end(), [](const ModifierEffectState& effect)
+                { return effect.kind == ModifierEffectKind::HookAnchor && effect.areaCenterTileId == 1; }),
+        "Hook Shot should move Character 3 and create combo, invisibility, and its return anchor in Core");
+
+    AbilityDefinition deathMark; deathMark.id = "DeathMark"; deathMark.operation = AbilityOperation::DeathMark;
+    deathMark.range = 3; deathMark.values = {{"DurationInitiative", 120.0},
+        {"DamageMultiplierFromCauser", 1.5}, {"DefenseIgnoreFromCauser", 5.0},
+        {"ComboGainOnTrigger", 1.0}};
+    MatchSetup markSetup = character3AbilitySetup(deathMark);
+    markSetup.initialState.characters[0].initiative = 100;
+    Game markGame; Require(markGame.Reset(std::move(markSetup)).success, "Death Mark setup should reset");
+    assassinCast.abilityId = deathMark.id;
+    Require(markGame.ApplyAction(assassinCast).success
+            && markGame.State().characters[1].modifierEffects[0].kind == ModifierEffectKind::DeathMark,
+        "Death Mark should persist its Character 3-specific damage contract in Core");
+    GameAction markedAttack{ActionType::BasicAttack, 10, 20, InvalidEntityId, {}};
+    Require(markGame.ApplyAction(markedAttack).success && markGame.State().characters[1].health <= 86
+            && markGame.State().characters[0].resourceCurrent == 1,
+        "Death Mark should amplify only its causer's hit and grant combo when triggered");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

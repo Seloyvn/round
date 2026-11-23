@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::SuppressingFire
+        if (ability.operation > AbilityOperation::DeathMark
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -256,6 +256,27 @@ ActionResult Game::Reset(MatchSetup setup)
     definitions_ = std::move(setup.definitions);
     state_ = std::move(setup.initialState);
 
+    for (CharacterState& character : state_.characters)
+    {
+        const CharacterDefinition& definition = definitions_.characters.at(character.definitionId);
+        if (PassiveValue(definition, "CoreComboCharacter") <= 0.0) continue;
+        character.resourceMaximum = std::max(1, static_cast<std::int32_t>(
+            PassiveValue(definition, "BaseComboMaximum") + PassiveValue(definition, "MaxComboPointsAdd")));
+        if (character.resourceCurrent <= 0)
+            character.resourceCurrent = std::clamp(static_cast<std::int32_t>(
+                PassiveValue(definition, "BaseComboStart") + PassiveValue(definition, "ComboPointsStartAdd")),
+                0, character.resourceMaximum);
+        const std::int32_t invisibility = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "StartInvisibilityDurationInitiative")));
+        if (!character.startInvisibilityApplied && invisibility > 0)
+        {
+            ModifierEffectState effect; effect.id = "Character3StartInvisibility";
+            effect.kind = ModifierEffectKind::Invisibility; effect.causerId = character.id;
+            effect.remainingInitiative = invisibility; character.modifierEffects.push_back(effect);
+            character.startInvisibilityApplied = true;
+        }
+    }
+
     ActionResult result;
     result.success = true;
     result.events.push_back(GameEvent{EventType::MatchReset});
@@ -292,7 +313,8 @@ ActionResult Game::ApplyAction(const GameAction& action)
     }
 
     const std::int32_t calculatedCost = MovementCost(*character, *destination);
-    const std::int32_t cost = character->hasFreePreparedStep ? 0 : calculatedCost;
+    const bool assassinFreeMove = character->freeAdjacentMoveAvailable && !character->freeAdjacentMoveUsedThisTurn;
+    const std::int32_t cost = (character->hasFreePreparedStep || assassinFreeMove) ? 0 : calculatedCost;
     std::int64_t initiativeLossOnMove = 0;
     for (const ModifierEffectState& effect : character->modifierEffects)
     {
@@ -313,6 +335,33 @@ ActionResult Game::ApplyAction(const GameAction& action)
     character->stationaryGuardActive = false;
     character->stationaryShotStacks = 0;
     if (character->hasFreePreparedStep) character->hasFreePreparedStep = false;
+    if (assassinFreeMove)
+    {
+        character->freeAdjacentMoveAvailable = false;
+        character->freeAdjacentMoveUsedThisTurn = true;
+    }
+    if (PassiveValue(definitions_.characters.at(character->definitionId), "CoreComboCharacter") > 0.0)
+    {
+        ++character->movedFieldsThisTurn;
+        const CharacterDefinition& assassinDefinition = definitions_.characters.at(character->definitionId);
+        const std::int32_t threshold = std::max(1, static_cast<std::int32_t>(
+            PassiveValue(assassinDefinition, "MoveDistanceForBonuses")));
+        if (character->movedFieldsThisTurn >= threshold)
+        {
+            character->nextDamageAfterMoveReady = PassiveValue(
+                assassinDefinition, "NextHitDamageMultiplierAfterMove") > 0.0;
+            character->nextReductionAfterMoveReady = PassiveValue(
+                assassinDefinition, "NextIncomingDamageMultiplierAfterMove") > 0.0;
+        }
+        for (ModifierEffectState& mark : character->modifierEffects)
+        {
+            if (mark.kind == ModifierEffectKind::DeathMark && (mark.flags & 8u) == 0u && mark.valueA > 0)
+            {
+                mark.remainingInitiative += mark.valueA;
+                mark.flags |= 8u;
+            }
+        }
+    }
     for (auto effect = character->modifierEffects.begin(); effect != character->modifierEffects.end();)
     {
         if (effect->kind == ModifierEffectKind::Concentrate && (effect->flags & 1u) != 0u)
@@ -777,6 +826,11 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
             if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
         }
     }
+    if (PassiveValue(sourceDefinition, "CoreComboCharacter") > 0.0 && source.nextDamageAfterMoveReady)
+    {
+        const double multiplier = PassiveValue(sourceDefinition, "NextHitDamageMultiplierAfterMove");
+        if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
     if (initialSourceTile && initialTargetTile && HexDistance(initialSourceTile->coord, initialTargetTile->coord) > 1)
     {
         const double multiplier = PassiveValue(targetDefinition, "RangedDamageMultiplier");
@@ -844,6 +898,11 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         const double multiplier = PassiveValue(targetDefinition, "StationaryIncomingDamageMultiplier");
         if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
     }
+    if (PassiveValue(targetDefinition, "CoreComboCharacter") > 0.0 && target.nextReductionAfterMoveReady)
+    {
+        const double multiplier = PassiveValue(targetDefinition, "NextIncomingDamageMultiplierAfterMove");
+        if (multiplier > 0.0) damage = static_cast<std::int64_t>(damage * multiplier + 0.5);
+    }
     const bool sourceDebuffedByTarget = std::any_of(source.modifierEffects.begin(), source.modifierEffects.end(),
         [&target, &source](const ModifierEffectState& effect) { return effect.causerId == target.id && effect.causerId != source.id; });
     if (sourceDebuffedByTarget)
@@ -853,6 +912,7 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     }
 
     std::vector<DefinitionId> consumedDamageEffects;
+    std::int32_t shadowWoundComboGain = 0;
     for (const ModifierEffectState& effect : target.modifierEffects)
     {
         if (effect.redirectPreMitigationBasisPoints <= 0 || effect.causerId == target.id)
@@ -994,13 +1054,38 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         {
             continue;
         }
-        defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
+        if (effect.kind != ModifierEffectKind::DeathMark
+            && effect.kind != ModifierEffectKind::SharedBreach)
+            defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
         if (effect.causerId == source.id)
         {
+            if (effect.kind == ModifierEffectKind::DeathMark)
+                defenseIgnore = std::max(0, defenseIgnore + effect.defenseIgnoreAdd);
             damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierFromCauserBasisPoints);
+            if (effect.kind == ModifierEffectKind::DeathMark
+                && effect.triggerSlowMultiplierBasisPoints > 0
+                && target.health * 10000 <= targetDefinition.stats.maxHealth * effect.triggerSlowMultiplierBasisPoints)
+                damage = ApplyBasisPoints(damage, 10000 + effect.triggerOutgoingDamageMultiplierBasisPoints);
+            if (effect.kind == ModifierEffectKind::ShadowWound)
+            {
+                damage += std::max(0, effect.valueA);
+                shadowWoundComboGain = std::max(shadowWoundComboGain, std::max(0, effect.valueB));
+            }
+        }
+        if (effect.kind == ModifierEffectKind::SharedBreach)
+        {
+            const CharacterState* breachOwner = FindCharacter(effect.causerId);
+            const std::uint32_t sourceBit = source.id > 0 && source.id < 31
+                ? (1u << static_cast<std::uint32_t>(source.id)) : 0u;
+            const bool unused = sourceBit != 0u
+                ? (effect.flags & sourceBit) == 0u : effect.counterA == 0;
+            if (breachOwner && breachOwner->team == source.team && unused)
+                defenseIgnore += std::max(0, effect.valueA);
         }
         damage = ApplyBasisPoints(damage, effect.incomingDamageMultiplierBasisPoints);
         if (effect.consumeOnDamageFromCauser && effect.causerId == source.id)
+            consumedDamageEffects.push_back(effect.id);
+        if (effect.kind == ModifierEffectKind::AssassinFollowup && (effect.flags & 2u) != 0u)
             consumedDamageEffects.push_back(effect.id);
     }
     for (const DefinitionId& effectId : consumedDamageEffects)
@@ -1024,6 +1109,50 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     target.health -= appliedDamage;
     if (appliedDamage > 0)
     {
+        if (shadowWoundComboGain > 0)
+            GainCombo(source, shadowWoundComboGain, "ShadowWound", modifierEvents);
+        if (PassiveValue(targetDefinition, "CoreComboCharacter") > 0.0)
+            target.nextReductionAfterMoveReady = false;
+        for (ModifierEffectState& effect : target.modifierEffects)
+        {
+            if (effect.kind == ModifierEffectKind::SharedBreach)
+            {
+                const CharacterState* breachOwner = FindCharacter(effect.causerId);
+                if (!breachOwner || breachOwner->team != source.team) continue;
+                const std::uint32_t sourceBit = source.id > 0 && source.id < 31
+                    ? (1u << static_cast<std::uint32_t>(source.id)) : 0u;
+                if (sourceBit != 0u) effect.flags |= sourceBit;
+                else effect.counterA = 1;
+            }
+            if (effect.causerId != source.id) continue;
+            if (effect.kind == ModifierEffectKind::DeathMark)
+            {
+                const bool repeated = (effect.flags & 2u) != 0u;
+                const bool canGrant = (effect.flags & 1u) == 0u
+                    || (repeated && effect.counterB != source.turnSequence);
+                if (canGrant)
+                {
+                    const std::int32_t before = source.resourceCurrent;
+                    GainCombo(source, std::max(0, effect.counterA), effect.id, modifierEvents);
+                    effect.flags |= 1u; effect.counterB = source.turnSequence;
+                    if (before < source.resourceMaximum && source.resourceCurrent >= source.resourceMaximum
+                        && effect.valueB > 0)
+                    {
+                        for (AbilityState& ability : source.abilities)
+                        {
+                            const auto definition = definitions_.abilities.find(ability.definitionId);
+                            if (definition == definitions_.abilities.end()
+                                || definition->second.operation != AbilityOperation::Execute) continue;
+                            const std::int32_t previous = ability.cooldownRemaining;
+                            ability.cooldownRemaining = std::max(0, previous - effect.valueB);
+                            if (previous != ability.cooldownRemaining) modifierEvents.push_back(GameEvent{
+                                EventType::CooldownChanged, source.id, source.id, source.tileId,
+                                ability.definitionId, ability.cooldownRemaining - previous});
+                        }
+                    }
+                }
+            }
+        }
         for (ModifierEffectState& effect : target.modifierEffects)
         {
             if (effect.kind != ModifierEffectKind::SuppressingFire) continue;
@@ -1223,6 +1352,168 @@ bool Game::ResolveAmmoShot(CharacterState& source, const bool killed, const bool
     return true;
 }
 
+std::int32_t Game::GainCombo(CharacterState& source, const std::int32_t amount,
+    const DefinitionId& sourceId, std::vector<GameEvent>& events)
+{
+    if (amount <= 0 || source.resourceMaximum <= 0) return 0;
+    const CharacterDefinition& definition = definitions_.characters.at(source.definitionId);
+    const std::int32_t before = source.resourceCurrent;
+    source.resourceCurrent = std::clamp(source.resourceCurrent + amount, 0, source.resourceMaximum);
+    const std::int32_t gained = source.resourceCurrent - before;
+    if (gained > 0) events.push_back(GameEvent{EventType::ResourceChanged, source.id, source.id,
+        source.tileId, sourceId, gained});
+    if (before >= source.resourceMaximum && !source.overflowRewardUsedThisTurn)
+    {
+        const std::int32_t initiative = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "ComboOverflowInitiativeGain")));
+        if (initiative > 0)
+        {
+            source.initiative += initiative;
+            source.overflowRewardUsedThisTurn = true;
+            events.push_back(GameEvent{EventType::InitiativeChanged, source.id, source.id,
+                source.tileId, "ComboOverflow", initiative});
+        }
+    }
+    return gained;
+}
+
+std::int32_t Game::SpendCombo(CharacterState& source, const std::int32_t amount,
+    const DefinitionId& sourceId, std::vector<GameEvent>& events)
+{
+    const std::int32_t spent = std::min(std::max(0, amount), std::max(0, source.resourceCurrent));
+    if (spent <= 0) return 0;
+    source.resourceCurrent -= spent;
+    source.resourceSpentThisTurnCount += spent;
+    events.push_back(GameEvent{EventType::ResourceChanged, source.id, source.id,
+        source.tileId, sourceId, -spent});
+    const CharacterDefinition& definition = definitions_.characters.at(source.definitionId);
+    const std::int32_t gain = spent * std::max(0, static_cast<std::int32_t>(
+        PassiveValue(definition, "ComboSpendInitiativeGainPerPoint")));
+    if (gain > 0)
+    {
+        source.initiative += gain;
+        events.push_back(GameEvent{EventType::InitiativeChanged, source.id, source.id,
+            source.tileId, sourceId + ":ComboSpend", gain});
+    }
+    return spent;
+}
+
+void Game::ResolveAssassinHit(CharacterState& source, CharacterState& target,
+    const std::int32_t appliedDamage, const bool killed, const DefinitionId& sourceId,
+    std::vector<GameEvent>& events)
+{
+    if (appliedDamage <= 0) return;
+    const CharacterDefinition& definition = definitions_.characters.at(source.definitionId);
+    if (PassiveValue(definition, "CoreComboCharacter") <= 0.0) return;
+
+    for (auto effect = source.modifierEffects.begin(); effect != source.modifierEffects.end();)
+    {
+        if (effect->kind == ModifierEffectKind::Invisibility)
+        {
+            events.push_back(GameEvent{EventType::EffectRemoved, source.id, source.id,
+                source.tileId, effect->id, 0});
+            effect = source.modifierEffects.erase(effect);
+        }
+        else ++effect;
+    }
+    source.nextDamageAfterMoveReady = false;
+    if (!source.freeAdjacentMoveUsedThisTurn
+        && PassiveValue(definition, "FreeAdjacentMoveAfterDamage") > 0.0)
+        source.freeAdjacentMoveAvailable = true;
+
+    if (!source.openingRewardUsedThisTurn
+        && target.health + appliedDamage >= definitions_.characters.at(target.definitionId).stats.maxHealth)
+    {
+        const std::int32_t combo = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "ComboOnFullHealthHit")));
+        if (combo > 0)
+        {
+            GainCombo(source, combo, sourceId + ":Opening", events);
+            source.openingRewardUsedThisTurn = true;
+        }
+    }
+
+    if (killed)
+    {
+        for (auto effect = source.modifierEffects.begin(); effect != source.modifierEffects.end();)
+        {
+            if (effect->kind == ModifierEffectKind::AssassinFollowup && (effect->flags & 1u) != 0u)
+            {
+                for (AbilityState& ability : source.abilities)
+                {
+                    if (ability.definitionId != effect->sourceAbilityId) continue;
+                    const std::int32_t previous = ability.cooldownRemaining;
+                    ability.cooldownRemaining = 0;
+                    if (ability.usesCharges) ability.currentCharges = ability.maxCharges;
+                    if (previous != 0) events.push_back(GameEvent{EventType::CooldownChanged, source.id, source.id,
+                        source.tileId, ability.definitionId, -previous});
+                }
+                events.push_back(GameEvent{EventType::EffectRemoved, source.id, source.id,
+                    source.tileId, effect->id, 0});
+                effect = source.modifierEffects.erase(effect);
+            }
+            else ++effect;
+        }
+        GainCombo(source, std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "ComboOnKill"))), sourceId + ":Kill", events);
+        const std::int32_t duration = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "InvisibilityOnKillDurationInitiative")));
+        const bool invisibilityPrevented = std::any_of(source.modifierEffects.begin(), source.modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::DeathMark
+                && (effect.flags & 4u) != 0u; });
+        if (duration > 0 && !invisibilityPrevented)
+        {
+            ModifierEffectState invisible; invisible.id = "Character3KillInvisibility";
+            invisible.kind = ModifierEffectKind::Invisibility; invisible.causerId = source.id;
+            invisible.remainingInitiative = duration; source.modifierEffects.push_back(invisible);
+            events.push_back(GameEvent{EventType::EffectAdded, source.id, source.id,
+                source.tileId, invisible.id, duration});
+        }
+        const auto deathMark = std::find_if(target.modifierEffects.begin(), target.modifierEffects.end(),
+            [&source](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::DeathMark
+                && effect.causerId == source.id && effect.counterC > 0 && (effect.flags & 16u) == 0u; });
+        if (deathMark != target.modifierEffects.end())
+        {
+            const TileState* deadTile = FindTile(target.tileId);
+            CharacterState* nearest = nullptr; std::int32_t nearestDistance = std::numeric_limits<std::int32_t>::max();
+            for (CharacterState& candidate : state_.characters)
+            {
+                const TileState* tile = FindTile(candidate.tileId);
+                if (!candidate.alive || candidate.id == target.id || candidate.team == source.team || !deadTile || !tile) continue;
+                const std::int32_t distance = HexDistance(deadTile->coord, tile->coord);
+                if (distance <= deathMark->counterC && distance < nearestDistance)
+                { nearest = &candidate; nearestDistance = distance; }
+            }
+            if (nearest)
+            {
+                ModifierEffectState transferred = *deathMark;
+                transferred.id += ":Transfer"; transferred.flags |= 16u;
+                nearest->modifierEffects.push_back(transferred);
+                events.push_back(GameEvent{EventType::EffectAdded, source.id, nearest->id,
+                    nearest->tileId, transferred.id, transferred.remainingInitiative});
+            }
+        }
+    }
+    else if (source.secondaryCooldownRemaining <= 0)
+    {
+        const std::int32_t duration = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "HuntMarkDurationInitiative")));
+        const double multiplier = PassiveValue(definition, "HuntMarkDamageMultiplier");
+        if (duration > 0 && multiplier > 0.0)
+        {
+            ModifierEffectState mark; mark.id = "Character3HuntMark"; mark.causerId = source.id;
+            mark.kind = ModifierEffectKind::AssassinHuntMark; mark.isDebuff = true;
+            mark.remainingInitiative = duration;
+            mark.incomingDamageMultiplierFromCauserBasisPoints = static_cast<std::int32_t>(multiplier * 10000.0 + 0.5);
+            target.modifierEffects.push_back(mark);
+            source.secondaryCooldownRemaining = duration + std::max(0, static_cast<std::int32_t>(
+                PassiveValue(definition, "HuntMarkCooldownAfterExpiryInitiative")));
+            events.push_back(GameEvent{EventType::EffectAdded, source.id, target.id,
+                target.tileId, mark.id, duration});
+        }
+    }
+}
+
 ActionResult Game::ApplyBasicAttack(const GameAction& action)
 {
     CharacterState* attacker = FindCharacter(action.actorId);
@@ -1234,6 +1525,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
 
     const CharacterDefinition& attackerDefinition = definitions_.characters.at(attacker->definitionId);
     const bool ammoCharacter = PassiveValue(attackerDefinition, "CoreAmmoCharacter") > 0.0;
+    const bool comboCharacter = PassiveValue(attackerDefinition, "CoreComboCharacter") > 0.0;
     const bool concentrateFreeAmmo = std::any_of(attacker->modifierEffects.begin(), attacker->modifierEffects.end(),
         [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::Concentrate && (effect.flags & 2u) != 0u; });
     const bool suppressionFreeAmmo = std::any_of(attacker->modifierEffects.begin(), attacker->modifierEffects.end(),
@@ -1273,6 +1565,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
         EventType::DamageApplied, attacker->id, target->id, target->tileId, "Physical", appliedDamage});
     result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
     result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+    ResolveAssassinHit(*attacker, *target, appliedDamage, target->health <= 0, "BasicAttack", result.events);
     for (auto preparation = attacker->modifierEffects.begin(); preparation != attacker->modifierEffects.end();)
     {
         if (preparation->kind == ModifierEffectKind::PiercingMark && preparation->preferredTargetId == InvalidEntityId
@@ -1415,6 +1708,7 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
                 attacker->stationaryShotStacks = std::min(maximum, attacker->stationaryShotStacks + 1);
         }
     }
+    if (comboCharacter) attacker->attackedThisTurn = true;
 
     ++state_.step;
     return result;
@@ -1519,8 +1813,12 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("ability_not_owned", "The acting character does not own this ability.");
     }
-    if ((!abilityState->usesCharges && abilityState->cooldownRemaining > 0)
-        || (abilityState->usesCharges && abilityState->currentCharges <= 0))
+    const bool hookAnchorReturn = abilityDefinition->second.operation == AbilityOperation::HookShot
+        && std::any_of(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [&action](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::HookAnchor
+                && effect.areaCenterTileId == action.targetTileId; });
+    if (!hookAnchorReturn && ((!abilityState->usesCharges && abilityState->cooldownRemaining > 0)
+        || (abilityState->usesCharges && abilityState->currentCharges <= 0)))
     {
         return Failure("ability_not_ready", "The ability has no ready cooldown or charge.");
     }
@@ -1541,7 +1839,8 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("missing_ability_tile", "Ability actor must occupy a board tile.");
     }
-    if (definition.operation == AbilityOperation::GroundAura || definition.operation == AbilityOperation::Aim)
+    if (definition.operation == AbilityOperation::GroundAura || definition.operation == AbilityOperation::Aim
+        || definition.operation == AbilityOperation::HookShot)
     {
         const TileState* targetTile = FindTile(action.targetTileId);
         if (!targetTile)
@@ -1552,6 +1851,19 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
         {
             return Failure("ability_target_out_of_range", "The target tile is outside ability range.");
         }
+        if (definition.operation == AbilityOperation::HookShot)
+        {
+            const auto terrain = definitions_.terrains.find(targetTile->terrainId);
+            if (terrain == definitions_.terrains.end() || !terrain->second.walkable || targetTile->blocksMovement)
+                return Failure("ability_target_blocked", "Hook Shot requires a walkable destination.");
+            if (targetTile->occupantId != InvalidEntityId)
+            {
+                const CharacterState* occupant = FindCharacter(targetTile->occupantId);
+                if (!occupant || occupant->team != actor->team || occupant->id == actor->id
+                    || AbilityValue(definition, "CanSwapWithAlly") <= 0.0)
+                    return Failure("ability_target_occupied", "Hook Shot destination is occupied.");
+            }
+        }
         if (definition.requiresVisibility)
         {
             const std::vector<EntityId> visibleTiles = TeamVisibleTileIds(actor->team);
@@ -1560,7 +1872,7 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
                 return Failure("ability_target_not_visible", "The ability target tile is not visible to the acting team.");
             }
         }
-        if (actor->initiative < std::max(0, definition.initiativeCost))
+        if (!hookAnchorReturn && actor->initiative < std::max(0, definition.initiativeCost))
         {
             return Failure("insufficient_initiative", "The character cannot afford this ability.");
         }
@@ -1607,7 +1919,22 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("missing_ability_tile", "Ability actor and target must occupy board tiles.");
     }
-    if (HexDistance(actorTile->coord, targetTile->coord) > std::max(0, definition.range))
+    std::int32_t abilityRange = std::max(0, definition.range);
+    if (definition.operation == AbilityOperation::Shadowstrike
+        && std::any_of(target->modifierEffects.begin(), target->modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.isDebuff; }))
+        abilityRange += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RangeVsDebuffed")));
+    if (definition.operation == AbilityOperation::Execute)
+    {
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+        if (AbilityValue(definition, "BonusRangeHealthThreshold") > 0.0
+            && target->health <= targetDefinition.stats.maxHealth * AbilityValue(definition, "BonusRangeHealthThreshold"))
+            abilityRange += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RangeVsLowHealth")));
+        if (AbilityValue(definition, "RequireMaxCombo") > 0.0
+            && actor->resourceCurrent < actor->resourceMaximum)
+            return Failure("insufficient_resource", "Execute requires maximum combo.");
+    }
+    if (HexDistance(actorTile->coord, targetTile->coord) > abilityRange)
     {
         return Failure("ability_target_out_of_range", "The target is outside ability range.");
     }
@@ -1654,9 +1981,35 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         return Failure("invalid_state", "Validated ability has no runtime state.");
     }
     const AbilityDefinition& definition = definitions_.abilities.at(action.abilityId);
-    if (definition.operation != AbilityOperation::GroundAura && definition.operation != AbilityOperation::Aim && !target)
+    if (definition.operation != AbilityOperation::GroundAura && definition.operation != AbilityOperation::Aim
+        && definition.operation != AbilityOperation::HookShot && !target)
     {
         return Failure("invalid_state", "Validated ability references missing target state.");
+    }
+    if (definition.operation == AbilityOperation::HookShot)
+    {
+        const auto anchor = std::find_if(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [&action](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::HookAnchor
+                && effect.areaCenterTileId == action.targetTileId; });
+        if (anchor != actor->modifierEffects.end())
+        {
+            TileState* origin = FindTile(actor->tileId);
+            TileState* destination = FindTile(action.targetTileId);
+            if (!origin || !destination || destination->occupantId != InvalidEntityId)
+                return Failure("invalid_state", "Hook Shot anchor is no longer free.");
+            origin->occupantId = InvalidEntityId; destination->occupantId = actor->id;
+            actor->tileId = destination->id;
+            const DefinitionId effectId = anchor->id;
+            actor->modifierEffects.erase(anchor);
+            ActionResult anchorResult; anchorResult.success = true;
+            anchorResult.message = "Returned to Hook Shot anchor.";
+            anchorResult.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id,
+                destination->id, action.abilityId + ":Return", 0});
+            anchorResult.events.push_back(GameEvent{EventType::EffectRemoved, actor->id, actor->id,
+                destination->id, effectId, 0});
+            ++state_.step;
+            return anchorResult;
+        }
     }
     const std::int32_t cost = std::max(0, definition.initiativeCost);
     actor->initiative -= cost;
@@ -2530,6 +2883,320 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         finalizeDeath(*actor, *target);
         ResolveConcentrateHit(*actor, *target, killed, false, abilityState, snipeApplied, result.events);
     }
+    else if (definition.operation == AbilityOperation::Shadowstrike)
+    {
+        TileState* sourceTile = FindTile(actor->tileId);
+        TileState* targetTile = FindTile(target->tileId);
+        TileState* destination = nullptr;
+        std::int32_t bestDistance = AbilityValue(definition, "LandOppositeTarget") > 0.0 ? -1 : std::numeric_limits<std::int32_t>::max();
+        for (TileState& candidate : state_.tiles)
+        {
+            if (!sourceTile || !targetTile || candidate.occupantId != InvalidEntityId || candidate.blocksMovement
+                || HexDistance(candidate.coord, targetTile->coord) != 1) continue;
+            const auto terrain = definitions_.terrains.find(candidate.terrainId);
+            if (terrain == definitions_.terrains.end() || !terrain->second.walkable) continue;
+            const std::int32_t distance = HexDistance(sourceTile->coord, candidate.coord);
+            const bool better = AbilityValue(definition, "LandOppositeTarget") > 0.0
+                ? distance > bestDistance : distance < bestDistance;
+            if (better) { destination = &candidate; bestDistance = distance; }
+        }
+        if (!destination) return Failure("no_landing_tile", "Shadowstrike has no free landing tile.");
+        sourceTile->occupantId = InvalidEntityId; destination->occupantId = actor->id; actor->tileId = destination->id;
+        result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id,
+            destination->id, action.abilityId, 0});
+        const std::int32_t comboBefore = actor->resourceCurrent;
+        const std::int32_t applied = applyDamage(*actor, *target, definition.amount,
+            definition.defenseIgnore + std::max(0, static_cast<std::int32_t>(
+                AbilityValue(definition, "DefenseIgnoreOppositeLanding"))), {});
+        std::int32_t combo = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ComboPointsGain")));
+        if (comboBefore == 0) combo += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusComboAtZero")));
+        const std::int32_t isolationRadius = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "IsolationRadius")));
+        bool isolated = isolationRadius > 0;
+        for (const CharacterState& other : state_.characters)
+        {
+            const TileState* otherTile = FindTile(other.tileId);
+            if (isolated && other.alive && other.id != target->id && other.team == target->team && otherTile && targetTile
+                && HexDistance(otherTile->coord, targetTile->coord) <= isolationRadius) isolated = false;
+        }
+        if (isolated) combo += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusComboVsIsolated")));
+        GainCombo(*actor, combo, action.abilityId, result.events);
+        if (comboBefore < actor->resourceMaximum && actor->resourceCurrent >= actor->resourceMaximum)
+        {
+            const std::int32_t reduction = std::max(0, static_cast<std::int32_t>(
+                AbilityValue(definition, "ExecuteCooldownReductionOnReachMaxCombo")));
+            for (AbilityState& candidate : actor->abilities)
+            {
+                const auto candidateDefinition = definitions_.abilities.find(candidate.definitionId);
+                if (candidateDefinition == definitions_.abilities.end()
+                    || candidateDefinition->second.operation != AbilityOperation::Execute) continue;
+                const std::int32_t before = candidate.cooldownRemaining;
+                candidate.cooldownRemaining = std::max(0, before - reduction);
+                if (before != candidate.cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged,
+                    actor->id, actor->id, actor->tileId, candidate.definitionId, candidate.cooldownRemaining - before});
+            }
+        }
+        const std::int32_t followup = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FollowupBasicAttackCostReduction")));
+        if (followup > 0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Followup"; effect.sourceAbilityId = action.abilityId;
+            effect.kind = ModifierEffectKind::AssassinFollowup; effect.causerId = actor->id;
+            effect.preferredTargetId = target->id; effect.basicAttackCostAvailable = true;
+            effect.basicAttackCostAdd = -followup; effect.remainingTurns = 2; effect.expireOnTurnEnd = true;
+            addEffect(*actor, effect);
+        }
+        if (AbilityValue(definition, "GrantFreeAdjacentMove") > 0.0) actor->freeAdjacentMoveAvailable = true;
+        const double incoming = AbilityValue(definition, "NextIncomingDamageMultiplier");
+        if (incoming > 0.0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Evasion"; effect.causerId = actor->id;
+            effect.kind = ModifierEffectKind::AssassinFollowup; effect.flags = 2u;
+            effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(incoming * 10000.0 + 0.5);
+            effect.consumeOnDamageFromCauser = false; effect.remainingTurns = 1; effect.expireOnTurnEnd = true;
+            addEffect(*actor, effect);
+        }
+        if (target->health > 0 && applied > 0)
+        {
+            const std::int32_t duration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ShadowWoundDurationInitiative")));
+            if (duration > 0)
+            {
+                ModifierEffectState wound; wound.id = action.abilityId + ":ShadowWound";
+                wound.sourceAbilityId = action.abilityId; wound.kind = ModifierEffectKind::ShadowWound;
+                wound.causerId = actor->id; wound.isDebuff = true; wound.remainingInitiative = duration;
+                wound.valueA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ShadowWoundBonusDamage")));
+                wound.valueB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ShadowWoundComboGain")));
+                wound.consumeOnDamageFromCauser = true; addEffect(*target, wound);
+            }
+        }
+        ResolveAssassinHit(*actor, *target, applied, target->health <= 0, action.abilityId, result.events);
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::Armorpen)
+    {
+        const bool wasDebuffed = isDebuffed(*target);
+        if (AbilityValue(definition, "RemoveOldestRemovableBuff") > 0.0)
+        {
+            const auto buff = std::find_if(target->modifierEffects.begin(), target->modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return !effect.isDebuff; });
+            if (buff != target->modifierEffects.end())
+            {
+                result.events.push_back(GameEvent{EventType::EffectRemoved, actor->id, target->id,
+                    target->tileId, buff->id, 0}); target->modifierEffects.erase(buff);
+            }
+        }
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+        const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
+        const std::int32_t comboBefore = actor->resourceCurrent;
+        const std::int32_t applied = applyDamage(*actor, *target, definition.amount,
+            std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "Armorpen"))), {});
+        std::int32_t combo = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ComboPointsGain")));
+        if (targetDefinition.stats.defense > actorDefinition.stats.defense)
+            combo += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusComboVsHigherDefense")));
+        GainCombo(*actor, combo, action.abilityId, result.events);
+        if (comboBefore < actor->resourceMaximum && actor->resourceCurrent >= actor->resourceMaximum)
+        {
+            const std::int32_t before = abilityState->cooldownRemaining;
+            abilityState->cooldownRemaining = std::max(0, before - std::max(0, static_cast<std::int32_t>(
+                AbilityValue(definition, "CooldownReductionOnReachMaxCombo"))));
+            if (before != abilityState->cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged,
+                actor->id, actor->id, actor->tileId, action.abilityId, abilityState->cooldownRemaining - before});
+        }
+        if (wasDebuffed)
+        {
+            const std::int32_t refund = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeRefundVsDebuffed")));
+            actor->initiative += refund;
+            if (refund > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+                actor->tileId, action.abilityId + ":Refund", refund});
+        }
+        if (target->health > 0)
+        {
+            const std::int32_t reduction = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseReduction")));
+            if (reduction > 0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":DefenseBreak"; effect.causerId = actor->id;
+                effect.isDebuff = true; effect.defenseIgnoreAdd = reduction; effect.remainingInitiative = std::max(1,
+                    static_cast<std::int32_t>(AbilityValue(definition, "DefenseReductionDurationInitiative"))); addEffect(*target, effect);
+            }
+            const double weakness = AbilityValue(definition, "NextBasicAttackDamageMultiplier");
+            if (weakness > 0.0 && weakness < 1.0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":BasicWeakness"; effect.causerId = actor->id;
+                effect.kind = ModifierEffectKind::BasicAttackWeakness; effect.isDebuff = true;
+                effect.basicAttackDamageMultiplierBasisPoints = static_cast<std::int32_t>(weakness * 10000.0 + 0.5);
+                effect.consumeOnBasicAttack = true; effect.remainingInitiative = std::max(1,
+                    static_cast<std::int32_t>(AbilityValue(definition, "NextBasicAttackReductionDurationInitiative"))); addEffect(*target, effect);
+            }
+            const std::int32_t breachDuration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SharedBreachDurationInitiative")));
+            if (breachDuration > 0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":SharedBreach"; effect.causerId = actor->id;
+                effect.kind = ModifierEffectKind::SharedBreach; effect.isDebuff = true; effect.remainingInitiative = breachDuration;
+                effect.valueA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "Armorpen"))); addEffect(*target, effect);
+            }
+            const double bleed = AbilityValue(definition, "BleedDamageFractionOnSurvive");
+            const std::int32_t bleedDuration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BleedDurationInitiative")));
+            if (bleed > 0.0 && bleedDuration > 0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":Bleed"; effect.causerId = actor->id;
+                effect.kind = ModifierEffectKind::Bleed; effect.isDebuff = true; effect.remainingInitiative = bleedDuration;
+                effect.valueA = std::max(1, static_cast<std::int32_t>(applied * bleed + 0.5)); addEffect(*target, effect);
+            }
+            const double second = AbilityValue(definition, "SecondStrikeAppliedDamageFraction");
+            if (second > 0.0 && applied > 0)
+            {
+                const std::int32_t secondApplied = std::min(target->health,
+                    std::max(1, static_cast<std::int32_t>(applied * second + 0.5)));
+                target->health -= secondApplied;
+                result.events.push_back(GameEvent{EventType::DamageApplied, actor->id, target->id,
+                    target->tileId, action.abilityId + ":SecondStrike", secondApplied});
+            }
+        }
+        ResolveAssassinHit(*actor, *target, applied, target->health <= 0, action.abilityId, result.events);
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::Execute)
+    {
+        const std::int32_t requested = AbilityValue(definition, "MaxComboConsumed") > 0.0
+            ? static_cast<std::int32_t>(AbilityValue(definition, "MaxComboConsumed")) : actor->resourceCurrent;
+        const std::int32_t consumed = SpendCombo(*actor, requested, action.abilityId, result.events);
+        std::int32_t perCombo = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DamagePerCombopoint")));
+        const double comboMultiplier = AbilityValue(definition, "ComboDamageMultiplier");
+        if (comboMultiplier > 0.0) perCombo = static_cast<std::int32_t>(perCombo * comboMultiplier + 0.5);
+        std::int32_t damage = definition.amount + perCombo * consumed;
+        std::int32_t ignore = definition.defenseIgnore;
+        if (isDebuffed(*target)) ignore += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseIgnoreVsDebuffed")));
+        if (consumed >= std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ComboThresholdForDefenseIgnore"))))
+            ignore += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseIgnoreAtComboThreshold")));
+        ignore += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseIgnoreAtMaxCombo")));
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+        if (AbilityValue(definition, "LowHealthDamageThreshold") > 0.0
+            && target->health <= targetDefinition.stats.maxHealth * AbilityValue(definition, "LowHealthDamageThreshold")
+            && AbilityValue(definition, "DamageMultiplierVsLowHealth") > 0.0)
+            damage = static_cast<std::int32_t>(damage * AbilityValue(definition, "DamageMultiplierVsLowHealth") + 0.5);
+        const std::int32_t applied = applyDamage(*actor, *target, damage, ignore, {});
+        const bool killed = target->health <= 0;
+        if (killed)
+        {
+            const std::int32_t gain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnKill")));
+            actor->initiative += gain;
+            if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+                actor->tileId, action.abilityId + ":Kill", gain});
+            const std::int32_t divisor = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ComboRefundOnKillDivisor")));
+            if (divisor > 0) GainCombo(*actor, consumed / divisor, action.abilityId + ":KillRefund", result.events);
+            if (AbilityValue(definition, "GrantFreeAdjacentMoveOnKill") > 0.0) actor->freeAdjacentMoveAvailable = true;
+        }
+        else
+        {
+            GainCombo(*actor, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ComboRefundOnSurvive"))),
+                action.abilityId + ":SurviveRefund", result.events);
+            const double bleed = AbilityValue(definition, "BleedDamageFractionOnSurvive");
+            const std::int32_t duration = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BleedDurationInitiative")));
+            if (bleed > 0.0 && duration > 0)
+            {
+                ModifierEffectState effect; effect.id = action.abilityId + ":Bleed"; effect.causerId = actor->id;
+                effect.kind = ModifierEffectKind::Bleed; effect.isDebuff = true; effect.remainingInitiative = duration;
+                effect.valueA = std::max(1, static_cast<std::int32_t>(applied * bleed + 0.5)); addEffect(*target, effect);
+            }
+        }
+        ResolveAssassinHit(*actor, *target, applied, killed, action.abilityId, result.events);
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::HookShot)
+    {
+        TileState* origin = FindTile(actor->tileId);
+        TileState* destination = FindTile(action.targetTileId);
+        CharacterState* ally = destination && destination->occupantId != InvalidEntityId
+            ? FindCharacter(destination->occupantId) : nullptr;
+        const std::int32_t distance = origin && destination ? HexDistance(origin->coord, destination->coord) : 0;
+        if (ally)
+        {
+            origin->occupantId = ally->id; ally->tileId = origin->id;
+            result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, ally->id,
+                origin->id, action.abilityId + ":Swap", 0});
+        }
+        else origin->occupantId = InvalidEntityId;
+        destination->occupantId = actor->id; actor->tileId = destination->id;
+        result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id,
+            destination->id, action.abilityId, distance});
+        if (AbilityValue(definition, "GrantFreeAdjacentMove") > 0.0) actor->freeAdjacentMoveAvailable = true;
+        if (distance >= std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ComboDistanceThreshold"))))
+            GainCombo(*actor, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ComboGainAtDistance"))),
+                action.abilityId, result.events);
+        const double incoming = AbilityValue(definition, "NextIncomingDamageMultiplier");
+        if (incoming > 0.0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Evasion"; effect.causerId = actor->id;
+            effect.kind = ModifierEffectKind::AssassinFollowup; effect.flags = 2u;
+            effect.incomingDamageMultiplierBasisPoints = static_cast<std::int32_t>(incoming * 10000.0 + 0.5);
+            effect.remainingTurns = 1; effect.expireOnTurnEnd = true; addEffect(*actor, effect);
+        }
+        const std::int32_t attackReduction = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "NextBasicAttackCostReduction")));
+        if (attackReduction > 0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":AttackCost"; effect.causerId = actor->id;
+            effect.basicAttackCostAvailable = true; effect.basicAttackCostAdd = -attackReduction;
+            effect.consumeOnBasicAttack = true; effect.remainingTurns = 1; effect.expireOnTurnEnd = true; addEffect(*actor, effect);
+        }
+        const std::int32_t invisibility = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InvisibilityDurationInitiative")));
+        const bool invisibilityPrevented = std::any_of(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::DeathMark
+                && (effect.flags & 4u) != 0u; });
+        if (invisibility > 0 && !invisibilityPrevented)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Invisibility";
+            effect.kind = ModifierEffectKind::Invisibility; effect.causerId = actor->id;
+            effect.remainingInitiative = invisibility; addEffect(*actor, effect);
+        }
+        if (AbilityValue(definition, "CreateReturnAnchor") > 0.0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":Anchor";
+            effect.kind = ModifierEffectKind::HookAnchor; effect.causerId = actor->id;
+            effect.sourceAbilityId = action.abilityId; effect.areaCenterTileId = origin->id;
+            effect.remainingTurns = 1; effect.expireOnTurnEnd = true; addEffect(*actor, effect);
+        }
+        if (AbilityValue(definition, "ResetCooldownOnKillAfterUse") > 0.0)
+        {
+            ModifierEffectState effect; effect.id = action.abilityId + ":KillReset";
+            effect.kind = ModifierEffectKind::AssassinFollowup; effect.causerId = actor->id;
+            effect.sourceAbilityId = action.abilityId; effect.flags = 1u;
+            effect.remainingTurns = 1; effect.expireOnTurnEnd = true; addEffect(*actor, effect);
+        }
+    }
+    else if (definition.operation == AbilityOperation::DeathMark)
+    {
+        const bool wasDebuffed = isDebuffed(*target);
+        target->modifierEffects.erase(std::remove_if(target->modifierEffects.begin(), target->modifierEffects.end(),
+            [actor](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::DeathMark
+                && effect.causerId == actor->id; }), target->modifierEffects.end());
+        if (wasDebuffed)
+        {
+            const std::int32_t refund = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeRefundVsDebuffed")));
+            actor->initiative += refund;
+            if (refund > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
+                actor->tileId, action.abilityId + ":Refund", refund});
+        }
+        if (AbilityValue(definition, "PreventInvisibility") > 0.0)
+        {
+            target->modifierEffects.erase(std::remove_if(target->modifierEffects.begin(), target->modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::Invisibility; }),
+                target->modifierEffects.end());
+        }
+        ModifierEffectState mark; mark.id = action.abilityId + ":DeathMark"; mark.sourceAbilityId = action.abilityId;
+        mark.kind = ModifierEffectKind::DeathMark; mark.causerId = actor->id; mark.isDebuff = true;
+        mark.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        mark.incomingDamageMultiplierFromCauserBasisPoints = static_cast<std::int32_t>(
+            AbilityValue(definition, "DamageMultiplierFromCauser") * 10000.0 + 0.5);
+        mark.defenseIgnoreAdd = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DefenseIgnoreFromCauser")));
+        mark.counterA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ComboGainOnTrigger")));
+        mark.counterC = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "TransferRangeOnKill")));
+        mark.valueA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MoveDurationExtension")));
+        mark.valueB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ExecuteCooldownReductionOnMaxCombo")));
+        mark.valueC = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DeathMarkCooldownReductionOnExpiry")));
+        mark.triggerSlowMultiplierBasisPoints = static_cast<std::int32_t>(AbilityValue(definition, "LowHealthThreshold") * 10000.0 + 0.5);
+        mark.triggerOutgoingDamageMultiplierBasisPoints = static_cast<std::int32_t>(AbilityValue(definition, "LowHealthDamageMultiplierAdd") * 10000.0 + 0.5);
+        mark.flags = (AbilityValue(definition, "GrantComboEachCauserTurn") > 0.0 ? 2u : 0u)
+            | (AbilityValue(definition, "PreventInvisibility") > 0.0 ? 4u : 0u);
+        addEffect(*target, mark);
+    }
     else if (definition.operation == AbilityOperation::DirectHeal)
     {
         const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
@@ -2771,6 +3438,24 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
     if (selected)
     {
         const CharacterDefinition& definition = definitions_.characters.at(selected->definitionId);
+        for (const ModifierEffectState& effect : selected->modifierEffects)
+        {
+            if (effect.kind != ModifierEffectKind::Bleed || effect.valueA <= 0) continue;
+            const std::int32_t applied = std::min(selected->health, effect.valueA);
+            selected->health -= applied;
+            result.events.push_back(GameEvent{EventType::DamageApplied, effect.causerId, selected->id,
+                selected->tileId, effect.id, applied});
+        }
+        if (selected->health <= 0)
+        {
+            selected->health = 0; selected->alive = false;
+            if (TileState* tile = FindTile(selected->tileId)) tile->occupantId = InvalidEntityId;
+            result.events.push_back(GameEvent{EventType::CharacterDied, InvalidEntityId, selected->id,
+                selected->tileId, "Bleed", 0});
+            result.message = "Selected character died before its turn.";
+            ++state_.step;
+            return result;
+        }
         const std::int32_t delay = std::max(0, definition.stats.turnDelay);
         if (delay > 0)
         {
@@ -2808,6 +3493,32 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                     const std::int32_t turnDelayAdd = static_cast<std::int32_t>(
                         PassiveValue(definition, "TurnDelayAddWhileFullAmmo"));
                     selected->initiative = std::max(0, selected->initiative - std::max(0, turnDelayAdd));
+                }
+                if (PassiveValue(definition, "CoreComboCharacter") > 0.0)
+                {
+                    ++selected->turnSequence;
+                    selected->movedFieldsThisTurn = 0;
+                    selected->resourceSpentThisTurnCount = 0;
+                    selected->attackedThisTurn = false;
+                    selected->openingRewardUsedThisTurn = false;
+                    selected->overflowRewardUsedThisTurn = false;
+                    selected->freeAdjacentMoveAvailable = false;
+                    selected->freeAdjacentMoveUsedThisTurn = false;
+                    selected->nextDamageAfterMoveReady = false;
+                    selected->nextReductionAfterMoveReady = false;
+                    if (selected->resourceCurrent <= 0)
+                        GainCombo(*selected, std::max(0, static_cast<std::int32_t>(
+                            PassiveValue(definition, "ComboOnEmptyTurnStart"))), "EmptyComboTurnStart", result.events);
+                    for (auto effect = selected->modifierEffects.begin(); effect != selected->modifierEffects.end();)
+                    {
+                        if (effect->kind == ModifierEffectKind::HookAnchor)
+                        {
+                            result.events.push_back(GameEvent{EventType::EffectRemoved, selected->id, selected->id,
+                                selected->tileId, effect->id, 0});
+                            effect = selected->modifierEffects.erase(effect);
+                        }
+                        else ++effect;
+                    }
                 }
                 if (selected->resourceCurrent <= 0 && PassiveValue(definition, "RefillAmmoOnEmptyTurnStart") > 0.0)
                 {
@@ -2861,6 +3572,8 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             {
                 --character.specialCooldownRemaining;
             }
+            if (character.secondaryCooldownRemaining > 0)
+                --character.secondaryCooldownRemaining;
             if (character.resourceMaximum > 0 && character.resourceRechargeInterval > 0)
             {
                 ++character.resourceRechargeProgress;
@@ -3019,6 +3732,23 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
                 if (effect->remainingInitiative <= 0 && effect->remainingTurns <= 0)
                 {
+                    if (effect->kind == ModifierEffectKind::DeathMark && character.alive && effect->valueC > 0)
+                    {
+                        if (CharacterState* causer = FindCharacter(effect->causerId))
+                        {
+                            for (AbilityState& ability : causer->abilities)
+                            {
+                                const auto abilityDefinition = definitions_.abilities.find(ability.definitionId);
+                                if (abilityDefinition == definitions_.abilities.end()
+                                    || abilityDefinition->second.operation != AbilityOperation::DeathMark) continue;
+                                const std::int32_t previous = ability.cooldownRemaining;
+                                ability.cooldownRemaining = std::max(0, previous - effect->valueC);
+                                if (previous != ability.cooldownRemaining) result.events.push_back(GameEvent{
+                                    EventType::CooldownChanged, causer->id, causer->id, causer->tileId,
+                                    ability.definitionId, ability.cooldownRemaining - previous});
+                            }
+                        }
+                    }
                     if (effect->initiativeLossOnExpire > 0)
                     {
                         character.initiative = std::max(0, character.initiative - effect->initiativeLossOnExpire);
@@ -3148,7 +3878,8 @@ std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
     {
         const auto definition = definitions_.abilities.find(ability.definitionId);
         if (definition != definitions_.abilities.end()
-            && definition->second.operation == AbilityOperation::GroundAura)
+            && (definition->second.operation == AbilityOperation::GroundAura
+                || definition->second.operation == AbilityOperation::HookShot))
         {
             for (const TileState& tile : state_.tiles)
             {
@@ -3262,6 +3993,9 @@ std::int32_t Game::BasicAttackCost(const CharacterState& character) const noexce
         return std::numeric_limits<std::int32_t>::max();
     }
     std::int64_t cost = std::max(0, definition->second.stats.attackCost);
+    if (PassiveValue(definition->second, "CoreComboCharacter") > 0.0 && !character.attackedThisTurn)
+        cost = std::max<std::int64_t>(1, cost - std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition->second, "FirstBasicAttackCostReduction"))));
     for (const ModifierEffectState& effect : character.modifierEffects)
     {
         if (effect.basicAttackCostAvailable)
@@ -3322,7 +4056,9 @@ ActionResult Game::ValidateMove(const GameAction& action) const
         return Failure("destination_occupied", "The destination is occupied by another character.");
     }
 
-    const std::int32_t cost = character->hasFreePreparedStep ? 0 : MovementCost(*character, *destination);
+    const std::int32_t cost = (character->hasFreePreparedStep
+        || (character->freeAdjacentMoveAvailable && !character->freeAdjacentMoveUsedThisTurn))
+        ? 0 : MovementCost(*character, *destination);
     if (cost == std::numeric_limits<std::int32_t>::max() || character->initiative < cost)
     {
         return Failure("insufficient_initiative", "The character cannot afford this movement.");
@@ -3399,6 +4135,12 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.refundedLastResourceKillThisTurn); HashValue(hash, character.usedRangeRefundThisTurn);
         HashValue(hash, character.usedKillCooldownReductionThisTurn); HashValue(hash, character.stationaryShotStacks);
         HashValue(hash, character.hasFreePreparedStep);
+        HashValue(hash, character.movedFieldsThisTurn); HashValue(hash, character.resourceSpentThisTurnCount);
+        HashValue(hash, character.secondaryCooldownRemaining); HashValue(hash, character.turnSequence);
+        HashValue(hash, character.openingRewardUsedThisTurn); HashValue(hash, character.overflowRewardUsedThisTurn);
+        HashValue(hash, character.freeAdjacentMoveAvailable); HashValue(hash, character.freeAdjacentMoveUsedThisTurn);
+        HashValue(hash, character.nextDamageAfterMoveReady); HashValue(hash, character.nextReductionAfterMoveReady);
+        HashValue(hash, character.startInvisibilityApplied);
         for (const AbilityState& ability : character.abilities)
         {
             HashString(hash, ability.definitionId);

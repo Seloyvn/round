@@ -41,6 +41,10 @@ bool ARoundShadowstrikeAbility::CanTargetTile(const ARoundGridTile* TargetTile) 
 
 FRoundActionResult ARoundShadowstrikeAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 16)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {

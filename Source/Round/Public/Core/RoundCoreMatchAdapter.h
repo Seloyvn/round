@@ -50,6 +50,17 @@ struct FRoundCoreCharacterRuntimeUpdate
     bool bUsedKillCooldownReductionThisTurn = false;
     int32 StationaryShotStacks = 0;
     bool bHasFreePreparedStep = false;
+    int32 MovedFieldsThisTurn = 0;
+    int32 ResourceSpentThisTurnCount = 0;
+    int32 SecondaryCooldownRemaining = 0;
+    int32 TurnSequence = 0;
+    bool bOpeningRewardUsedThisTurn = false;
+    bool bOverflowRewardUsedThisTurn = false;
+    bool bFreeAdjacentMoveAvailable = false;
+    bool bFreeAdjacentMoveUsedThisTurn = false;
+    bool bNextDamageAfterMoveReady = false;
+    bool bNextReductionAfterMoveReady = false;
+    bool bStartInvisibilityApplied = false;
 };
 
 struct FRoundCoreEffectRemoval

@@ -1403,6 +1403,17 @@ void URoundAbilityRegistryData::PopulateCharacter3AbilityProgressionDefaults()
 
         AbilityData->Modify();
         AbilityData->SkillProgression = Progression;
+        const FString CoreAbilityId = AbilityData->AbilityId.ToString();
+        const int32 CoreOperation = CoreAbilityId.Equals(TEXT("Shadowstrike"), ESearchCase::IgnoreCase) ? 16
+            : (CoreAbilityId.Equals(TEXT("Armorpen"), ESearchCase::IgnoreCase) ? 17
+            : (CoreAbilityId.Equals(TEXT("Execute"), ESearchCase::IgnoreCase) ? 18
+            : (CoreAbilityId.Equals(TEXT("HookShot"), ESearchCase::IgnoreCase) ? 19
+            : (CoreAbilityId.Equals(TEXT("DeathMark"), ESearchCase::IgnoreCase) ? 20 : 0))));
+        if (CoreOperation > 0)
+        {
+            AbilityData->Values.FindOrAdd(TEXT("CoreOperation")) = CoreOperation;
+            AbilityData->Values.FindOrAdd(TEXT("CoreTargetRelation")) = CoreOperation == 19 ? 3.0 : 2.0;
+        }
         if (FCString::Stricmp(DefaultEntry.SkillKey, TEXT("hookshot")) == 0)
         {
             AbilityData->Description = FText::FromString(TEXT("Zieht Character 3 direkt auf ein freies, bewegbares Feld."));

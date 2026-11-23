@@ -45,7 +45,12 @@ enum class AbilityOperation : std::uint8_t
     Concentrate,
     Aim,
     PiercingShot,
-    SuppressingFire
+    SuppressingFire,
+    Shadowstrike,
+    Armorpen,
+    Execute,
+    HookShot,
+    DeathMark
 };
 
 enum class ModifierEffectKind : std::uint8_t
@@ -58,7 +63,16 @@ enum class ModifierEffectKind : std::uint8_t
     TrackingMark,
     SnipeMark,
     AimMark,
-    AimWeakness
+    AimWeakness,
+    Invisibility,
+    AssassinHuntMark,
+    ShadowWound,
+    DeathMark,
+    SharedBreach,
+    BasicAttackWeakness,
+    Bleed,
+    AssassinFollowup,
+    HookAnchor
 };
 
 enum class AbilityTargetRelation : std::uint8_t

@@ -38,6 +38,7 @@
 #include "Effects/RoundShieldOathEffect.h"
 #include "Effects/RoundSanctifiedGroundAuraEffect.h"
 #include "Effects/RoundSlowEffect.h"
+#include "Effects/RoundInvisibilityEffect.h"
 #include "Interfaces/RoundBoardDamageableInterface.h"
 #include "Triggers/RoundAimFieldTriggerActor.h"
 #include "Game/RoundGameInstance.h"
@@ -100,6 +101,19 @@ void ApplyCharacter2CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
     }
 }
 
+void ApplyCharacter3CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
+{
+    if (ARoundCharacter3* Character3 = Cast<ARoundCharacter3>(Update.Character))
+    {
+        Character3->ApplyCoreAssassinState(Update.ResourceCurrent, Update.MovedFieldsThisTurn,
+            Update.ResourceSpentThisTurnCount, Update.SecondaryCooldownRemaining, Update.TurnSequence,
+            Update.bOpeningRewardUsedThisTurn, Update.bOverflowRewardUsedThisTurn,
+            Update.bFreeAdjacentMoveAvailable, Update.bFreeAdjacentMoveUsedThisTurn,
+            Update.bNextDamageAfterMoveReady, Update.bNextReductionAfterMoveReady,
+            Update.bStartInvisibilityApplied);
+    }
+}
+
 void PresentCoreGenericModifier(UWorld* World, const FRoundCoreModifierEffectAddition& Addition,
     const FString& DisplayName, const FString& Description)
 {
@@ -114,6 +128,22 @@ void PresentCoreGenericModifier(UWorld* World, const FRoundCoreModifierEffectAdd
         {
             ExistingEffect->RemoveEffect();
         }
+    }
+    if (Addition.CoreEffectKind == static_cast<int32>(roundcore::ModifierEffectKind::Invisibility))
+    {
+        if (ARoundInvisibilityEffect* Effect = World->SpawnActor<ARoundInvisibilityEffect>())
+        {
+            Effect->EffectId = FName(*Addition.EffectId);
+            Effect->DisplayName = TEXT("Unsichtbar");
+            Effect->Description = TEXT("Kann ohne Sichtaufdeckung nicht gesehen werden.");
+            Effect->CauserCharacter = Addition.Causer;
+            Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+            Addition.Character->AddEffect(Effect);
+            Effect->StringState.FindOrAdd(TEXT("CoreSourceAbilityId")) = Addition.SourceAbilityId;
+            Effect->IntegerState.FindOrAdd(TEXT("CoreEffectKind")) = Addition.CoreEffectKind;
+            Effect->IntegerState.FindOrAdd(TEXT("CoreFlags")) = Addition.Flags;
+        }
+        return;
     }
     ARoundModifierEffect* Effect = World->SpawnActor<ARoundModifierEffect>();
     if (!Effect)
@@ -3952,6 +3982,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
             Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
         }
         ApplyCharacter2CoreState(Update);
+        ApplyCharacter3CoreState(Update);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4051,6 +4082,12 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
 
     for (const FRoundCoreCharacterRuntimeUpdate& Update : Execution.CharacterUpdates)
     {
+        if (Update.Character && Update.Tile && Update.Character->CurrentTile != Update.Tile)
+        {
+            bApplyingCoreMovementCallbacks = true;
+            Update.Character->SetField(Update.Tile, false);
+            bApplyingCoreMovementCallbacks = false;
+        }
         if (Update.Character && Update.Character->Attributes)
         {
             Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
@@ -4066,6 +4103,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
         }
         ApplyCharacter2CoreState(Update);
+        ApplyCharacter3CoreState(Update);
     }
     for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
     {
@@ -4240,6 +4278,18 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
                 Effect->EffectId = FName(*Addition.EffectId);
                 Effect->DisplayName = Ability->AbilityData ? Ability->AbilityData->DisplayName.ToString() : TEXT("Silence");
                 Effect->Description = TEXT("Kann keine Skills einsetzen.");
+                Effect->CauserCharacter = Addition.Causer;
+                Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
+                Addition.Character->AddEffect(Effect);
+            }
+        }
+        else if (Addition.CoreEffectKind == static_cast<int32>(roundcore::ModifierEffectKind::Invisibility))
+        {
+            if (ARoundInvisibilityEffect* Effect = GetWorld()->SpawnActor<ARoundInvisibilityEffect>())
+            {
+                Effect->EffectId = FName(*Addition.EffectId);
+                Effect->DisplayName = TEXT("Unsichtbar");
+                Effect->Description = TEXT("Kann ohne Sichtaufdeckung nicht gesehen werden.");
                 Effect->CauserCharacter = Addition.Causer;
                 Effect->SetDurationInitiative(Addition.RemainingInitiative, false);
                 Addition.Character->AddEffect(Effect);
@@ -4482,6 +4532,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
                 Update.Character->Attributes->SetCurrentInitiativeValue(Update.Initiative);
             }
             ApplyCharacter2CoreState(Update);
+            ApplyCharacter3CoreState(Update);
         }
         bApplyingCoreMovementCallbacks = true;
         Character->SetField(TargetTile, Index == Path.Num() - 1);
@@ -4622,6 +4673,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                 Character1->bStationaryGuardActive = Update.bStationaryGuardActive;
             }
             ApplyCharacter2CoreState(Update);
+            ApplyCharacter3CoreState(Update);
         }
         for (const FRoundCoreAbilityRuntimeUpdate& Update : Execution.AbilityUpdates)
         {

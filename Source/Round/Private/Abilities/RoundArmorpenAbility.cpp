@@ -11,6 +11,10 @@
 
 FRoundActionResult ARoundArmorpenAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 17)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {

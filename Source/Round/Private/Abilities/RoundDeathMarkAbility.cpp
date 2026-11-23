@@ -9,6 +9,10 @@
 
 FRoundActionResult ARoundDeathMarkAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 20)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     ARoundCharacter* Target = ResolveTargetCharacter(TargetTile);
     if (!Target) return Result;

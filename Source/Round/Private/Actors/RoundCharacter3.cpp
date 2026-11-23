@@ -77,6 +77,35 @@ void ARoundCharacter3::ApplySimAssassinState(
     NotifyRoundStateChanged();
 }
 
+void ARoundCharacter3::ApplyCoreAssassinState(
+    const int32 InComboPoints,
+    const int32 InMovedFieldsThisTurn,
+    const int32 InComboSpentThisTurn,
+    const int32 InHuntMarkCooldownInitiativeRemaining,
+    const int32 InTurnSequence,
+    const bool bInOpeningRewardUsedThisTurn,
+    const bool bInOverflowRewardUsedThisTurn,
+    const bool bInFreeAdjacentMoveAvailable,
+    const bool bInFreeAdjacentMoveUsedThisTurn,
+    const bool bInNextDamageAfterMoveReady,
+    const bool bInNextReductionAfterMoveReady,
+    const bool bInStartInvisibilityApplied)
+{
+    NativeComboPoints = FMath::Clamp(InComboPoints, 0, GetMaxComboPoints());
+    NativeMovedFieldsThisTurn = FMath::Max(0, InMovedFieldsThisTurn);
+    NativeComboSpentThisTurn = FMath::Max(0, InComboSpentThisTurn);
+    HuntMarkCooldownInitiativeRemaining = FMath::Max(0, InHuntMarkCooldownInitiativeRemaining);
+    NativeTurnSequence = FMath::Max(0, InTurnSequence);
+    bOpeningCutUsedThisTurn = bInOpeningRewardUsedThisTurn;
+    bComboOverflowInitiativeUsedThisTurn = bInOverflowRewardUsedThisTurn;
+    bFreeRetreatAvailable = bInFreeAdjacentMoveAvailable;
+    bFreeRetreatUsedThisTurn = bInFreeAdjacentMoveUsedThisTurn;
+    bDamageAfterMoveReady = bInNextDamageAfterMoveReady;
+    bDamageReductionAfterMoveReady = bInNextReductionAfterMoveReady;
+    bNativeStartInvisibilityApplied = bInStartInvisibilityApplied;
+    NotifyRoundStateChanged();
+}
+
 int32 ARoundCharacter3::TryConsumeComboPoints(int32 MaxAmount)
 {
     const int32 CurrentComboPoints = FMath::Clamp(NativeComboPoints, 0, GetMaxComboPoints());

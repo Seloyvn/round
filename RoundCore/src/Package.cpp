@@ -274,6 +274,12 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(character.refundedLastResourceKillThisTurn); writer.Integer(character.usedRangeRefundThisTurn);
         writer.Integer(character.usedKillCooldownReductionThisTurn); writer.Integer(character.stationaryShotStacks);
         writer.Integer(character.hasFreePreparedStep);
+        writer.Integer(character.movedFieldsThisTurn); writer.Integer(character.resourceSpentThisTurnCount);
+        writer.Integer(character.secondaryCooldownRemaining); writer.Integer(character.turnSequence);
+        writer.Integer(character.openingRewardUsedThisTurn); writer.Integer(character.overflowRewardUsedThisTurn);
+        writer.Integer(character.freeAdjacentMoveAvailable); writer.Integer(character.freeAdjacentMoveUsedThisTurn);
+        writer.Integer(character.nextDamageAfterMoveReady); writer.Integer(character.nextReductionAfterMoveReady);
+        writer.Integer(character.startInvisibilityApplied);
         writer.Integer(static_cast<std::uint32_t>(character.abilities.size()));
         for (const AbilityState& ability : character.abilities)
         {
@@ -372,6 +378,12 @@ GameState ReadState(Reader& reader)
         character.refundedLastResourceKillThisTurn = reader.Integer<bool>(); character.usedRangeRefundThisTurn = reader.Integer<bool>();
         character.usedKillCooldownReductionThisTurn = reader.Integer<bool>(); character.stationaryShotStacks = reader.Integer<std::int32_t>();
         character.hasFreePreparedStep = reader.Integer<bool>();
+        character.movedFieldsThisTurn = reader.Integer<std::int32_t>(); character.resourceSpentThisTurnCount = reader.Integer<std::int32_t>();
+        character.secondaryCooldownRemaining = reader.Integer<std::int32_t>(); character.turnSequence = reader.Integer<std::int32_t>();
+        character.openingRewardUsedThisTurn = reader.Integer<bool>(); character.overflowRewardUsedThisTurn = reader.Integer<bool>();
+        character.freeAdjacentMoveAvailable = reader.Integer<bool>(); character.freeAdjacentMoveUsedThisTurn = reader.Integer<bool>();
+        character.nextDamageAfterMoveReady = reader.Integer<bool>(); character.nextReductionAfterMoveReady = reader.Integer<bool>();
+        character.startInvisibilityApplied = reader.Integer<bool>();
         for (std::uint32_t ability = 0, abilityCount = reader.Count(); ability < abilityCount; ++ability)
         {
             AbilityState value; value.definitionId = reader.String(); value.cooldownRemaining = reader.Integer<std::int32_t>();

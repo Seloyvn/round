@@ -10,6 +10,8 @@ class ROUND_API ARoundCharacter3 : public ARoundCharacter
     GENERATED_BODY()
 
 public:
+    friend class FRoundCoreMatchAdapter;
+    friend class ARoundGameState;
     ARoundCharacter3();
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -69,6 +71,20 @@ public:
         int32 InComboSpentThisTurn,
         bool bInFirstDamageTurnConsumed,
         bool bInFirstDamageTurnActive,
+        bool bInStartInvisibilityApplied);
+
+    void ApplyCoreAssassinState(
+        int32 InComboPoints,
+        int32 InMovedFieldsThisTurn,
+        int32 InComboSpentThisTurn,
+        int32 InHuntMarkCooldownInitiativeRemaining,
+        int32 InTurnSequence,
+        bool bInOpeningRewardUsedThisTurn,
+        bool bInOverflowRewardUsedThisTurn,
+        bool bInFreeAdjacentMoveAvailable,
+        bool bInFreeAdjacentMoveUsedThisTurn,
+        bool bInNextDamageAfterMoveReady,
+        bool bInNextReductionAfterMoveReady,
         bool bInStartInvisibilityApplied);
 
     virtual void InitializeCharacter() override;

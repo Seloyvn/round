@@ -52,6 +52,10 @@ bool ARoundExecuteAbility::CanTargetTile(const ARoundGridTile* TargetTile) const
 
 FRoundActionResult ARoundExecuteAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation"))) == 18)
+    {
+        return ARoundAbilityActor::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!CanTargetTile(TargetTile) || !OwningCharacter || !OwningCharacter->Attributes || !TargetTile)
     {

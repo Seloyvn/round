@@ -8,6 +8,7 @@
 #include "Actors/RoundCharacterPaladin.h"
 #include "Actors/RoundCharacter1.h"
 #include "Actors/RoundCharacter2.h"
+#include "Actors/RoundCharacter3.h"
 #include "Abilities/RoundSnipeAbility.h"
 #include "Effects/RoundModifierEffect.h"
 #include "Effects/RoundBasicAttackDamageReductionEffect.h"
@@ -20,6 +21,12 @@
 #include "Effects/RoundSanctifiedGroundAuraEffect.h"
 #include "Effects/RoundBindEffect.h"
 #include "Effects/RoundTauntEffect.h"
+#include "Effects/RoundInvisibilityEffect.h"
+#include "Effects/RoundAssassinHuntMarkEffect.h"
+#include "Effects/RoundShadowWoundEffect.h"
+#include "Effects/RoundDeathMarkEffect.h"
+#include "Effects/RoundSharedBreachEffect.h"
+#include "Effects/RoundBleedEffect.h"
 #include "Components/RoundAttributeSetComponent.h"
 #include "Game/RoundGameState.h"
 
@@ -101,6 +108,17 @@ void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCo
     Update.bUsedKillCooldownReductionThisTurn = State.usedKillCooldownReductionThisTurn;
     Update.StationaryShotStacks = State.stationaryShotStacks;
     Update.bHasFreePreparedStep = State.hasFreePreparedStep;
+    Update.MovedFieldsThisTurn = State.movedFieldsThisTurn;
+    Update.ResourceSpentThisTurnCount = State.resourceSpentThisTurnCount;
+    Update.SecondaryCooldownRemaining = State.secondaryCooldownRemaining;
+    Update.TurnSequence = State.turnSequence;
+    Update.bOpeningRewardUsedThisTurn = State.openingRewardUsedThisTurn;
+    Update.bOverflowRewardUsedThisTurn = State.overflowRewardUsedThisTurn;
+    Update.bFreeAdjacentMoveAvailable = State.freeAdjacentMoveAvailable;
+    Update.bFreeAdjacentMoveUsedThisTurn = State.freeAdjacentMoveUsedThisTurn;
+    Update.bNextDamageAfterMoveReady = State.nextDamageAfterMoveReady;
+    Update.bNextReductionAfterMoveReady = State.nextReductionAfterMoveReady;
+    Update.bStartInvisibilityApplied = State.startInvisibilityApplied;
 }
 }
 
@@ -332,6 +350,24 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             Definition.passiveValues.emplace("CoreAmmoCharacter", 1.0);
             Definition.passiveValues.emplace("BaseAmmoRegen", Character2->GetValueFromKey(TEXT("AmmoRegen")));
         }
+        if (const ARoundCharacter3* Character3 = Cast<ARoundCharacter3>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("MaxComboPointsAdd"), TEXT("ComboPointsStartAdd"), TEXT("ComboOnFullHealthHit"),
+                TEXT("FirstBasicAttackCostReduction"), TEXT("MoveDistanceForBonuses"),
+                TEXT("NextHitDamageMultiplierAfterMove"), TEXT("FreeAdjacentMoveAfterDamage"),
+                TEXT("NextIncomingDamageMultiplierAfterMove"), TEXT("ComboOverflowInitiativeGain"),
+                TEXT("ComboSpendInitiativeGainPerPoint"), TEXT("ComboOnEmptyTurnStart"),
+                TEXT("InvisibilityOnKillDurationInitiative"), TEXT("ComboOnKill"),
+                TEXT("HuntMarkDamageMultiplier"), TEXT("HuntMarkDurationInitiative"),
+                TEXT("HuntMarkCooldownAfterExpiryInitiative")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Character3->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreComboCharacter", 1.0);
+            Definition.passiveValues.emplace("BaseComboMaximum", Character3->GetValueFromKey(TEXT("MaxComboPoints")));
+            Definition.passiveValues.emplace("BaseComboStart", Character3->GetValueFromKey(TEXT("ComboPointsStart")));
+            Definition.passiveValues.emplace("StartInvisibilityDurationInitiative", Character3->GetValueFromKey(TEXT("StartInvisibilityDurationInitiative")));
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -386,6 +422,22 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             CharacterState.stationaryShotStacks = Character2->StationaryShotStacks;
             CharacterState.hasFreePreparedStep = Character2->bHasFreeConcentrateStep;
         }
+        if (const ARoundCharacter3* Character3 = Cast<ARoundCharacter3>(Character))
+        {
+            CharacterState.resourceCurrent = Character3->TryGetComboPoints();
+            CharacterState.resourceMaximum = Character3->GetMaxComboPoints();
+            CharacterState.movedFieldsThisTurn = Character3->NativeMovedFieldsThisTurn;
+            CharacterState.resourceSpentThisTurnCount = Character3->NativeComboSpentThisTurn;
+            CharacterState.secondaryCooldownRemaining = Character3->HuntMarkCooldownInitiativeRemaining;
+            CharacterState.turnSequence = Character3->NativeTurnSequence;
+            CharacterState.openingRewardUsedThisTurn = Character3->bOpeningCutUsedThisTurn;
+            CharacterState.overflowRewardUsedThisTurn = Character3->bComboOverflowInitiativeUsedThisTurn;
+            CharacterState.freeAdjacentMoveAvailable = Character3->bFreeRetreatAvailable;
+            CharacterState.freeAdjacentMoveUsedThisTurn = Character3->bFreeRetreatUsedThisTurn;
+            CharacterState.nextDamageAfterMoveReady = Character3->bDamageAfterMoveReady;
+            CharacterState.nextReductionAfterMoveReady = Character3->bDamageReductionAfterMoveReady;
+            CharacterState.startInvisibilityApplied = Character3->bNativeStartInvisibilityApplied;
+        }
         for (int32 AbilityIndex = 0; AbilityIndex < Character->GrantedAbilities.Num(); ++AbilityIndex)
         {
             ARoundAbilityActor* Ability = Character->GrantedAbilities[AbilityIndex];
@@ -425,7 +477,12 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                                 : (CoreOperation == 13 ? roundcore::AbilityOperation::Aim
                                 : (CoreOperation == 14 ? roundcore::AbilityOperation::PiercingShot
                                 : (CoreOperation == 15 ? roundcore::AbilityOperation::SuppressingFire
-                                : roundcore::AbilityOperation::Unsupported))))))))))))));
+                                : (CoreOperation == 16 ? roundcore::AbilityOperation::Shadowstrike
+                                : (CoreOperation == 17 ? roundcore::AbilityOperation::Armorpen
+                                : (CoreOperation == 18 ? roundcore::AbilityOperation::Execute
+                                : (CoreOperation == 19 ? roundcore::AbilityOperation::HookShot
+                                : (CoreOperation == 20 ? roundcore::AbilityOperation::DeathMark
+                                : roundcore::AbilityOperation::Unsupported)))))))))))))))))));
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
                 ? roundcore::AbilityTargetRelation::Self
                 : ((AbilityDefinition.operation == roundcore::AbilityOperation::DirectHeal
@@ -441,7 +498,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
                 || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
-                || (CoreOperation >= 6 && CoreOperation <= 15))
+                || (CoreOperation >= 6 && CoreOperation <= 20))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -479,8 +536,15 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             const ARoundSanctifiedGroundAuraEffect* SanctifiedGround = Cast<ARoundSanctifiedGroundAuraEffect>(Effect);
             const ARoundBindEffect* Bind = Cast<ARoundBindEffect>(Effect);
             const ARoundTauntEffect* Taunt = Cast<ARoundTauntEffect>(Effect);
+            const ARoundInvisibilityEffect* Invisibility = Cast<ARoundInvisibilityEffect>(Effect);
+            const ARoundAssassinHuntMarkEffect* HuntMark = Cast<ARoundAssassinHuntMarkEffect>(Effect);
+            const ARoundShadowWoundEffect* ShadowWound = Cast<ARoundShadowWoundEffect>(Effect);
+            const ARoundDeathMarkEffect* DeathMark = Cast<ARoundDeathMarkEffect>(Effect);
+            const ARoundSharedBreachEffect* SharedBreach = Cast<ARoundSharedBreachEffect>(Effect);
+            const ARoundBleedEffect* Bleed = Cast<ARoundBleedEffect>(Effect);
             if (!Modifier && !BasicAttackReduction && !SuppressingFire && !Silence && !Root && !Slow
-                && !ShieldOath && !SanctifiedGround && !Bind && !Taunt)
+                && !ShieldOath && !SanctifiedGround && !Bind && !Taunt && !Invisibility
+                && !HuntMark && !ShadowWound && !DeathMark && !SharedBreach && !Bleed)
             {
                 continue;
             }
@@ -509,9 +573,52 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             }
             if (BasicAttackReduction)
             {
+                EffectState.kind = roundcore::ModifierEffectKind::BasicAttackWeakness;
                 EffectState.basicAttackDamageMultiplierBasisPoints = FMath::Max(
                     0, FMath::RoundToInt(BasicAttackReduction->DamageMultiplier * 10000.0));
                 EffectState.consumeOnBasicAttack = true;
+            }
+            if (Invisibility) EffectState.kind = roundcore::ModifierEffectKind::Invisibility;
+            if (HuntMark)
+            {
+                EffectState.kind = roundcore::ModifierEffectKind::AssassinHuntMark;
+                EffectState.incomingDamageMultiplierFromCauserBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(HuntMark->DamageMultiplierFromCauser * 10000.0));
+            }
+            if (ShadowWound)
+            {
+                EffectState.kind = roundcore::ModifierEffectKind::ShadowWound;
+                EffectState.valueA = FMath::Max(0, ShadowWound->BonusDamage);
+                EffectState.valueB = FMath::Max(0, ShadowWound->ComboGain);
+            }
+            if (DeathMark)
+            {
+                EffectState.kind = roundcore::ModifierEffectKind::DeathMark;
+                EffectState.incomingDamageMultiplierFromCauserBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(DeathMark->DamageMultiplierFromCauser * 10000.0));
+                EffectState.defenseIgnoreAdd = FMath::Max(0, DeathMark->DefenseIgnoreFromCauser);
+                EffectState.counterA = FMath::Max(0, DeathMark->ComboGainOnTrigger);
+                EffectState.valueA = FMath::Max(0, DeathMark->MoveDurationExtension);
+                EffectState.valueB = FMath::Max(0, DeathMark->ExecuteCooldownReductionOnMaxCombo);
+                EffectState.valueC = FMath::Max(0, DeathMark->DeathMarkCooldownReductionOnExpiry);
+                EffectState.counterC = FMath::Max(0, DeathMark->TransferRangeOnKill);
+                EffectState.triggerSlowMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(DeathMark->LowHealthThreshold * 10000.0));
+                EffectState.triggerOutgoingDamageMultiplierBasisPoints = FMath::Max(
+                    0, FMath::RoundToInt(DeathMark->LowHealthDamageMultiplierAdd * 10000.0));
+                if (DeathMark->bGrantComboEachCauserTurn) EffectState.flags |= 2u;
+                if (DeathMark->bPreventInvisibility) EffectState.flags |= 4u;
+                if (DeathMark->bTransferred) EffectState.flags |= 16u;
+            }
+            if (SharedBreach)
+            {
+                EffectState.kind = roundcore::ModifierEffectKind::SharedBreach;
+                EffectState.valueA = FMath::Max(0, SharedBreach->DefenseIgnorePerCharacter);
+            }
+            if (Bleed)
+            {
+                EffectState.kind = roundcore::ModifierEffectKind::Bleed;
+                EffectState.valueA = FMath::Max(0, FMath::RoundToInt(Bleed->Amount));
             }
             if (SuppressingFire)
             {
@@ -598,14 +705,17 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             EffectState.preventsAbilityUse = Silence != nullptr;
             EffectState.expireOnTurnEnd = Effect->bAutoExpireOnTurnEnd;
             EffectState.sourceAbilityId = ToCoreString(Effect->StringState.FindRef(TEXT("CoreSourceAbilityId")));
-            EffectState.kind = static_cast<roundcore::ModifierEffectKind>(Effect->IntegerState.FindRef(TEXT("CoreEffectKind")));
-            EffectState.counterA = Effect->IntegerState.FindRef(TEXT("CoreCounterA"));
-            EffectState.counterB = Effect->IntegerState.FindRef(TEXT("CoreCounterB"));
-            EffectState.counterC = Effect->IntegerState.FindRef(TEXT("CoreCounterC"));
-            EffectState.valueA = Effect->IntegerState.FindRef(TEXT("CoreValueA"));
-            EffectState.valueB = Effect->IntegerState.FindRef(TEXT("CoreValueB"));
-            EffectState.valueC = Effect->IntegerState.FindRef(TEXT("CoreValueC"));
-            EffectState.flags = static_cast<uint32>(Effect->IntegerState.FindRef(TEXT("CoreFlags")));
+            if (Effect->IntegerState.Contains(TEXT("CoreEffectKind")))
+            {
+                EffectState.kind = static_cast<roundcore::ModifierEffectKind>(Effect->IntegerState.FindRef(TEXT("CoreEffectKind")));
+                EffectState.counterA = Effect->IntegerState.FindRef(TEXT("CoreCounterA"));
+                EffectState.counterB = Effect->IntegerState.FindRef(TEXT("CoreCounterB"));
+                EffectState.counterC = Effect->IntegerState.FindRef(TEXT("CoreCounterC"));
+                EffectState.valueA = Effect->IntegerState.FindRef(TEXT("CoreValueA"));
+                EffectState.valueB = Effect->IntegerState.FindRef(TEXT("CoreValueB"));
+                EffectState.valueC = Effect->IntegerState.FindRef(TEXT("CoreValueC"));
+                EffectState.flags = static_cast<uint32>(Effect->IntegerState.FindRef(TEXT("CoreFlags")));
+            }
             CharacterState.modifierEffects.push_back(std::move(EffectState));
         }
         if (const TArray<roundcore::ModifierEffectState>* PreservedEffects = PreservedCoreEffects.Find(Character))
@@ -696,7 +806,7 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
         }
     }
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
-    const bool bGroundAura = CoreOperation == 5 || CoreOperation == 13;
+    const bool bGroundAura = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19;
     if (!CharacterId || AbilityKey.IsEmpty() || (bGroundAura ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");

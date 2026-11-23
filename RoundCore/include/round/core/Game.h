@@ -63,6 +63,13 @@ private:
         std::vector<GameEvent>& events);
     bool ResolveAmmoShot(CharacterState& source, bool killed, bool explicitRefund,
         const DefinitionId& sourceId, std::vector<GameEvent>& events);
+    std::int32_t GainCombo(CharacterState& source, std::int32_t amount,
+        const DefinitionId& sourceId, std::vector<GameEvent>& events);
+    std::int32_t SpendCombo(CharacterState& source, std::int32_t amount,
+        const DefinitionId& sourceId, std::vector<GameEvent>& events);
+    void ResolveAssassinHit(CharacterState& source, CharacterState& target,
+        std::int32_t appliedDamage, bool killed, const DefinitionId& sourceId,
+        std::vector<GameEvent>& events);
     ActionResult ValidateMove(const GameAction& action) const;
     ActionResult ApplyBasicAttack(const GameAction& action);
     ActionResult ValidateBasicAttack(const GameAction& action) const;
