@@ -14,9 +14,37 @@ struct TileState
     HexCoord coord;
     DefinitionId terrainId;
     EntityId occupantId = InvalidEntityId;
+    EntityId fieldObjectId = InvalidEntityId;
     bool blocksMovement = false;
     std::int32_t fieldObjectHealth = 0;
     std::int32_t terrainObjectHealth = 0;
+};
+
+struct DeviceState
+{
+    EntityId id = InvalidEntityId;
+    EntityId ownerId = InvalidEntityId;
+    EntityId tileId = InvalidEntityId;
+    DefinitionId sourceAbilityId;
+    DeviceType type = DeviceType::Turret;
+    std::int32_t health = 0;
+    std::int32_t maximumHealth = 0;
+    std::int32_t remainingInitiative = 0;
+    std::int32_t triggerIntervalInitiative = 0;
+    std::int32_t triggerProgressInitiative = 0;
+    std::int32_t armDelayInitiative = 0;
+    std::int32_t enemyRevealInitiative = 0;
+    std::int32_t range = 0;
+    std::int32_t amount = 0;
+    std::int32_t effectDurationInitiative = 0;
+    std::int32_t defenseIgnore = 0;
+    std::int32_t initiativeLoss = 0;
+    std::int32_t moveCostAdd = 0;
+    std::int32_t secondaryAmount = 0;
+    std::int32_t multiplierBasisPoints = 0;
+    std::int32_t secondaryMultiplierBasisPoints = 0;
+    DamageType damageType = DamageType::Physical;
+    std::uint32_t flags = 0;
 };
 
 struct AbilityState
@@ -182,5 +210,6 @@ struct GameState
     std::uint64_t globalInitiative = 0;
     std::vector<TileState> tiles;
     std::vector<CharacterState> characters;
+    std::vector<DeviceState> devices;
 };
 }

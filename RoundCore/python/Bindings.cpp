@@ -12,6 +12,7 @@ PYBIND11_MODULE(roundcore_python, module)
     module.doc() = "Standalone Python bindings for the authoritative RoundCore rules";
     module.attr("GLOBAL_STRIDE") = NumericObservation::GlobalStride;
     module.attr("TILE_STRIDE") = NumericObservation::TileStride;
+    module.attr("DEVICE_STRIDE") = NumericObservation::DeviceStride;
     module.attr("CHARACTER_STRIDE") = NumericObservation::CharacterStride;
     module.attr("ABILITY_STRIDE") = NumericObservation::AbilityStride;
     module.attr("MODIFIER_EFFECT_STRIDE") = NumericObservation::ModifierEffectStride;
@@ -51,7 +52,15 @@ PYBIND11_MODULE(roundcore_python, module)
         .value("CONCENTRATE", AbilityOperation::Concentrate)
         .value("AIM", AbilityOperation::Aim)
         .value("PIERCING_SHOT", AbilityOperation::PiercingShot)
-        .value("SUPPRESSING_FIRE", AbilityOperation::SuppressingFire);
+        .value("SUPPRESSING_FIRE", AbilityOperation::SuppressingFire)
+        .value("BUILD_TURRET", AbilityOperation::BuildTurret)
+        .value("BUILD_MINE", AbilityOperation::BuildMine)
+        .value("BUILD_SHIELD_EMITTER", AbilityOperation::BuildShieldEmitter)
+        .value("BUILD_SPOTTER_BEACON", AbilityOperation::BuildSpotterBeacon)
+        .value("OVERLOAD_DEVICES", AbilityOperation::OverloadDevices);
+    py::enum_<DeviceType>(module, "DeviceType")
+        .value("TURRET", DeviceType::Turret).value("MINE", DeviceType::Mine)
+        .value("SHIELD_EMITTER", DeviceType::ShieldEmitter).value("SPOTTER_BEACON", DeviceType::SpotterBeacon);
     py::enum_<ModifierEffectKind>(module, "ModifierEffectKind")
         .value("GENERIC", ModifierEffectKind::Generic)
         .value("CONCENTRATE", ModifierEffectKind::Concentrate)
@@ -129,9 +138,28 @@ PYBIND11_MODULE(roundcore_python, module)
     py::class_<TileState>(module, "TileState")
         .def(py::init<>()).def_readwrite("id", &TileState::id).def_readwrite("coord", &TileState::coord)
         .def_readwrite("terrain_id", &TileState::terrainId).def_readwrite("occupant_id", &TileState::occupantId)
+        .def_readwrite("field_object_id", &TileState::fieldObjectId)
         .def_readwrite("blocks_movement", &TileState::blocksMovement)
         .def_readwrite("field_object_health", &TileState::fieldObjectHealth)
         .def_readwrite("terrain_object_health", &TileState::terrainObjectHealth);
+    py::class_<DeviceState>(module, "DeviceState")
+        .def(py::init<>()).def_readwrite("id", &DeviceState::id).def_readwrite("owner_id", &DeviceState::ownerId)
+        .def_readwrite("tile_id", &DeviceState::tileId).def_readwrite("source_ability_id", &DeviceState::sourceAbilityId)
+        .def_readwrite("type", &DeviceState::type).def_readwrite("health", &DeviceState::health)
+        .def_readwrite("maximum_health", &DeviceState::maximumHealth)
+        .def_readwrite("remaining_initiative", &DeviceState::remainingInitiative)
+        .def_readwrite("trigger_interval_initiative", &DeviceState::triggerIntervalInitiative)
+        .def_readwrite("trigger_progress_initiative", &DeviceState::triggerProgressInitiative)
+        .def_readwrite("arm_delay_initiative", &DeviceState::armDelayInitiative)
+        .def_readwrite("enemy_reveal_initiative", &DeviceState::enemyRevealInitiative)
+        .def_readwrite("range", &DeviceState::range).def_readwrite("amount", &DeviceState::amount)
+        .def_readwrite("effect_duration_initiative", &DeviceState::effectDurationInitiative)
+        .def_readwrite("defense_ignore", &DeviceState::defenseIgnore)
+        .def_readwrite("initiative_loss", &DeviceState::initiativeLoss).def_readwrite("move_cost_add", &DeviceState::moveCostAdd)
+        .def_readwrite("secondary_amount", &DeviceState::secondaryAmount)
+        .def_readwrite("multiplier_basis_points", &DeviceState::multiplierBasisPoints)
+        .def_readwrite("secondary_multiplier_basis_points", &DeviceState::secondaryMultiplierBasisPoints)
+        .def_readwrite("damage_type", &DeviceState::damageType).def_readwrite("flags", &DeviceState::flags);
     py::class_<AbilityState>(module, "AbilityState")
         .def(py::init<>()).def_readwrite("definition_id", &AbilityState::definitionId)
         .def_readwrite("cooldown_remaining", &AbilityState::cooldownRemaining)
@@ -274,7 +302,8 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readwrite("step", &GameState::step).def_readwrite("status", &GameState::status)
         .def_readwrite("winner", &GameState::winner).def_readwrite("active_character_id", &GameState::activeCharacterId)
         .def_readwrite("global_initiative", &GameState::globalInitiative)
-        .def_readwrite("tiles", &GameState::tiles).def_readwrite("characters", &GameState::characters);
+        .def_readwrite("tiles", &GameState::tiles).def_readwrite("characters", &GameState::characters)
+        .def_readwrite("devices", &GameState::devices);
     py::class_<MatchSetup>(module, "MatchSetup")
         .def(py::init<>()).def_readwrite("definitions", &MatchSetup::definitions)
         .def_readwrite("initial_state", &MatchSetup::initialState);
@@ -301,7 +330,8 @@ PYBIND11_MODULE(roundcore_python, module)
         .def_readonly("schema_version", &NumericObservation::schemaVersion)
         .def_readonly("content_version", &NumericObservation::contentVersion)
         .def_readonly("global_values", &NumericObservation::global).def_readonly("tiles", &NumericObservation::tiles)
-        .def_readonly("characters", &NumericObservation::characters).def_readonly("abilities", &NumericObservation::abilities)
+        .def_readonly("characters", &NumericObservation::characters).def_readonly("devices", &NumericObservation::devices)
+        .def_readonly("abilities", &NumericObservation::abilities)
         .def_readonly("modifier_effects", &NumericObservation::modifierEffects)
         .def_readonly("legal_actions", &NumericObservation::legalActions)
         .def_readonly("action_selections", &NumericObservation::actionSelections);

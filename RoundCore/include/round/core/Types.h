@@ -60,7 +60,20 @@ enum class AbilityOperation : std::uint8_t
     Decimate,
     SpinToWin,
     BloodHeal,
-    Rend
+    Rend,
+    BuildTurret,
+    BuildMine,
+    BuildShieldEmitter,
+    BuildSpotterBeacon,
+    OverloadDevices
+};
+
+enum class DeviceType : std::uint8_t
+{
+    Turret,
+    Mine,
+    ShieldEmitter,
+    SpotterBeacon
 };
 
 enum class ModifierEffectKind : std::uint8_t
@@ -91,7 +104,9 @@ enum class ModifierEffectKind : std::uint8_t
     IcebeamSlow,
     BloodMark,
     SpinEcho,
-    RendBleed
+    RendBleed,
+    EngineerShield,
+    EngineerSpotted
 };
 
 enum class AbilityTargetRelation : std::uint8_t
@@ -132,7 +147,10 @@ enum class EventType : std::uint8_t
     CharacterDied,
     ActiveCharacterChanged,
     ObjectiveChanged,
-    MatchEnded
+    MatchEnded,
+    DeviceCreated,
+    DeviceRemoved,
+    DeviceTriggered
 };
 
 enum class MatchStatus : std::uint8_t

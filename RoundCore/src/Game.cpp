@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::Rend
+        if (ability.operation > AbilityOperation::OverloadDevices
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -226,16 +226,41 @@ ActionResult Game::Reset(MatchSetup setup)
             }
         }
     }
+    std::unordered_set<EntityId> deviceIds;
+    std::unordered_set<EntityId> deviceTileIds;
+    for (const DeviceState& device : setup.initialState.devices)
+    {
+        if (device.id == InvalidEntityId || characterIds.find(device.id) != characterIds.end()
+            || tileIds.find(device.id) != tileIds.end() || !deviceIds.insert(device.id).second)
+            return Failure("invalid_device_id", "Device IDs must be globally unique and non-zero.");
+        if (characterIds.find(device.ownerId) == characterIds.end())
+            return Failure("missing_device_owner", "Every device must reference an existing owner.");
+        if (tileIds.find(device.tileId) == tileIds.end() || !deviceTileIds.insert(device.tileId).second)
+            return Failure("invalid_device_tile", "Every device must occupy one unique board tile.");
+        if (setup.definitions.abilities.find(device.sourceAbilityId) == setup.definitions.abilities.end())
+            return Failure("missing_device_ability", "Every device must reference its source ability.");
+        if (device.health <= 0 || device.maximumHealth <= 0 || device.health > device.maximumHealth
+            || device.remainingInitiative <= 0)
+            return Failure("invalid_device_state", "Device health and lifetime must be positive and bounded.");
+    }
 
     for (TileState& tile : setup.initialState.tiles)
     {
         tile.occupantId = InvalidEntityId;
+        tile.fieldObjectId = InvalidEntityId;
     }
     for (const CharacterState& character : setup.initialState.characters)
     {
         const auto tile = std::find_if(setup.initialState.tiles.begin(), setup.initialState.tiles.end(),
             [&character](const TileState& candidate) { return candidate.id == character.tileId; });
         tile->occupantId = character.id;
+    }
+    for (const DeviceState& device : setup.initialState.devices)
+    {
+        const auto tile = std::find_if(setup.initialState.tiles.begin(), setup.initialState.tiles.end(),
+            [&device](const TileState& candidate) { return candidate.id == device.tileId; });
+        tile->fieldObjectId = device.id;
+        tile->fieldObjectHealth = device.health;
     }
 
     if (setup.initialState.activeCharacterId != InvalidEntityId
@@ -389,6 +414,16 @@ ActionResult Game::ApplyAction(const GameAction& action)
     {
         result.events.push_back(GameEvent{EventType::InitiativeChanged, character->id, character->id,
             destination->id, "Slow", -static_cast<std::int32_t>(initiativeLossOnMove)});
+    }
+    if (character->alive && destination->fieldObjectId != InvalidEntityId)
+    {
+        const DeviceState* enteredDevice = FindDevice(destination->fieldObjectId);
+        if (enteredDevice && enteredDevice->type == DeviceType::Mine && enteredDevice->ownerId != character->id)
+        {
+            const CharacterState* mineOwner = FindCharacter(enteredDevice->ownerId);
+            if (mineOwner && mineOwner->team != character->team)
+                TriggerDevice(enteredDevice->id, false, result.events);
+        }
     }
     for (ModifierEffectState& suppression : character->modifierEffects)
     {
@@ -758,6 +793,16 @@ DecisionSnapshot Game::ObserveTeamDecision(const Team perspective) const
                 return character.team != perspective && !isVisibleTile(character.tileId);
             }),
         snapshot.state.characters.end());
+    snapshot.state.devices.erase(
+        std::remove_if(snapshot.state.devices.begin(), snapshot.state.devices.end(),
+            [this, perspective, &isVisibleTile](const DeviceState& device)
+            {
+                const CharacterState* owner = FindCharacter(device.ownerId);
+                if (owner && owner->team == perspective) return false;
+                if (!isVisibleTile(device.tileId)) return true;
+                return device.type == DeviceType::Mine && device.enemyRevealInitiative <= 0;
+            }),
+        snapshot.state.devices.end());
     std::unordered_set<EntityId> visibleCharacterIds;
     for (const CharacterState& character : snapshot.state.characters)
     {
@@ -1140,11 +1185,46 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     const std::int32_t bloodDefenseThreshold = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "BloodDefenseThreshold")));
     const std::int32_t bloodDefense = bloodDefenseThreshold > 0 && target.resourceCurrent >= bloodDefenseThreshold
         ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileHighBlood"))) : 0;
+    std::int32_t deviceDefense = 0;
+    const std::int32_t defensePerDevice = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefensePerActiveDevice")));
+    if (defensePerDevice > 0)
+    {
+        const std::int32_t count = static_cast<std::int32_t>(std::count_if(state_.devices.begin(), state_.devices.end(),
+            [&target](const DeviceState& device) { return device.ownerId == target.id; }));
+        const std::int32_t maximum = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "MaxDefenseFromDevices")));
+        deviceDefense += maximum > 0 ? std::min(maximum, count * defensePerDevice) : count * defensePerDevice;
+    }
+    const std::int32_t networkRange = std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DeviceNetworkDefenseRange")));
+    if (networkRange > 0 && protectedTargetTile && std::any_of(state_.devices.begin(), state_.devices.end(),
+        [this, &target, protectedTargetTile, networkRange](const DeviceState& device)
+        {
+            const TileState* tile = FindTile(device.tileId);
+            return device.ownerId == target.id && tile && HexDistance(protectedTargetTile->coord, tile->coord) <= networkRange;
+        }))
+        deviceDefense += std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseNearDevice")));
     const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense + bloodDefense
-        + elementDefense + target.rockDefenseBonus - defenseIgnore);
+        + elementDefense + target.rockDefenseBonus + deviceDefense - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
-    const std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
+    std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
         std::numeric_limits<std::int32_t>::max(), (damage * 100 + denominator / 2) / denominator));
+    for (auto effect = target.modifierEffects.begin(); effect != target.modifierEffects.end() && finalDamage > 0;)
+    {
+        if (effect->kind != ModifierEffectKind::EngineerShield || effect->valueA <= 0)
+        {
+            ++effect;
+            continue;
+        }
+        const std::int32_t absorbed = std::min(finalDamage, effect->valueA);
+        finalDamage -= absorbed;
+        effect->valueA -= absorbed;
+        if (effect->valueA <= 0)
+        {
+            modifierEvents.push_back(GameEvent{EventType::EffectRemoved, effect->causerId, target.id,
+                target.tileId, effect->id, absorbed});
+            effect = target.modifierEffects.erase(effect);
+        }
+        else ++effect;
+    }
     const std::int32_t appliedDamage = std::min(target.health, finalDamage);
     target.health -= appliedDamage;
     if (appliedDamage > 0)
@@ -1956,7 +2036,9 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     if (definition.operation == AbilityOperation::GroundAura || definition.operation == AbilityOperation::Aim
         || definition.operation == AbilityOperation::HookShot || definition.operation == AbilityOperation::Fireball
         || definition.operation == AbilityOperation::Lightningstrike || definition.operation == AbilityOperation::Rockblast
-        || definition.operation == AbilityOperation::ArcaneShift)
+        || definition.operation == AbilityOperation::ArcaneShift || definition.operation == AbilityOperation::BuildTurret
+        || definition.operation == AbilityOperation::BuildMine || definition.operation == AbilityOperation::BuildShieldEmitter
+        || definition.operation == AbilityOperation::BuildSpotterBeacon)
     {
         const TileState* targetTile = FindTile(action.targetTileId);
         if (!targetTile)
@@ -1995,6 +2077,16 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
                     || AbilityValue(definition, "CanSwapWithAlly") <= 0.0)
                     return Failure("ability_target_occupied", "Arcane Shift destination is occupied.");
             }
+        }
+        if (definition.operation >= AbilityOperation::BuildTurret
+            && definition.operation <= AbilityOperation::BuildSpotterBeacon)
+        {
+            const auto terrain = definitions_.terrains.find(targetTile->terrainId);
+            if (terrain == definitions_.terrains.end() || !terrain->second.walkable || targetTile->blocksMovement
+                || targetTile->fieldObjectId != InvalidEntityId)
+                return Failure("ability_target_blocked", "Building a device requires a free walkable tile.");
+            if (definition.operation == AbilityOperation::BuildTurret && targetTile->occupantId != InvalidEntityId)
+                return Failure("ability_target_occupied", "A turret cannot be built under a character.");
         }
         if (definition.requiresVisibility)
         {
@@ -2119,7 +2211,9 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     if (definition.operation != AbilityOperation::GroundAura && definition.operation != AbilityOperation::Aim
         && definition.operation != AbilityOperation::HookShot && definition.operation != AbilityOperation::Fireball
         && definition.operation != AbilityOperation::Lightningstrike && definition.operation != AbilityOperation::Rockblast
-        && definition.operation != AbilityOperation::ArcaneShift && !target)
+        && definition.operation != AbilityOperation::ArcaneShift && definition.operation != AbilityOperation::BuildTurret
+        && definition.operation != AbilityOperation::BuildMine && definition.operation != AbilityOperation::BuildShieldEmitter
+        && definition.operation != AbilityOperation::BuildSpotterBeacon && !target)
     {
         return Failure("invalid_state", "Validated ability references missing target state.");
     }
@@ -3760,6 +3854,130 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             mark.incomingDamageMultiplierFromCauserBasisPoints = static_cast<std::int32_t>(markMultiplier * 10000.0 + 0.5); mark.consumeOnDamageFromCauser = true; mark.remainingInitiative = duration; addEffect(*target, mark); }
         finalizeDeath(*actor, *target);
     }
+    else if (definition.operation >= AbilityOperation::BuildTurret
+        && definition.operation <= AbilityOperation::BuildSpotterBeacon)
+    {
+        TileState* buildTile = FindTile(action.targetTileId);
+        const std::int32_t configuredMaximum = static_cast<std::int32_t>(PassiveValue(castingDefinition, "MaxDevices"));
+        const std::int32_t maximumDevices = std::max(1, (configuredMaximum > 0 ? configuredMaximum : 3)
+            + static_cast<std::int32_t>(PassiveValue(castingDefinition, "MaxDevicesAdd")));
+        std::vector<EntityId> ownedDevices;
+        for (const DeviceState& device : state_.devices) if (device.ownerId == actor->id) ownedDevices.push_back(device.id);
+        while (static_cast<std::int32_t>(ownedDevices.size()) >= maximumDevices)
+        {
+            RemoveDevice(ownedDevices.front(), result.events);
+            ownedDevices.erase(ownedDevices.begin());
+            const std::int32_t refund = std::max(0, static_cast<std::int32_t>(
+                PassiveValue(castingDefinition, "InitiativeRefundOnDeviceReplace")));
+            actor->initiative += refund;
+            if (refund > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id,
+                actor->id, actor->tileId, action.abilityId + ":Replace", refund});
+        }
+        EntityId nextId = 1;
+        for (const TileState& tile : state_.tiles) nextId = std::max(nextId, tile.id + 1);
+        for (const CharacterState& character : state_.characters) nextId = std::max(nextId, character.id + 1);
+        for (const DeviceState& device : state_.devices) nextId = std::max(nextId, device.id + 1);
+        DeviceState device; device.id = nextId; device.ownerId = actor->id; device.tileId = buildTile->id;
+        device.sourceAbilityId = action.abilityId;
+        device.type = static_cast<DeviceType>(static_cast<std::uint8_t>(definition.operation)
+            - static_cast<std::uint8_t>(AbilityOperation::BuildTurret));
+        const double healthMultiplier = 1.0 + std::max(0.0, PassiveValue(castingDefinition, "DeviceHealthMultiplierAdd"));
+        const double lifetimeMultiplier = 1.0 + std::max(0.0, PassiveValue(castingDefinition, "DeviceLifetimeMultiplierAdd"));
+        device.maximumHealth = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "Health") * healthMultiplier + 0.5));
+        device.health = device.maximumHealth;
+        device.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative") * lifetimeMultiplier + 0.5));
+        const double intervalReduction = std::clamp(PassiveValue(castingDefinition, "DeviceTriggerIntervalReduction"), 0.0, 0.8);
+        device.triggerIntervalInitiative = std::max(0, static_cast<std::int32_t>(
+            AbilityValue(definition, "TriggerIntervalInitiative") * (1.0 - intervalReduction) + 0.5));
+        device.amount = std::max(0, definition.amount);
+        device.damageType = definition.damageType; device.defenseIgnore = definition.defenseIgnore;
+        if (device.type == DeviceType::Turret)
+        {
+            device.range = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "TurretRange")));
+            device.initiativeLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit")));
+            device.secondaryMultiplierBasisPoints = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SecondaryTargetDamageMultiplier") * 10000.0 + 0.5));
+            device.secondaryAmount = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "LowHealthThreshold") * 10000.0 + 0.5));
+            device.multiplierBasisPoints = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "LowHealthDamageMultiplier") * 10000.0 + 0.5));
+            device.flags |= 4u;
+        }
+        else if (device.type == DeviceType::Mine)
+        {
+            device.range = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "AOERange")));
+            device.armDelayInitiative = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ArmDelayInitiative")));
+            device.enemyRevealInitiative = std::max(20, device.armDelayInitiative);
+            device.initiativeLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit")));
+            device.effectDurationInitiative = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RootDurationInitiative")));
+            if (AbilityValue(definition, "PreserveOnManualTrigger") > 0.0) device.flags |= 1u;
+        }
+        else if (device.type == DeviceType::ShieldEmitter)
+        {
+            device.range = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "AuraRange")));
+            device.amount = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ShieldAmount")));
+            device.effectDurationInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "ShieldDurationInitiative")));
+            device.secondaryAmount = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "HealAmount")));
+            device.initiativeLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGain")));
+            device.multiplierBasisPoints = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SoloShieldMultiplier") * 10000.0 + 0.5));
+            if (AbilityValue(definition, "CleanseOneDebuff") > 0.0) device.flags |= 2u;
+        }
+        else
+        {
+            device.range = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "AuraRange")));
+            device.effectDurationInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DebuffDurationInitiative")));
+            device.multiplierBasisPoints = std::max(10000, static_cast<std::int32_t>(AbilityValue(definition, "DamageTakenMultiplier") * 10000.0 + 0.5));
+            device.secondaryMultiplierBasisPoints = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "OutgoingDamageMultiplier") * 10000.0 + 0.5));
+            device.initiativeLoss = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLoss")));
+            device.moveCostAdd = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MoveCostAdd")));
+        }
+        state_.devices.push_back(device); buildTile->fieldObjectId = device.id;
+        buildTile->fieldObjectHealth = device.health;
+        result.events.push_back(GameEvent{EventType::DeviceCreated, actor->id, device.id,
+            device.tileId, action.abilityId, device.health});
+    }
+    else if (definition.operation == AbilityOperation::OverloadDevices)
+    {
+        const TileState* actorTile = FindTile(actor->tileId);
+        std::vector<EntityId> affected;
+        for (const DeviceState& device : state_.devices)
+        {
+            const TileState* tile = FindTile(device.tileId);
+            if (device.ownerId == actor->id && actorTile && tile
+                && (definition.range <= 0 || HexDistance(actorTile->coord, tile->coord) <= definition.range))
+                affected.push_back(device.id);
+        }
+        std::int32_t triggered = 0;
+        for (const EntityId deviceId : affected)
+        {
+            DeviceState* device = FindDevice(deviceId); if (!device) continue;
+            device->health = std::min(device->maximumHealth, device->health
+                + std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "RepairDevices"))));
+            device->remainingInitiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "LifetimeExtensionInitiative")));
+            if (TileState* tile = FindTile(device->tileId)) tile->fieldObjectHealth = device->health;
+            if (TriggerDevice(deviceId, true, result.events))
+            {
+                ++triggered;
+                if (AbilityValue(definition, "DoubleTrigger") > 0.0 && FindDevice(deviceId))
+                    TriggerDevice(deviceId, true, result.events);
+            }
+            device = FindDevice(deviceId);
+            if (device && AbilityValue(definition, "DestroyAfterOverload") > 0.0)
+            {
+                const TileState* center = FindTile(device->tileId);
+                const std::int32_t explosion = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DestroyExplosionDamage")));
+                if (center && explosion > 0) for (CharacterState& enemy : state_.characters)
+                {
+                    const TileState* tile = FindTile(enemy.tileId);
+                    if (enemy.alive && enemy.team != actor->team && enemy.team != Team::Neutral && tile
+                        && HexDistance(center->coord, tile->coord) <= 1)
+                    { applyDamage(*actor, enemy, explosion, 0, action.abilityId + ":Meltdown"); finalizeDeath(*actor, enemy); }
+                }
+                RemoveDevice(deviceId, result.events);
+            }
+        }
+        const std::int32_t gain = triggered * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainPerDevice")));
+        actor->initiative += gain;
+        abilityState->cooldownRemaining = std::max(0, abilityState->cooldownRemaining - triggered
+            * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReductionPerDevice"))));
+    }
     else if (definition.operation == AbilityOperation::DirectHeal)
     {
         const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
@@ -4184,6 +4402,17 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             selected->basicAttackBloodAvailable = true;
             selected->bloodCapTriggerAvailable = true;
         }
+        const std::int32_t deviceRepair = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(definition, "DeviceRepairOnTurnStart")));
+        if (deviceRepair > 0)
+        {
+            for (DeviceState& device : state_.devices)
+            {
+                if (device.ownerId != selected->id) continue;
+                device.health = std::min(device.maximumHealth, device.health + deviceRepair);
+                if (TileState* tile = FindTile(device.tileId)) tile->fieldObjectHealth = device.health;
+            }
+        }
         state_.activeCharacterId = selected->id;
         result.events.push_back(GameEvent{
             EventType::ActiveCharacterChanged, selected->id, selected->id, selected->tileId, {}, 0});
@@ -4427,6 +4656,33 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
             }
         }
+        std::vector<EntityId> deviceIds;
+        deviceIds.reserve(state_.devices.size());
+        for (const DeviceState& device : state_.devices) deviceIds.push_back(device.id);
+        for (const EntityId deviceId : deviceIds)
+        {
+            DeviceState* device = FindDevice(deviceId);
+            if (!device) continue;
+            if (device->remainingInitiative > 0) --device->remainingInitiative;
+            if (device->armDelayInitiative > 0) --device->armDelayInitiative;
+            if (device->enemyRevealInitiative > 0) --device->enemyRevealInitiative;
+            if (device->remainingInitiative <= 0)
+            {
+                RemoveDevice(deviceId, result.events);
+                continue;
+            }
+            if (device->triggerIntervalInitiative > 0)
+            {
+                ++device->triggerProgressInitiative;
+                while (true)
+                {
+                    device = FindDevice(deviceId);
+                    if (!device || device->triggerProgressInitiative < device->triggerIntervalInitiative) break;
+                    device->triggerProgressInitiative -= device->triggerIntervalInitiative;
+                    TriggerDevice(deviceId, false, result.events);
+                }
+            }
+        }
         ++state_.globalInitiative;
         result.events.push_back(GameEvent{
             EventType::GlobalInitiativeAdvanced, InvalidEntityId, InvalidEntityId, InvalidEntityId, {}, 1});
@@ -4544,7 +4800,11 @@ std::vector<GameAction> Game::LegalActions(const EntityId actorId) const
                 || definition->second.operation == AbilityOperation::Fireball
                 || definition->second.operation == AbilityOperation::Lightningstrike
                 || definition->second.operation == AbilityOperation::Rockblast
-                || definition->second.operation == AbilityOperation::ArcaneShift))
+                || definition->second.operation == AbilityOperation::ArcaneShift
+                || definition->second.operation == AbilityOperation::BuildTurret
+                || definition->second.operation == AbilityOperation::BuildMine
+                || definition->second.operation == AbilityOperation::BuildShieldEmitter
+                || definition->second.operation == AbilityOperation::BuildSpotterBeacon))
         {
             for (const TileState& tile : state_.tiles)
             {
@@ -4620,6 +4880,175 @@ const CharacterState* Game::FindCharacter(const EntityId characterId) const noex
 CharacterState* Game::FindCharacter(const EntityId characterId) noexcept
 {
     return const_cast<CharacterState*>(static_cast<const Game*>(this)->FindCharacter(characterId));
+}
+
+const DeviceState* Game::FindDevice(const EntityId deviceId) const noexcept
+{
+    const auto device = std::find_if(state_.devices.begin(), state_.devices.end(),
+        [deviceId](const DeviceState& candidate) { return candidate.id == deviceId; });
+    return device == state_.devices.end() ? nullptr : &*device;
+}
+
+DeviceState* Game::FindDevice(const EntityId deviceId) noexcept
+{
+    return const_cast<DeviceState*>(static_cast<const Game*>(this)->FindDevice(deviceId));
+}
+
+void Game::RemoveDevice(const EntityId deviceId, std::vector<GameEvent>& events)
+{
+    const auto device = std::find_if(state_.devices.begin(), state_.devices.end(),
+        [deviceId](const DeviceState& candidate) { return candidate.id == deviceId; });
+    if (device == state_.devices.end()) return;
+    if (TileState* tile = FindTile(device->tileId))
+    {
+        if (tile->fieldObjectId == deviceId) tile->fieldObjectId = InvalidEntityId;
+        tile->fieldObjectHealth = 0;
+    }
+    events.push_back(GameEvent{EventType::DeviceRemoved, device->ownerId, device->id,
+        device->tileId, device->sourceAbilityId, 0});
+    state_.devices.erase(device);
+}
+
+bool Game::TriggerDevice(const EntityId deviceId, const bool manual, std::vector<GameEvent>& events)
+{
+    DeviceState* device = FindDevice(deviceId);
+    if (!device || device->health <= 0) return false;
+    CharacterState* owner = FindCharacter(device->ownerId);
+    const TileState* center = FindTile(device->tileId);
+    if (!owner || !owner->alive || !center) return false;
+    const EntityId ownerId = owner->id;
+    const EntityId tileId = device->tileId;
+    const DefinitionId sourceId = device->sourceAbilityId;
+    const auto damageTarget = [this, owner, &events, &sourceId](CharacterState& target,
+        const std::int32_t amount, const std::int32_t defenseIgnore)
+    {
+        std::vector<GameEvent> auraEvents; std::vector<GameEvent> modifierEvents;
+        const std::int32_t applied = ResolveDamage(*owner, target, amount, defenseIgnore, auraEvents, modifierEvents);
+        events.push_back(GameEvent{EventType::DamageApplied, owner->id, target.id, target.tileId, sourceId, applied});
+        events.insert(events.end(), auraEvents.begin(), auraEvents.end());
+        events.insert(events.end(), modifierEvents.begin(), modifierEvents.end());
+        if (target.health <= 0 && target.alive)
+        {
+            target.health = 0; target.alive = false;
+            if (TileState* tile = FindTile(target.tileId)) tile->occupantId = InvalidEntityId;
+            events.push_back(GameEvent{EventType::CharacterDied, owner->id, target.id, target.tileId, sourceId, 0});
+        }
+        return applied;
+    };
+    bool triggered = false;
+    if (device->type == DeviceType::Turret)
+    {
+        std::vector<CharacterState*> targets;
+        for (CharacterState& candidate : state_.characters)
+        {
+            const TileState* tile = FindTile(candidate.tileId);
+            if (candidate.alive && candidate.team != owner->team && candidate.team != Team::Neutral && tile
+                && HexDistance(center->coord, tile->coord) <= device->range) targets.push_back(&candidate);
+        }
+        std::sort(targets.begin(), targets.end(), [this, center](const CharacterState* left, const CharacterState* right)
+        {
+            const std::int32_t leftDistance = HexDistance(center->coord, FindTile(left->tileId)->coord);
+            const std::int32_t rightDistance = HexDistance(center->coord, FindTile(right->tileId)->coord);
+            return leftDistance != rightDistance ? leftDistance < rightDistance : left->id < right->id;
+        });
+        if (!targets.empty())
+        {
+            auto turretDamage = [this, device](const CharacterState& target, std::int32_t amount)
+            {
+                const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
+                if (device->multiplierBasisPoints > 0 && targetDefinition.stats.maxHealth > 0
+                    && target.health * 10000 <= targetDefinition.stats.maxHealth * device->secondaryAmount)
+                    amount = static_cast<std::int32_t>(ApplyBasisPoints(amount, device->multiplierBasisPoints));
+                return amount;
+            };
+            damageTarget(*targets[0], turretDamage(*targets[0], device->amount), device->defenseIgnore);
+            if (targets[0]->alive && device->initiativeLoss > 0)
+                targets[0]->initiative = std::max(0, targets[0]->initiative - device->initiativeLoss);
+            if (targets.size() > 1 && device->secondaryMultiplierBasisPoints > 0)
+                damageTarget(*targets[1], turretDamage(*targets[1], static_cast<std::int32_t>(
+                    ApplyBasisPoints(device->amount, device->secondaryMultiplierBasisPoints))), device->defenseIgnore);
+            triggered = true;
+        }
+    }
+    else if (device->type == DeviceType::Mine)
+    {
+        if (!manual && device->armDelayInitiative > 0) return false;
+        for (CharacterState& candidate : state_.characters)
+        {
+            const TileState* tile = FindTile(candidate.tileId);
+            if (!candidate.alive || candidate.team == owner->team || candidate.team == Team::Neutral || !tile
+                || HexDistance(center->coord, tile->coord) > device->range) continue;
+            damageTarget(candidate, device->amount, device->defenseIgnore);
+            if (candidate.alive && device->initiativeLoss > 0)
+                candidate.initiative = std::max(0, candidate.initiative - device->initiativeLoss);
+            if (candidate.alive && device->effectDurationInitiative > 0)
+            {
+                ModifierEffectState root; root.id = sourceId + ":Root"; root.causerId = ownerId;
+                root.isDebuff = true; root.preventsMovement = true;
+                root.remainingInitiative = device->effectDurationInitiative;
+                candidate.modifierEffects.push_back(root);
+                events.push_back(GameEvent{EventType::EffectAdded, ownerId, candidate.id, candidate.tileId,
+                    root.id, root.remainingInitiative});
+            }
+        }
+        triggered = true;
+        if (!manual || (device->flags & 1u) == 0u) RemoveDevice(deviceId, events);
+    }
+    else if (device->type == DeviceType::ShieldEmitter)
+    {
+        std::vector<CharacterState*> allies;
+        for (CharacterState& candidate : state_.characters)
+        {
+            const TileState* tile = FindTile(candidate.tileId);
+            if (candidate.alive && candidate.team == owner->team && tile
+                && HexDistance(center->coord, tile->coord) <= device->range) allies.push_back(&candidate);
+        }
+        for (CharacterState* ally : allies)
+        {
+            ModifierEffectState shield; shield.id = sourceId + ":Shield"; shield.kind = ModifierEffectKind::EngineerShield;
+            shield.causerId = ownerId; shield.remainingInitiative = device->effectDurationInitiative;
+            shield.valueA = static_cast<std::int32_t>(ApplyBasisPoints(device->amount,
+                allies.size() == 1 && device->multiplierBasisPoints > 0 ? device->multiplierBasisPoints : 10000));
+            ally->modifierEffects.erase(std::remove_if(ally->modifierEffects.begin(), ally->modifierEffects.end(),
+                [&shield](const ModifierEffectState& effect) { return effect.id == shield.id; }), ally->modifierEffects.end());
+            ally->modifierEffects.push_back(shield);
+            const CharacterDefinition& allyDefinition = definitions_.characters.at(ally->definitionId);
+            const std::int32_t healed = std::min(device->secondaryAmount, std::max(0, allyDefinition.stats.maxHealth - ally->health));
+            ally->health += healed; ally->initiative += std::max(0, device->initiativeLoss);
+            if ((device->flags & 2u) != 0u)
+            {
+                const auto debuff = std::find_if(ally->modifierEffects.begin(), ally->modifierEffects.end(),
+                    [](const ModifierEffectState& effect) { return effect.isDebuff; });
+                if (debuff != ally->modifierEffects.end()) ally->modifierEffects.erase(debuff);
+            }
+            events.push_back(GameEvent{EventType::EffectAdded, ownerId, ally->id, ally->tileId,
+                shield.id, shield.valueA});
+        }
+        triggered = !allies.empty();
+    }
+    else if (device->type == DeviceType::SpotterBeacon)
+    {
+        for (CharacterState& enemy : state_.characters)
+        {
+            const TileState* tile = FindTile(enemy.tileId);
+            if (!enemy.alive || enemy.team == owner->team || enemy.team == Team::Neutral || !tile
+                || HexDistance(center->coord, tile->coord) > device->range) continue;
+            ModifierEffectState mark; mark.id = sourceId + ":Spotted"; mark.kind = ModifierEffectKind::EngineerSpotted;
+            mark.causerId = ownerId; mark.isDebuff = true; mark.remainingInitiative = device->effectDurationInitiative;
+            mark.incomingDamageMultiplierBasisPoints = device->multiplierBasisPoints > 0 ? device->multiplierBasisPoints : 10000;
+            mark.outgoingDamageMultiplierBasisPoints = device->secondaryMultiplierBasisPoints > 0 ? device->secondaryMultiplierBasisPoints : 10000;
+            mark.moveCostAdd = device->moveCostAdd;
+            enemy.modifierEffects.erase(std::remove_if(enemy.modifierEffects.begin(), enemy.modifierEffects.end(),
+                [&mark](const ModifierEffectState& effect) { return effect.id == mark.id; }), enemy.modifierEffects.end());
+            enemy.modifierEffects.push_back(mark);
+            enemy.initiative = std::max(0, enemy.initiative - device->initiativeLoss);
+            events.push_back(GameEvent{EventType::EffectAdded, ownerId, enemy.id, enemy.tileId,
+                mark.id, mark.remainingInitiative});
+            triggered = true;
+        }
+    }
+    if (triggered) events.push_back(GameEvent{EventType::DeviceTriggered, ownerId, deviceId, tileId, sourceId, 1});
+    return triggered;
 }
 
 std::int32_t Game::MovementCost(const CharacterState& character, const TileState& destination) const noexcept
@@ -4720,6 +5149,12 @@ ActionResult Game::ValidateMove(const GameAction& action) const
     {
         return Failure("destination_occupied", "The destination is occupied by another character.");
     }
+    if (destination->fieldObjectId != InvalidEntityId)
+    {
+        const DeviceState* device = FindDevice(destination->fieldObjectId);
+        if (device && device->type == DeviceType::Turret)
+            return Failure("destination_blocked_by_device", "A blocking device occupies the destination.");
+    }
 
     const std::int32_t cost = (character->hasFreePreparedStep
         || (character->freeAdjacentMoveAvailable && !character->freeAdjacentMoveUsedThisTurn))
@@ -4769,6 +5204,7 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, tile.coord.r);
         HashString(hash, tile.terrainId);
         HashValue(hash, tile.occupantId);
+        HashValue(hash, tile.fieldObjectId);
         HashValue(hash, tile.blocksMovement);
         HashValue(hash, tile.fieldObjectHealth);
         HashValue(hash, tile.terrainObjectHealth);
@@ -4885,6 +5321,18 @@ std::uint64_t Game::StateHash() const noexcept
             HashValue(hash, prevention.sourceId);
             HashValue(hash, prevention.globalInitiative);
         }
+    }
+    for (const DeviceState& device : state_.devices)
+    {
+        HashValue(hash, device.id); HashValue(hash, device.ownerId); HashValue(hash, device.tileId);
+        HashString(hash, device.sourceAbilityId); HashValue(hash, device.type);
+        HashValue(hash, device.health); HashValue(hash, device.maximumHealth); HashValue(hash, device.remainingInitiative);
+        HashValue(hash, device.triggerIntervalInitiative); HashValue(hash, device.triggerProgressInitiative);
+        HashValue(hash, device.armDelayInitiative); HashValue(hash, device.enemyRevealInitiative);
+        HashValue(hash, device.range); HashValue(hash, device.amount); HashValue(hash, device.effectDurationInitiative);
+        HashValue(hash, device.defenseIgnore); HashValue(hash, device.initiativeLoss); HashValue(hash, device.moveCostAdd);
+        HashValue(hash, device.secondaryAmount); HashValue(hash, device.multiplierBasisPoints);
+        HashValue(hash, device.secondaryMultiplierBasisPoints); HashValue(hash, device.damageType); HashValue(hash, device.flags);
     }
     return hash;
 }

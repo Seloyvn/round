@@ -138,6 +138,14 @@ std::vector<EntityId> Game::TeamVisibleTileIds(const Team team) const
                 && (effect.flags & 4u) != 0u; });
         if (revealed) unique.insert(character.tileId);
     }
+    for (const DeviceState& device : state_.devices)
+    {
+        const CharacterState* owner = FindCharacter(device.ownerId);
+        const TileState* center = FindTile(device.tileId);
+        if (!owner || owner->team != team || device.type != DeviceType::SpotterBeacon || !center) continue;
+        for (const TileState& tile : state_.tiles)
+            if (HexDistance(center->coord, tile.coord) <= device.range) unique.insert(tile.id);
+    }
     std::vector<EntityId> result(unique.begin(), unique.end());
     std::sort(result.begin(), result.end());
     return result;

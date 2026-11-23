@@ -27,7 +27,8 @@ struct ObservationSchema
 struct NumericObservation
 {
     static constexpr std::size_t GlobalStride = 7;
-    static constexpr std::size_t TileStride = 9;
+    static constexpr std::size_t TileStride = 10;
+    static constexpr std::size_t DeviceStride = 24;
     static constexpr std::size_t CharacterStride = 58;
     static constexpr std::size_t AbilityStride = 9;
     static constexpr std::size_t ModifierEffectStride = 65;
@@ -40,6 +41,7 @@ struct NumericObservation
     std::vector<std::int64_t> global;
     std::vector<std::int64_t> tiles;
     std::vector<std::int64_t> characters;
+    std::vector<std::int64_t> devices;
     std::vector<std::int64_t> abilities;
     std::vector<std::int64_t> modifierEffects;
     std::vector<std::int64_t> legalActions;

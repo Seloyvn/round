@@ -53,6 +53,10 @@ private:
     TileState* FindTile(EntityId tileId) noexcept;
     const CharacterState* FindCharacter(EntityId characterId) const noexcept;
     CharacterState* FindCharacter(EntityId characterId) noexcept;
+    const DeviceState* FindDevice(EntityId deviceId) const noexcept;
+    DeviceState* FindDevice(EntityId deviceId) noexcept;
+    void RemoveDevice(EntityId deviceId, std::vector<GameEvent>& events);
+    bool TriggerDevice(EntityId deviceId, bool manual, std::vector<GameEvent>& events);
     std::int32_t MovementCost(const CharacterState& character, const TileState& destination) const noexcept;
     std::int32_t BasicAttackCost(const CharacterState& character) const noexcept;
     std::int32_t ResolveDamage(CharacterState& source, CharacterState& target, std::int64_t damage,

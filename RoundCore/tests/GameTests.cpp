@@ -1244,6 +1244,40 @@ int main()
                 [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::RendBleed && effect.valueB == 3; }),
         "Rend should persist its bleed and Blood-per-tick contract in Core");
 
+    const auto engineerSetup = [](AbilityDefinition deviceAbility)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.characters.at("Tank").passiveValues = {{"MaxDevices", 3.0}, {"CoreEngineerCharacter", 1.0}};
+        AbilityDefinition overload; overload.id = "Overload"; overload.operation = AbilityOperation::OverloadDevices;
+        overload.targetRelation = AbilityTargetRelation::Self; overload.range = 5;
+        setup.definitions.abilities.emplace(deviceAbility.id, deviceAbility);
+        setup.definitions.abilities.emplace(overload.id, overload);
+        setup.definitions.characters.at("Tank").abilityIds = {deviceAbility.id, overload.id};
+        setup.initialState.characters[0].abilities = {
+            AbilityState{deviceAbility.id, 0, 40, 1, 1, false}, AbilityState{overload.id, 0, 40, 1, 1, false}};
+        return setup;
+    };
+    AbilityDefinition turret; turret.id = "Turret"; turret.operation = AbilityOperation::BuildTurret;
+    turret.targetRelation = AbilityTargetRelation::Self; turret.range = 2; turret.amount = 20;
+    turret.values = {{"Health", 100.0}, {"DurationInitiative", 100.0}, {"TriggerIntervalInitiative", 40.0}, {"TurretRange", 3.0}};
+    Game turretGame; Require(turretGame.Reset(engineerSetup(turret)).success, "Engineer turret setup should reset");
+    GameAction deviceCast{ActionType::UseAbility, 10, InvalidEntityId, 3, turret.id};
+    Require(turretGame.ApplyAction(deviceCast).success && turretGame.State().devices.size() == 1
+            && turretGame.State().tiles[2].fieldObjectId == turretGame.State().devices[0].id,
+        "Turret should create a persistent authoritative device on its target tile");
+    GameAction overloadCast{ActionType::UseAbility, 10, 10, 1, "Overload"};
+    Require(turretGame.ApplyAction(overloadCast).success && turretGame.State().characters[1].health < 100,
+        "Overload should immediately trigger an existing turret through RoundCore");
+
+    AbilityDefinition mine; mine.id = "Mine"; mine.operation = AbilityOperation::BuildMine;
+    mine.targetRelation = AbilityTargetRelation::Self; mine.range = 2; mine.amount = 25;
+    mine.values = {{"Health", 50.0}, {"DurationInitiative", 100.0}, {"AOERange", 1.0}, {"ArmDelayInitiative", 20.0}};
+    Game mineGame; Require(mineGame.Reset(engineerSetup(mine)).success, "Engineer mine setup should reset");
+    deviceCast.abilityId = mine.id;
+    Require(mineGame.ApplyAction(deviceCast).success && mineGame.ApplyAction(overloadCast).success
+            && mineGame.State().characters[1].health < 100 && mineGame.State().devices.empty(),
+        "Overload should remotely detonate a mine and remove it from authoritative board state");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

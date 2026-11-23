@@ -97,10 +97,32 @@ NumericObservation EncodeOmniscientObservation(
             tile->coord.r,
             RequireIndex(schema.terrainIndices, tile->terrainId, "terrain"),
             tile->occupantId,
+            tile->fieldObjectId,
             tile->blocksMovement ? 1 : 0,
             tile->occupantId == InvalidEntityId ? 0 : 1,
             tile->fieldObjectHealth,
             tile->terrainObjectHealth});
+    }
+
+    std::vector<const DeviceState*> devices;
+    devices.reserve(state.devices.size());
+    for (const DeviceState& device : state.devices) devices.push_back(&device);
+    std::sort(devices.begin(), devices.end(), [](const DeviceState* left, const DeviceState* right)
+    {
+        return left->id < right->id;
+    });
+    result.devices.reserve(devices.size() * NumericObservation::DeviceStride);
+    for (const DeviceState* device : devices)
+    {
+        result.devices.insert(result.devices.end(), {
+            device->id, device->ownerId, device->tileId,
+            device->sourceAbilityId.empty() ? -1 : RequireIndex(schema.abilityIndices, device->sourceAbilityId, "device ability"),
+            static_cast<std::int64_t>(device->type), device->health, device->maximumHealth,
+            device->remainingInitiative, device->triggerIntervalInitiative, device->triggerProgressInitiative,
+            device->armDelayInitiative, device->enemyRevealInitiative, device->range, device->amount,
+            device->effectDurationInitiative, device->defenseIgnore, device->initiativeLoss, device->moveCostAdd,
+            device->secondaryAmount, device->multiplierBasisPoints, device->secondaryMultiplierBasisPoints,
+            static_cast<std::int64_t>(device->damageType), device->flags, device->health > 0 ? 1 : 0});
     }
 
     std::vector<const CharacterState*> characters;

@@ -254,7 +254,7 @@ void WriteState(Writer& writer, const GameState& state)
     for (const TileState& tile : state.tiles)
     {
         writer.Integer(tile.id); writer.Integer(tile.coord.q); writer.Integer(tile.coord.r); writer.String(tile.terrainId);
-        writer.Integer(tile.occupantId); writer.Integer(tile.blocksMovement);
+        writer.Integer(tile.occupantId); writer.Integer(tile.fieldObjectId); writer.Integer(tile.blocksMovement);
         writer.Integer(tile.fieldObjectHealth); writer.Integer(tile.terrainObjectHealth);
     }
     writer.Integer(static_cast<std::uint32_t>(state.characters.size()));
@@ -346,6 +346,19 @@ void WriteState(Writer& writer, const GameState& state)
             writer.Integer(prevention.globalInitiative);
         }
     }
+    writer.Integer(static_cast<std::uint32_t>(state.devices.size()));
+    for (const DeviceState& device : state.devices)
+    {
+        writer.Integer(device.id); writer.Integer(device.ownerId); writer.Integer(device.tileId);
+        writer.String(device.sourceAbilityId); writer.Integer(device.type);
+        writer.Integer(device.health); writer.Integer(device.maximumHealth); writer.Integer(device.remainingInitiative);
+        writer.Integer(device.triggerIntervalInitiative); writer.Integer(device.triggerProgressInitiative);
+        writer.Integer(device.armDelayInitiative); writer.Integer(device.enemyRevealInitiative);
+        writer.Integer(device.range); writer.Integer(device.amount); writer.Integer(device.effectDurationInitiative);
+        writer.Integer(device.defenseIgnore); writer.Integer(device.initiativeLoss); writer.Integer(device.moveCostAdd);
+        writer.Integer(device.secondaryAmount); writer.Integer(device.multiplierBasisPoints);
+        writer.Integer(device.secondaryMultiplierBasisPoints); writer.Integer(device.damageType); writer.Integer(device.flags);
+    }
 }
 
 GameState ReadState(Reader& reader)
@@ -360,7 +373,8 @@ GameState ReadState(Reader& reader)
     {
         TileState tile; tile.id = reader.Integer<EntityId>(); tile.coord.q = reader.Integer<std::int32_t>();
         tile.coord.r = reader.Integer<std::int32_t>(); tile.terrainId = reader.String();
-        tile.occupantId = reader.Integer<EntityId>(); tile.blocksMovement = reader.Integer<bool>();
+        tile.occupantId = reader.Integer<EntityId>(); tile.fieldObjectId = reader.Integer<EntityId>();
+        tile.blocksMovement = reader.Integer<bool>();
         tile.fieldObjectHealth = reader.Integer<std::int32_t>();
         tile.terrainObjectHealth = reader.Integer<std::int32_t>();
         state.tiles.push_back(std::move(tile));
@@ -477,6 +491,24 @@ GameState ReadState(Reader& reader)
             character.recentAuraPreventions.push_back(value);
         }
         state.characters.push_back(std::move(character));
+    }
+    for (std::uint32_t index = 0, count = reader.Count(); index < count; ++index)
+    {
+        DeviceState device;
+        device.id = reader.Integer<EntityId>(); device.ownerId = reader.Integer<EntityId>();
+        device.tileId = reader.Integer<EntityId>(); device.sourceAbilityId = reader.String();
+        device.type = reader.Integer<DeviceType>(); device.health = reader.Integer<std::int32_t>();
+        device.maximumHealth = reader.Integer<std::int32_t>(); device.remainingInitiative = reader.Integer<std::int32_t>();
+        device.triggerIntervalInitiative = reader.Integer<std::int32_t>();
+        device.triggerProgressInitiative = reader.Integer<std::int32_t>();
+        device.armDelayInitiative = reader.Integer<std::int32_t>(); device.enemyRevealInitiative = reader.Integer<std::int32_t>();
+        device.range = reader.Integer<std::int32_t>(); device.amount = reader.Integer<std::int32_t>();
+        device.effectDurationInitiative = reader.Integer<std::int32_t>(); device.defenseIgnore = reader.Integer<std::int32_t>();
+        device.initiativeLoss = reader.Integer<std::int32_t>(); device.moveCostAdd = reader.Integer<std::int32_t>();
+        device.secondaryAmount = reader.Integer<std::int32_t>(); device.multiplierBasisPoints = reader.Integer<std::int32_t>();
+        device.secondaryMultiplierBasisPoints = reader.Integer<std::int32_t>(); device.damageType = reader.Integer<DamageType>();
+        device.flags = reader.Integer<std::uint32_t>();
+        state.devices.push_back(std::move(device));
     }
     return state;
 }
