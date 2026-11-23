@@ -1227,6 +1227,13 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     }
     const std::int32_t appliedDamage = std::min(target.health, finalDamage);
     target.health -= appliedDamage;
+    if (target.health <= 0)
+    {
+        std::vector<EntityId> ownedDevices;
+        for (const DeviceState& device : state_.devices)
+            if (device.ownerId == target.id) ownedDevices.push_back(device.id);
+        for (const EntityId deviceId : ownedDevices) RemoveDevice(deviceId, modifierEvents);
+    }
     if (appliedDamage > 0)
     {
         if (PassiveValue(sourceDefinition, "CoreBloodCharacter") > 0.0)

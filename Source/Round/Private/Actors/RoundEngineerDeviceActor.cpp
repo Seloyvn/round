@@ -22,6 +22,25 @@ void ARoundEngineerDeviceActor::EndPlay(const EEndPlayReason::Type EndPlayReason
     Super::EndPlay(EndPlayReason);
 }
 
+void ARoundEngineerDeviceActor::OnInitiativeAdvanced(int32 InitiativeAmount)
+{
+    if (bCoreAuthoritative) return;
+    Super::OnInitiativeAdvanced(InitiativeAmount);
+}
+
+void ARoundEngineerDeviceActor::ApplyCoreDeviceState(const int32 InLifetimeInitiative,
+    const int32 InMaximumHealth, const int32 InCurrentHealth, const int32 InTriggerIntervalInitiative,
+    const int32 InTriggerProgressInitiative)
+{
+    bCoreAuthoritative = true;
+    RemainingInitiative = FMath::Max(0, InLifetimeInitiative);
+    MaxHealth = FMath::Max(1, InMaximumHealth);
+    CurrentHealth = FMath::Clamp(InCurrentHealth, 0, MaxHealth);
+    TriggerIntervalInitiative = FMath::Max(0, InTriggerIntervalInitiative);
+    TriggerProgressInitiative = FMath::Max(0, InTriggerProgressInitiative);
+    ForceNetUpdate();
+}
+
 bool ARoundEngineerDeviceActor::CanOccupyTile(const ARoundGridTile* Tile) const
 {
     if (!Super::CanOccupyTile(Tile) || !Tile || !Tile->IsMoveable())
@@ -35,6 +54,11 @@ bool ARoundEngineerDeviceActor::CanOccupyTile(const ARoundGridTile* Tile) const
     }
 
     return true;
+}
+
+bool ARoundEngineerDeviceActor::CanTriggerDevice_Implementation(const FRoundDeviceTriggerContext& TriggerContext) const
+{
+    return !bCoreAuthoritative && Super::CanTriggerDevice_Implementation(TriggerContext);
 }
 
 void ARoundEngineerDeviceActor::InitializeDevice(ARoundCharacterEngineer* InOwner, int32 InLifetimeInitiative, int32 InHealth)

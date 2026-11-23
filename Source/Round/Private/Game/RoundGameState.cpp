@@ -4745,6 +4745,11 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                 }
             }
         }
+        for (const FRoundCoreModifierEffectAddition& Addition : Execution.AddedModifierEffects)
+        {
+            PresentCoreGenericModifier(GetWorld(), Addition, TEXT("Geraeteeffekt"),
+                TEXT("Dieser Effekt wird von RoundCore verwaltet."));
+        }
 
         if (Execution.GlobalInitiativeAdvance > 0)
         {

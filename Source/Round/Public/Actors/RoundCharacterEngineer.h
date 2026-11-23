@@ -10,6 +10,7 @@ class ROUND_API ARoundCharacterEngineer : public ARoundCharacter
     GENERATED_BODY()
 
 public:
+    friend class FRoundCoreMatchAdapter;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void Die() override;
     virtual void BeginTurn() override;
@@ -44,7 +45,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round|Engineer")
     void UnregisterDevice(class ARoundEngineerDeviceActor* DeviceActor);
 
+    void SetCoreDevicesAuthoritative(bool bInAuthoritative) { bCoreDevicesAuthoritative = bInAuthoritative; }
+
 protected:
+    bool bCoreDevicesAuthoritative = false;
     virtual int32 GetIncomingBonusDefense(ERoundDamageType DamageType) const override;
     void CleanupInvalidDevices();
     void RemoveAllDevices();

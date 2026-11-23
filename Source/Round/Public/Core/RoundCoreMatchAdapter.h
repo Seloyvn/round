@@ -7,6 +7,7 @@ class ARoundCharacter;
 class ARoundGameState;
 class ARoundGridTile;
 class ARoundAbilityActor;
+class ARoundEngineerDeviceActor;
 enum class ERoundDamageType : uint8;
 
 struct FRoundCoreAbilityRuntimeUpdate
@@ -162,6 +163,7 @@ struct FRoundCoreTurnExecution
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
     TArray<FRoundCoreDamageEvent> DamageEvents;
+    TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
     TArray<TPair<ARoundCharacter*, int32>> AppliedDelays;
     ARoundCharacter* ActiveCharacter = nullptr;
     int32 GlobalInitiativeAdvance = 0;
@@ -254,12 +256,15 @@ public:
     const roundcore::Game& GetGame() const { return CoreGame; }
 
 private:
+    void SynchronizeDevices();
     roundcore::Game CoreGame;
     TMap<const ARoundGridTile*, roundcore::EntityId> TileIds;
     TMap<roundcore::EntityId, ARoundGridTile*> TileActors;
     TMap<const ARoundCharacter*, roundcore::EntityId> CharacterIds;
     TMap<roundcore::EntityId, ARoundCharacter*> CharacterActors;
     TMap<FString, ARoundAbilityActor*> AbilityActors;
+    TMap<const ARoundEngineerDeviceActor*, roundcore::EntityId> DeviceIds;
+    TMap<roundcore::EntityId, ARoundEngineerDeviceActor*> DeviceActors;
     TMap<const ARoundCharacter*, TMap<const ARoundCharacter*, uint64>> PreservedAuraPreventions;
     int32 LastMatchSeed = 0;
     std::uint64_t PreservedRandomState = 0;

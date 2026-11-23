@@ -15,6 +15,10 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round|Engineer|Mine")
     void SetArmDelay(int32 InArmDelayInitiative);
 
+    void ApplyCoreMineState(int32 InArmDelayInitiative, int32 InEnemyRevealInitiative);
+    int32 GetRemainingArmDelayInitiative() const { return RemainingArmDelayInitiative; }
+    int32 GetRemainingEnemyRevealInitiative() const { return RemainingEnemyRevealInitiative; }
+
     virtual void OnInitiativeAdvanced(int32 InitiativeAmount) override;
     virtual bool CanTriggerDevice_Implementation(const FRoundDeviceTriggerContext& TriggerContext) const override;
     virtual FRoundActionResult TriggerDevice_Implementation(const FRoundDeviceTriggerContext& TriggerContext) override;

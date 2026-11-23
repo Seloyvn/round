@@ -5,6 +5,15 @@
 #include "Actors/RoundGridTile.h"
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundEngineerDeviceActor.h"
+#include "Actors/RoundCharacterEngineer.h"
+#include "Actors/RoundTurretDeviceActor.h"
+#include "Actors/RoundMineDeviceActor.h"
+#include "Actors/RoundShieldEmitterDeviceActor.h"
+#include "Actors/RoundSpotterBeaconDeviceActor.h"
+#include "Abilities/RoundBuildTurretAbility.h"
+#include "Abilities/RoundBuildMineAbility.h"
+#include "Abilities/RoundBuildShieldEmitterAbility.h"
+#include "Abilities/RoundBuildSpotterBeaconAbility.h"
 #include "Actors/RoundCharacterPaladin.h"
 #include "Actors/RoundCharacter1.h"
 #include "Actors/RoundCharacter2.h"
@@ -161,6 +170,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     CharacterIds.Reset();
     CharacterActors.Reset();
     AbilityActors.Reset();
+    DeviceIds.Reset();
+    DeviceActors.Reset();
 
     const int32 MatchSeed = GameState.GetMatchRandomSeed();
     if (LastMatchSeed == MatchSeed)
@@ -242,7 +253,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         TileState.id = TileId;
         TileState.coord = {Tile->GridCoordinate.X, Tile->GridCoordinate.Y};
         TileState.terrainId = TerrainId;
-        TileState.blocksMovement = Tile->HasBlockingFieldObject();
+        TileState.blocksMovement = Tile->HasBlockingFieldObject()
+            && !Cast<ARoundEngineerDeviceActor>(Tile->OccupyingFieldObject);
         if (const ARoundEngineerDeviceActor* Device = Cast<ARoundEngineerDeviceActor>(Tile->OccupyingFieldObject))
         {
             TileState.fieldObjectHealth = FMath::Max(0, Device->GetCurrentHealth());
@@ -421,6 +433,19 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             Definition.passiveValues.emplace("BloodGainFraction", BloodGainFraction > 0.0 ? BloodGainFraction : 0.1);
             Definition.passiveValues.emplace("BloodCap", Character5->GetBloodCap());
         }
+        if (const ARoundCharacterEngineer* Engineer = Cast<ARoundCharacterEngineer>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("MaxDevices"), TEXT("MaxDevicesAdd"), TEXT("DeviceHealthMultiplierAdd"),
+                TEXT("DevicePlacementRangeAdd"), TEXT("DeviceRepairOnTurnStart"),
+                TEXT("InitiativeRefundOnDeviceReplace"), TEXT("DeviceNetworkDefenseRange"),
+                TEXT("DefenseNearDevice"), TEXT("DeviceLifetimeMultiplierAdd"),
+                TEXT("DefensePerActiveDevice"), TEXT("MaxDefenseFromDevices"),
+                TEXT("DeviceTriggerIntervalReduction")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Engineer->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreEngineerCharacter", 1.0);
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -538,7 +563,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 30
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 35
                 ? static_cast<roundcore::AbilityOperation>(CoreOperation)
                 : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
@@ -556,7 +581,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
                 || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
-                || (CoreOperation >= 6 && CoreOperation <= 30))
+                || (CoreOperation >= 6 && CoreOperation <= 34))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -803,6 +828,85 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         Setup.initialState.characters.push_back(std::move(CharacterState));
     }
 
+    roundcore::EntityId NextDeviceId = 1;
+    for (const roundcore::TileState& Tile : Setup.initialState.tiles) NextDeviceId = FMath::Max(NextDeviceId, Tile.id + 1);
+    for (const roundcore::CharacterState& Character : Setup.initialState.characters) NextDeviceId = FMath::Max(NextDeviceId, Character.id + 1);
+    for (ARoundCharacter* Character : SortedCharacters)
+    {
+        ARoundCharacterEngineer* Engineer = Cast<ARoundCharacterEngineer>(Character);
+        if (!Engineer) continue;
+        Engineer->SetCoreDevicesAuthoritative(true);
+        for (ARoundEngineerDeviceActor* Device : Engineer->GetActiveDevices())
+        {
+            if (!Device || !Device->CurrentTile || !TileIds.Contains(Device->CurrentTile)) continue;
+            ARoundAbilityActor* SourceAbility = nullptr;
+            roundcore::DeviceType DeviceType = roundcore::DeviceType::Turret;
+            for (ARoundAbilityActor* Candidate : Engineer->GrantedAbilities)
+            {
+                if ((Cast<ARoundTurretDeviceActor>(Device) && Candidate->IsA<ARoundBuildTurretAbility>())
+                    || (Cast<ARoundMineDeviceActor>(Device) && Candidate->IsA<ARoundBuildMineAbility>())
+                    || (Cast<ARoundShieldEmitterDeviceActor>(Device) && Candidate->IsA<ARoundBuildShieldEmitterAbility>())
+                    || (Cast<ARoundSpotterBeaconDeviceActor>(Device) && Candidate->IsA<ARoundBuildSpotterBeaconAbility>()))
+                { SourceAbility = Candidate; break; }
+            }
+            FString SourceAbilityKey;
+            for (const TPair<FString, ARoundAbilityActor*>& Entry : AbilityActors)
+                if (Entry.Value == SourceAbility) { SourceAbilityKey = Entry.Key; break; }
+            if (SourceAbilityKey.IsEmpty()) continue;
+            if (Cast<ARoundMineDeviceActor>(Device)) DeviceType = roundcore::DeviceType::Mine;
+            else if (Cast<ARoundShieldEmitterDeviceActor>(Device)) DeviceType = roundcore::DeviceType::ShieldEmitter;
+            else if (Cast<ARoundSpotterBeaconDeviceActor>(Device)) DeviceType = roundcore::DeviceType::SpotterBeacon;
+
+            roundcore::DeviceState State;
+            State.id = NextDeviceId++; State.ownerId = CharacterIds.FindRef(Engineer);
+            State.tileId = TileIds.FindRef(Device->CurrentTile); State.sourceAbilityId = ToCoreString(SourceAbilityKey);
+            State.type = DeviceType; State.health = Device->CurrentHealth; State.maximumHealth = Device->MaxHealth;
+            State.remainingInitiative = FMath::Max(1, Device->RemainingInitiative);
+            State.triggerIntervalInitiative = FMath::Max(0, Device->TriggerIntervalInitiative);
+            State.triggerProgressInitiative = FMath::Max(0, Device->TriggerProgressInitiative);
+            if (const ARoundTurretDeviceActor* Turret = Cast<ARoundTurretDeviceActor>(Device))
+            {
+                State.range = Turret->TurretRange; State.amount = Turret->TurretDamage;
+                State.damageType = ToCoreDamageType(Turret->TurretDamageType); State.defenseIgnore = Turret->DefenseIgnore;
+                State.initiativeLoss = Turret->InitiativeLossOnHit;
+                State.secondaryMultiplierBasisPoints = FMath::RoundToInt(Turret->SecondaryTargetDamageMultiplier * 10000.0);
+                State.secondaryAmount = FMath::RoundToInt(Turret->LowHealthThreshold * 10000.0);
+                State.multiplierBasisPoints = FMath::RoundToInt(Turret->LowHealthDamageMultiplier * 10000.0);
+                State.flags |= 4u;
+            }
+            else if (const ARoundMineDeviceActor* Mine = Cast<ARoundMineDeviceActor>(Device))
+            {
+                State.range = Mine->ExplosionRadius; State.amount = Mine->ExplosionDamage;
+                State.damageType = ToCoreDamageType(Mine->ExplosionDamageType); State.defenseIgnore = Mine->DefenseIgnore;
+                State.initiativeLoss = Mine->InitiativeLossOnHit; State.effectDurationInitiative = Mine->RootDurationInitiative;
+                State.armDelayInitiative = Mine->GetRemainingArmDelayInitiative();
+                State.enemyRevealInitiative = Mine->GetRemainingEnemyRevealInitiative();
+                if (Mine->bPreserveOnManualTrigger) State.flags |= 1u;
+            }
+            else if (const ARoundShieldEmitterDeviceActor* Emitter = Cast<ARoundShieldEmitterDeviceActor>(Device))
+            {
+                State.range = Emitter->ShieldRadius; State.amount = Emitter->ShieldAmount;
+                State.effectDurationInitiative = Emitter->ShieldDurationInitiative;
+                State.secondaryAmount = Emitter->HealAmount; State.initiativeLoss = Emitter->InitiativeGain;
+                State.multiplierBasisPoints = FMath::RoundToInt(Emitter->SoloShieldMultiplier * 10000.0);
+                if (Emitter->bCleanseOneDebuff) State.flags |= 2u;
+            }
+            else if (const ARoundSpotterBeaconDeviceActor* Beacon = Cast<ARoundSpotterBeaconDeviceActor>(Device))
+            {
+                State.range = Beacon->BeaconRadius; State.effectDurationInitiative = Beacon->DebuffDurationInitiative;
+                State.multiplierBasisPoints = FMath::RoundToInt(Beacon->DamageTakenMultiplier * 10000.0);
+                State.secondaryMultiplierBasisPoints = FMath::RoundToInt(Beacon->OutgoingDamageMultiplier * 10000.0);
+                State.initiativeLoss = Beacon->InitiativeLoss; State.moveCostAdd = Beacon->MoveCostAdd;
+            }
+            Setup.initialState.devices.push_back(State);
+            DeviceIds.Add(Device, State.id); DeviceActors.Add(State.id, Device);
+            for (roundcore::TileState& Tile : Setup.initialState.tiles) if (Tile.id == State.tileId)
+            { Tile.fieldObjectId = State.id; Tile.fieldObjectHealth = State.health; break; }
+            Device->ApplyCoreDeviceState(State.remainingInitiative, State.maximumHealth, State.health,
+                State.triggerIntervalInitiative, State.triggerProgressInitiative);
+        }
+    }
+
     // During Core-driven initiative advancement there is intentionally no
     // active character. GetActiveCharacter() falls back to the UI turn-order
     // index, so only the replicated authoritative pointer may seed Core here.
@@ -818,6 +922,76 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         return false;
     }
     return true;
+}
+
+void FRoundCoreMatchAdapter::SynchronizeDevices()
+{
+    TSet<roundcore::EntityId> CoreDeviceIds;
+    for (const roundcore::DeviceState& State : CoreGame.State().devices) CoreDeviceIds.Add(State.id);
+    TArray<roundcore::EntityId> RemovedIds;
+    for (const TPair<roundcore::EntityId, ARoundEngineerDeviceActor*>& Entry : DeviceActors)
+    {
+        if (CoreDeviceIds.Contains(Entry.Key)) continue;
+        if (IsValid(Entry.Value)) Entry.Value->RemoveFromField();
+        DeviceIds.Remove(Entry.Value); RemovedIds.Add(Entry.Key);
+    }
+    for (const roundcore::EntityId Id : RemovedIds) DeviceActors.Remove(Id);
+
+    for (const roundcore::DeviceState& State : CoreGame.State().devices)
+    {
+        ARoundEngineerDeviceActor* Device = DeviceActors.FindRef(State.id);
+        ARoundCharacterEngineer* Engineer = Cast<ARoundCharacterEngineer>(CharacterActors.FindRef(State.ownerId));
+        ARoundGridTile* Tile = TileActors.FindRef(State.tileId);
+        if (!Engineer || !Tile) continue;
+        if (!IsValid(Device))
+        {
+            TSubclassOf<ARoundEngineerDeviceActor> DeviceClass;
+            switch (State.type)
+            {
+            case roundcore::DeviceType::Mine: DeviceClass = Engineer->GetMineDeviceClass(); break;
+            case roundcore::DeviceType::ShieldEmitter: DeviceClass = Engineer->GetShieldEmitterDeviceClass(); break;
+            case roundcore::DeviceType::SpotterBeacon: DeviceClass = Engineer->GetSpotterBeaconDeviceClass(); break;
+            default: DeviceClass = Engineer->GetTurretDeviceClass(); break;
+            }
+            Device = Engineer->SpawnDeviceAtTile(DeviceClass, Tile);
+            if (!Device) continue;
+            DeviceActors.Add(State.id, Device); DeviceIds.Add(Device, State.id);
+        }
+        Device->ApplyCoreDeviceState(State.remainingInitiative, State.maximumHealth, State.health,
+            State.triggerIntervalInitiative, State.triggerProgressInitiative);
+        if (ARoundTurretDeviceActor* Turret = Cast<ARoundTurretDeviceActor>(Device))
+        {
+            Turret->TurretRange = State.range; Turret->TurretDamage = State.amount;
+            Turret->TurretDamageType = ToRoundDamageType(State.damageType); Turret->DefenseIgnore = State.defenseIgnore;
+            Turret->InitiativeLossOnHit = State.initiativeLoss;
+            Turret->SecondaryTargetDamageMultiplier = State.secondaryMultiplierBasisPoints / 10000.0;
+            Turret->LowHealthThreshold = State.secondaryAmount / 10000.0;
+            Turret->LowHealthDamageMultiplier = State.multiplierBasisPoints / 10000.0;
+        }
+        else if (ARoundMineDeviceActor* Mine = Cast<ARoundMineDeviceActor>(Device))
+        {
+            Mine->ExplosionRadius = State.range; Mine->ExplosionDamage = State.amount;
+            Mine->ExplosionDamageType = ToRoundDamageType(State.damageType); Mine->DefenseIgnore = State.defenseIgnore;
+            Mine->InitiativeLossOnHit = State.initiativeLoss; Mine->RootDurationInitiative = State.effectDurationInitiative;
+            Mine->bPreserveOnManualTrigger = (State.flags & 1u) != 0u;
+            Mine->ApplyCoreMineState(State.armDelayInitiative, State.enemyRevealInitiative);
+        }
+        else if (ARoundShieldEmitterDeviceActor* Emitter = Cast<ARoundShieldEmitterDeviceActor>(Device))
+        {
+            Emitter->ShieldRadius = State.range; Emitter->ShieldAmount = State.amount;
+            Emitter->ShieldDurationInitiative = State.effectDurationInitiative;
+            Emitter->HealAmount = State.secondaryAmount; Emitter->InitiativeGain = State.initiativeLoss;
+            Emitter->SoloShieldMultiplier = State.multiplierBasisPoints / 10000.0;
+            Emitter->bCleanseOneDebuff = (State.flags & 2u) != 0u;
+        }
+        else if (ARoundSpotterBeaconDeviceActor* Beacon = Cast<ARoundSpotterBeaconDeviceActor>(Device))
+        {
+            Beacon->BeaconRadius = State.range; Beacon->DebuffDurationInitiative = State.effectDurationInitiative;
+            Beacon->DamageTakenMultiplier = State.multiplierBasisPoints / 10000.0;
+            Beacon->OutgoingDamageMultiplier = State.secondaryMultiplierBasisPoints / 10000.0;
+            Beacon->InitiativeLoss = State.initiativeLoss; Beacon->MoveCostAdd = State.moveCostAdd;
+        }
+    }
 }
 
 bool FRoundCoreMatchAdapter::IsBasicAttackLegal(
@@ -865,7 +1039,8 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
     }
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
     const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
-        || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25;
+        || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25
+        || (CoreOperation >= 31 && CoreOperation <= 34);
     if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
@@ -989,6 +1164,7 @@ bool FRoundCoreMatchAdapter::ExecuteBasicAttack(
     Action.actorId = *CharacterId;
     Action.targetEntityId = *TargetId;
     const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (Result.success) SynchronizeDevices();
     if (!Result.success)
     {
         OutReason = FString::Printf(TEXT("%s: %s"),
@@ -1107,7 +1283,8 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     }
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
     const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
-        || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25;
+        || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25
+        || (CoreOperation >= 31 && CoreOperation <= 34);
     if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
@@ -1121,6 +1298,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     Action.targetTileId = TargetTileId ? *TargetTileId : roundcore::InvalidEntityId;
     Action.abilityId = ToCoreString(AbilityKey);
     const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (Result.success) SynchronizeDevices();
     if (!Result.success)
     {
         OutReason = FString::Printf(TEXT("%s: %s"),
@@ -1302,7 +1480,14 @@ bool FRoundCoreMatchAdapter::GetVisibleTiles(
         OutReason = TEXT("Character is not part of the Core snapshot.");
         return false;
     }
-    for (const roundcore::EntityId TileId : CoreGame.VisibleTileIds(*CharacterId))
+    const auto CharacterState = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
+        [CharacterId](const roundcore::CharacterState& State) { return State.id == *CharacterId; });
+    if (CharacterState == CoreGame.State().characters.end())
+    {
+        OutReason = TEXT("Character state is missing from the Core snapshot.");
+        return false;
+    }
+    for (const roundcore::EntityId TileId : CoreGame.TeamVisibleTileIds(CharacterState->team))
     {
         if (ARoundGridTile* const* Tile = TileActors.Find(TileId))
         {
@@ -1334,6 +1519,7 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
     }
 
     const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (Result.success) SynchronizeDevices();
     if (!Result.success)
     {
         OutReason = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));
@@ -1381,6 +1567,29 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
             if (ARoundCharacter* const* Owner = CharacterActors.Find(Event.targetId))
             {
                 OutExecution.RemovedEffects.Add({*Owner, UTF8_TO_TCHAR(Event.definitionId.c_str())});
+            }
+        }
+        else if (Event.type == roundcore::EventType::EffectAdded)
+        {
+            const auto OwnerState = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
+                [&Event](const roundcore::CharacterState& State) { return State.id == Event.targetId; });
+            if (OwnerState != CoreGame.State().characters.end())
+            {
+                const auto Effect = std::find_if(OwnerState->modifierEffects.begin(), OwnerState->modifierEffects.end(),
+                    [&Event](const roundcore::ModifierEffectState& State) { return State.id == Event.definitionId; });
+                if (Effect != OwnerState->modifierEffects.end())
+                {
+                    FRoundCoreModifierEffectAddition& Addition = OutExecution.AddedModifierEffects.AddDefaulted_GetRef();
+                    Addition.Character = CharacterActors.FindRef(Event.targetId);
+                    Addition.Causer = CharacterActors.FindRef(Effect->causerId);
+                    Addition.PreferredTarget = CharacterActors.FindRef(Effect->preferredTargetId);
+                    Addition.EffectId = UTF8_TO_TCHAR(Effect->id.c_str());
+                    Addition.RemainingInitiative = Effect->remainingInitiative;
+                    Addition.OutgoingDamageMultiplierBasisPoints = Effect->outgoingDamageMultiplierBasisPoints;
+                    Addition.MoveCostMultiplierBasisPoints = Effect->moveCostMultiplierBasisPoints;
+                    Addition.bIsDebuff = Effect->isDebuff;
+                    CopyCoreEffectMetadata(*Effect, Addition);
+                }
             }
         }
     }
@@ -1463,6 +1672,7 @@ bool FRoundCoreMatchAdapter::ExecuteMove(
     Action.actorId = *CharacterId;
     Action.targetTileId = *TileId;
     const roundcore::ActionResult Result = CoreGame.ApplyAction(Action);
+    if (Result.success) SynchronizeDevices();
     if (!Result.success)
     {
         OutReason = FString::Printf(TEXT("%s: %s"), UTF8_TO_TCHAR(Result.errorCode.c_str()), UTF8_TO_TCHAR(Result.message.c_str()));

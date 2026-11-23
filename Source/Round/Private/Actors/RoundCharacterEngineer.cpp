@@ -58,6 +58,7 @@ void ARoundCharacterEngineer::Die()
 void ARoundCharacterEngineer::BeginTurn()
 {
     Super::BeginTurn();
+    if (bCoreDevicesAuthoritative) return;
     const int32 RepairAmount = FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("DeviceRepairOnTurnStart"))));
     if (RepairAmount > 0)
     {
@@ -71,6 +72,8 @@ void ARoundCharacterEngineer::BeginTurn()
 void ARoundCharacterEngineer::AdvanceGlobalInitiative(int32 Amount)
 {
     Super::AdvanceGlobalInitiative(Amount);
+
+    if (bCoreDevicesAuthoritative) return;
 
     if (Amount <= 0)
     {
@@ -141,7 +144,7 @@ ARoundEngineerDeviceActor* ARoundCharacterEngineer::SpawnDeviceAtTile(TSubclassO
         if (OldestDevice)
         {
             OldestDevice->RemoveFromField();
-            if (Attributes)
+            if (Attributes && !bCoreDevicesAuthoritative)
             {
                 Attributes->GainInitiative(FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("InitiativeRefundOnDeviceReplace")))));
             }

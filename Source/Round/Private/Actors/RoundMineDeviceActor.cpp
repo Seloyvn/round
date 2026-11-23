@@ -19,8 +19,15 @@ void ARoundMineDeviceActor::SetArmDelay(int32 InArmDelayInitiative)
     RemainingEnemyRevealInitiative = FMath::Max(EnemyRevealInitiative, RemainingArmDelayInitiative);
 }
 
+void ARoundMineDeviceActor::ApplyCoreMineState(const int32 InArmDelayInitiative, const int32 InEnemyRevealInitiative)
+{
+    RemainingArmDelayInitiative = FMath::Max(0, InArmDelayInitiative);
+    RemainingEnemyRevealInitiative = FMath::Max(0, InEnemyRevealInitiative);
+}
+
 void ARoundMineDeviceActor::OnInitiativeAdvanced(int32 InitiativeAmount)
 {
+    if (IsCoreAuthoritative()) return;
     Super::OnInitiativeAdvanced(InitiativeAmount);
     if (!IsActorBeingDestroyed() && InitiativeAmount > 0 && RemainingArmDelayInitiative > 0)
     {
@@ -35,6 +42,7 @@ void ARoundMineDeviceActor::OnInitiativeAdvanced(int32 InitiativeAmount)
 
 bool ARoundMineDeviceActor::CanTriggerDevice_Implementation(const FRoundDeviceTriggerContext& TriggerContext) const
 {
+    if (IsCoreAuthoritative()) return false;
     if (!Super::CanTriggerDevice_Implementation(TriggerContext))
     {
         return false;

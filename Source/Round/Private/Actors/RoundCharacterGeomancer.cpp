@@ -1,6 +1,7 @@
 #include "Actors/RoundCharacterGeomancer.h"
 
 #include "Actors/RoundGridTile.h"
+#include "Actors/RoundFieldObjectActor.h"
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundAbilityActor.h"
 #include "Components/RoundAttributeSetComponent.h"
@@ -65,10 +66,10 @@ FRoundActionResult ARoundCharacterGeomancer::AttackField(ARoundGridTile* TargetT
     }
 
     ARoundCharacter* TargetCharacter = TargetTile->OccupyingCharacter;
-    AActor* TargetBoardObject = TargetTile->OccupyingFieldObject;
+    AActor* TargetBoardObject = TargetTile->GetResolvedOccupyingFieldObject();
     if (!TargetBoardObject || !TargetBoardObject->GetClass()->ImplementsInterface(URoundBoardDamageableInterface::StaticClass()) || !IRoundBoardDamageableInterface::Execute_CanReceiveBoardDamage(TargetBoardObject))
     {
-        TargetBoardObject = TargetTile->TerrainObject;
+        TargetBoardObject = TargetTile->TerrainObject.Get();
         if (!TargetBoardObject || !TargetBoardObject->GetClass()->ImplementsInterface(URoundBoardDamageableInterface::StaticClass()) || !IRoundBoardDamageableInterface::Execute_CanReceiveBoardDamage(TargetBoardObject))
         {
             TargetBoardObject = nullptr;
