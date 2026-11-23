@@ -67,6 +67,7 @@ int main()
     packageSource.definitions.abilities.emplace(packageAbility.id, packageAbility);
     packageSource.definitions.characters.at("Tank").abilityIds.push_back(packageAbility.id);
     packageSource.initialState.characters[0].abilities.push_back(AbilityState{packageAbility.id, 0, 8, 1, 1, false, 37});
+    packageSource.initialState.characters[0].firstResourceDiscountAvailable = false;
     ModifierEffectState packageModifier;
     packageModifier.id = "PackageModifier";
     packageModifier.sourceAbilityId = packageAbility.id;
@@ -115,6 +116,8 @@ int main()
             && loadedPackageModifier.valueB == 12500 && loadedPackageModifier.valueC == 3
             && loadedPackageModifier.flags == 13u && loadedPackageModifier.consumeOnOutgoingDamage,
         "a match package must preserve specialized Character 2 runtime state");
+    Require(!loadedPackageCharacter.firstResourceDiscountAvailable,
+        "a match package must preserve the Chronomancer first-fragment discount state");
     std::vector<std::uint8_t> invalidPackage = packageBytes;
     invalidPackage[0] = 0;
     bool rejectedInvalidPackage = false;
@@ -1277,6 +1280,21 @@ int main()
     Require(mineGame.ApplyAction(deviceCast).success && mineGame.ApplyAction(overloadCast).success
             && mineGame.State().characters[1].health < 100 && mineGame.State().devices.empty(),
         "Overload should remotely detonate a mine and remove it from authoritative board state");
+
+    MatchSetup chronomancerSetup = ValidSetup();
+    chronomancerSetup.definitions.characters.at("Tank").passiveValues = {
+        {"CoreChronomancerCharacter", 1.0}, {"BaseMaxFragments", 5.0},
+        {"MaxFragments", 2.0}, {"FragmentGainAtTurnStartIfEmpty", 1.0}};
+    chronomancerSetup.initialState.characters[0].resourceCurrent = 0;
+    Game chronomancerGame;
+    Require(chronomancerGame.Reset(std::move(chronomancerSetup)).success
+            && chronomancerGame.State().characters[0].resourceMaximum == 7,
+        "Chronomancer reset should derive its fragment maximum from editor-authored values");
+    GameAction chronomancerEndTurn{ActionType::EndTurn, 10};
+    Require(chronomancerGame.ApplyAction(chronomancerEndTurn).success
+            && chronomancerGame.State().characters[0].resourceCurrent == 1
+            && chronomancerGame.State().characters[0].firstResourceDiscountAvailable,
+        "Chronomancer turn start should reset discounts and generate an empty fragment reserve");
 
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;

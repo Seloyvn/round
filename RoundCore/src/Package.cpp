@@ -267,6 +267,7 @@ void WriteState(Writer& writer, const GameState& state)
         writer.Integer(character.resourceCurrent); writer.Integer(character.resourceMaximum);
         writer.Integer(character.resourceRechargeProgress); writer.Integer(character.resourceRechargeInterval);
         writer.Integer(character.specialCooldownRemaining); writer.Integer(character.firstResourceSpendRefundAvailable);
+        writer.Integer(character.firstResourceDiscountAvailable);
         writer.Integer(character.movedSinceLastTurn); writer.Integer(character.stationaryGuardActive);
         writer.Integer(character.attackedThisTurn); writer.Integer(character.spentResourceThisTurn);
         writer.Integer(character.startedTurnWithFullResource); writer.Integer(character.heldPositionFromPreviousTurn);
@@ -393,6 +394,7 @@ GameState ReadState(Reader& reader)
         character.resourceRechargeInterval = reader.Integer<std::int32_t>();
         character.specialCooldownRemaining = reader.Integer<std::int32_t>();
         character.firstResourceSpendRefundAvailable = reader.Integer<bool>();
+        character.firstResourceDiscountAvailable = reader.Integer<bool>();
         character.movedSinceLastTurn = reader.Integer<bool>();
         character.stationaryGuardActive = reader.Integer<bool>();
         character.attackedThisTurn = reader.Integer<bool>(); character.spentResourceThisTurn = reader.Integer<bool>();

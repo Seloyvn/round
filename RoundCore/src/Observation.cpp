@@ -156,6 +156,7 @@ NumericObservation EncodeOmniscientObservation(
             character->resourceRechargeInterval,
             character->specialCooldownRemaining,
             character->firstResourceSpendRefundAvailable ? 1 : 0,
+            character->firstResourceDiscountAvailable ? 1 : 0,
             character->movedSinceLastTurn ? 1 : 0,
             character->stationaryGuardActive ? 1 : 0,
             character->attackedThisTurn ? 1 : 0, character->spentResourceThisTurn ? 1 : 0,

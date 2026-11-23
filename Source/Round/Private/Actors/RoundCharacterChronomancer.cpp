@@ -26,6 +26,10 @@ int32 ARoundCharacterChronomancer::GetMaxFragments() const
 void ARoundCharacterChronomancer::BeginTurn()
 {
     Super::BeginTurn();
+    if (bCoreChronomancerAuthoritative)
+    {
+        return;
+    }
     bUsedFragmentDiscountThisTurn = false;
     bUsedFirstSpendRefundThisTurn = false;
     if (Fragments <= 0)
@@ -36,6 +40,20 @@ void ARoundCharacterChronomancer::BeginTurn()
     {
         Attributes->GainInitiative(FMath::Max(0, FMath::RoundToInt(GetPassiveValueFromKey(TEXT("InitiativeGainAtTurnStartIfFull")))));
     }
+}
+
+void ARoundCharacterChronomancer::SetCoreChronomancerAuthoritative(const bool bAuthoritative)
+{
+    bCoreChronomancerAuthoritative = bAuthoritative;
+}
+
+void ARoundCharacterChronomancer::ApplyCoreChronomancerState(
+    const int32 InFragments, const bool bDiscountAvailable, const bool bFirstSpendRefundAvailable)
+{
+    Fragments = FMath::Clamp(InFragments, 0, GetMaxFragments());
+    bUsedFragmentDiscountThisTurn = !bDiscountAvailable;
+    bUsedFirstSpendRefundThisTurn = !bFirstSpendRefundAvailable;
+    ForceNetUpdate();
 }
 
 int32 ARoundCharacterChronomancer::GainFragments(int32 Amount)

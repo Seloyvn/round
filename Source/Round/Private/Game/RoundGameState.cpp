@@ -7,6 +7,7 @@
 #include "Actors/RoundCharacter4.h"
 #include "Actors/RoundCharacter5.h"
 #include "Actors/RoundCharacter6.h"
+#include "Actors/RoundCharacterChronomancer.h"
 #include "Actors/RoundAbilityActor.h"
 #include "Abilities/RoundSnipeAbility.h"
 #include "Actors/RoundGridTile.h"
@@ -122,6 +123,15 @@ void ApplyCharacter4CoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
             Update.RockDefenseRemainingInitiative, Update.ProtectionRemainingInitiative,
             Update.EchoElement, Update.ElementCycleMask, Update.bElementCostReductionUsed,
             Update.bElementSwapRefundUsed, Update.bStoredElementEmpowered, Update.bProtectionReady);
+    }
+}
+
+void ApplyChronomancerCoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
+{
+    if (ARoundCharacterChronomancer* Chronomancer = Cast<ARoundCharacterChronomancer>(Update.Character))
+    {
+        Chronomancer->ApplyCoreChronomancerState(Update.ResourceCurrent,
+            Update.bFirstResourceDiscountAvailable, Update.bFirstResourceSpendRefundAvailable);
     }
 }
 
@@ -3995,6 +4005,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         ApplyCharacter2CoreState(Update);
         ApplyCharacter3CoreState(Update);
         ApplyCharacter4CoreState(Update);
+        ApplyChronomancerCoreState(Update);
         if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
             Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                 Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
@@ -4120,6 +4131,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         ApplyCharacter2CoreState(Update);
         ApplyCharacter3CoreState(Update);
         ApplyCharacter4CoreState(Update);
+        ApplyChronomancerCoreState(Update);
         if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
             Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                 Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
@@ -4557,6 +4569,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
             ApplyCharacter2CoreState(Update);
             ApplyCharacter3CoreState(Update);
             ApplyCharacter4CoreState(Update);
+            ApplyChronomancerCoreState(Update);
             if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
                 Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                     Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
@@ -4702,6 +4715,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             ApplyCharacter2CoreState(Update);
             ApplyCharacter3CoreState(Update);
             ApplyCharacter4CoreState(Update);
+            ApplyChronomancerCoreState(Update);
             if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
                 Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                     Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);

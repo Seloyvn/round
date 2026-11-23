@@ -151,6 +151,7 @@ struct CharacterState
     std::int32_t resourceRechargeInterval = 0;
     std::int32_t specialCooldownRemaining = 0;
     bool firstResourceSpendRefundAvailable = true;
+    bool firstResourceDiscountAvailable = true;
     bool movedSinceLastTurn = false;
     bool stationaryGuardActive = false;
     bool attackedThisTurn = false;

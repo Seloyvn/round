@@ -38,6 +38,7 @@ struct FRoundCoreCharacterRuntimeUpdate
     int32 ResourceRechargeProgress = 0;
     int32 SpecialCooldownRemaining = 0;
     bool bFirstResourceSpendRefundAvailable = true;
+    bool bFirstResourceDiscountAvailable = true;
     bool bMovedSinceLastTurn = false;
     bool bStationaryGuardActive = false;
     bool bAttackedThisTurn = false;

@@ -6,6 +6,7 @@
 #include "Actors/RoundTerrainActor.h"
 #include "Actors/RoundEngineerDeviceActor.h"
 #include "Actors/RoundCharacterEngineer.h"
+#include "Actors/RoundCharacterChronomancer.h"
 #include "Actors/RoundTurretDeviceActor.h"
 #include "Actors/RoundMineDeviceActor.h"
 #include "Actors/RoundShieldEmitterDeviceActor.h"
@@ -108,6 +109,7 @@ void CopyCoreEffectMetadata(const roundcore::ModifierEffectState& State, FRoundC
 
 void CopyExtendedCharacterState(const roundcore::CharacterState& State, FRoundCoreCharacterRuntimeUpdate& Update)
 {
+    Update.bFirstResourceDiscountAvailable = State.firstResourceDiscountAvailable;
     Update.bAttackedThisTurn = State.attackedThisTurn;
     Update.bSpentResourceThisTurn = State.spentResourceThisTurn;
     Update.bStartedTurnWithFullResource = State.startedTurnWithFullResource;
@@ -446,6 +448,19 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 Definition.passiveValues.emplace(ToCoreString(Key), Engineer->GetPassiveValueFromKey(Key));
             Definition.passiveValues.emplace("CoreEngineerCharacter", 1.0);
         }
+        if (const ARoundCharacterChronomancer* Chronomancer = Cast<ARoundCharacterChronomancer>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("MaxFragments"), TEXT("FragmentGainAtTurnStartIfEmpty"),
+                TEXT("HealPerOverflowFragment"), TEXT("InitiativeGainOnFirstFragmentSpend"),
+                TEXT("TimeSiphonCooldownReductionPerFragmentSpent"),
+                TEXT("InitiativeGainAtTurnStartIfFull"), TEXT("HealPerFragmentSpent"),
+                TEXT("FirstFragmentSpendDiscount"), TEXT("AllCooldownReductionPerOverflowFragment")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Chronomancer->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreChronomancerCharacter", 1.0);
+            Definition.passiveValues.emplace("BaseMaxFragments", Chronomancer->GetValueFromKey(TEXT("MaxFragments")));
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -499,6 +514,13 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             CharacterState.usedKillCooldownReductionThisTurn = Character2->bUsedSnipeKillCooldownReductionThisTurn;
             CharacterState.stationaryShotStacks = Character2->StationaryShotStacks;
             CharacterState.hasFreePreparedStep = Character2->bHasFreeConcentrateStep;
+        }
+        if (const ARoundCharacterChronomancer* Chronomancer = Cast<ARoundCharacterChronomancer>(Character))
+        {
+            CharacterState.resourceCurrent = Chronomancer->Fragments;
+            CharacterState.resourceMaximum = Chronomancer->GetMaxFragments();
+            CharacterState.firstResourceDiscountAvailable = !Chronomancer->bUsedFragmentDiscountThisTurn;
+            CharacterState.firstResourceSpendRefundAvailable = !Chronomancer->bUsedFirstSpendRefundThisTurn;
         }
         if (const ARoundCharacter3* Character3 = Cast<ARoundCharacter3>(Character))
         {

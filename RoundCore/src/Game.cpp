@@ -284,6 +284,12 @@ ActionResult Game::Reset(MatchSetup setup)
     for (CharacterState& character : state_.characters)
     {
         const CharacterDefinition& definition = definitions_.characters.at(character.definitionId);
+        if (PassiveValue(definition, "CoreChronomancerCharacter") > 0.0)
+        {
+            character.resourceMaximum = std::max(1, static_cast<std::int32_t>(
+                PassiveValue(definition, "BaseMaxFragments") + PassiveValue(definition, "MaxFragments")));
+            character.resourceCurrent = std::clamp(character.resourceCurrent, 0, character.resourceMaximum);
+        }
         if (PassiveValue(definition, "CoreComboCharacter") <= 0.0) continue;
         character.resourceMaximum = std::max(1, static_cast<std::int32_t>(
             PassiveValue(definition, "BaseComboMaximum") + PassiveValue(definition, "MaxComboPointsAdd")));
@@ -4409,6 +4415,29 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             selected->basicAttackBloodAvailable = true;
             selected->bloodCapTriggerAvailable = true;
         }
+        if (PassiveValue(definition, "CoreChronomancerCharacter") > 0.0)
+        {
+            selected->firstResourceDiscountAvailable = true;
+            selected->firstResourceSpendRefundAvailable = true;
+            if (selected->resourceCurrent <= 0)
+            {
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "FragmentGainAtTurnStartIfEmpty")));
+                const std::int32_t before = selected->resourceCurrent;
+                selected->resourceCurrent = std::min(selected->resourceMaximum, before + gain);
+                if (selected->resourceCurrent != before) result.events.push_back(GameEvent{
+                    EventType::ResourceChanged, selected->id, selected->id, selected->tileId,
+                    "ChronomancerTurnStart", selected->resourceCurrent - before});
+            }
+            if (selected->resourceCurrent >= selected->resourceMaximum)
+            {
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "InitiativeGainAtTurnStartIfFull")));
+                selected->initiative += gain;
+                if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                    selected->id, selected->id, selected->tileId, "ChronomancerFullFragments", gain});
+            }
+        }
         const std::int32_t deviceRepair = std::max(0, static_cast<std::int32_t>(
             PassiveValue(definition, "DeviceRepairOnTurnStart")));
         if (deviceRepair > 0)
@@ -5235,6 +5264,7 @@ std::uint64_t Game::StateHash() const noexcept
         HashValue(hash, character.resourceRechargeInterval);
         HashValue(hash, character.specialCooldownRemaining);
         HashValue(hash, character.firstResourceSpendRefundAvailable);
+        HashValue(hash, character.firstResourceDiscountAvailable);
         HashValue(hash, character.movedSinceLastTurn);
         HashValue(hash, character.stationaryGuardActive);
         HashValue(hash, character.attackedThisTurn); HashValue(hash, character.spentResourceThisTurn);

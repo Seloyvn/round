@@ -9,6 +9,8 @@ class ROUND_API ARoundCharacterChronomancer : public ARoundCharacter
 {
     GENERATED_BODY()
 
+    friend class FRoundCoreMatchAdapter;
+
 public:
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     virtual void BeginTurn() override;
@@ -28,10 +30,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Round|Chronomancer")
     bool SpendFragments(int32 Cost);
 
+    void SetCoreChronomancerAuthoritative(bool bAuthoritative);
+    void ApplyCoreChronomancerState(int32 InFragments, bool bDiscountAvailable, bool bFirstSpendRefundAvailable);
+
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Replicated, Category = "Round|Chronomancer")
     int32 Fragments = 0;
 
     bool bUsedFragmentDiscountThisTurn = false;
     bool bUsedFirstSpendRefundThisTurn = false;
+    bool bCoreChronomancerAuthoritative = false;
 };
