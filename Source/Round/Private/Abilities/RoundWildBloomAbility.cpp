@@ -3,6 +3,7 @@
 #include "Actors/RoundCharacter.h"
 #include "Actors/RoundCharacterDruid.h"
 #include "Actors/RoundGridTile.h"
+#include "Components/RoundAttributeSetComponent.h"
 
 bool ARoundWildBloomAbility::CanTargetTile(const ARoundGridTile* TargetTile) const
 {
@@ -22,6 +23,10 @@ void ARoundWildBloomAbility::GetPreviewTiles(const ARoundGridTile* TargetTile, T
 
 FRoundActionResult ARoundWildBloomAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (GetAbilityValueFromKey(TEXT("CoreOperation")) > 0.0)
+    {
+        return Super::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!OwningCharacter || !OwningCharacter->Attributes)
     {

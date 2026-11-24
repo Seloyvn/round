@@ -8,6 +8,7 @@
 #include "Actors/RoundCharacter5.h"
 #include "Actors/RoundCharacter6.h"
 #include "Actors/RoundCharacterChronomancer.h"
+#include "Actors/RoundCharacterDruid.h"
 #include "Actors/RoundAbilityActor.h"
 #include "Abilities/RoundSnipeAbility.h"
 #include "Actors/RoundGridTile.h"
@@ -4025,6 +4026,8 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         {
             continue;
         }
+        if (Removal.EffectId.Contains(TEXT(":BearForm")))
+            if (ARoundCharacterDruid* Druid = Cast<ARoundCharacterDruid>(Removal.Character)) Druid->ExitBearForm();
         RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
         const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
         for (ARoundEffectActor* Effect : EffectsSnapshot)
@@ -4106,6 +4109,12 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         return Result;
     }
 
+    for (const FRoundCoreModifierEffectAddition& Addition : Execution.AddedModifierEffects)
+    {
+        if (Addition.CoreEffectKind == static_cast<int32>(roundcore::ModifierEffectKind::BearForm))
+            if (ARoundCharacterDruid* Druid = Cast<ARoundCharacterDruid>(Addition.Character)) Druid->EnterBearForm(Ability);
+    }
+
     for (const FRoundCoreCharacterRuntimeUpdate& Update : Execution.CharacterUpdates)
     {
         if (Update.Character && Update.Tile && Update.Character->CurrentTile != Update.Tile)
@@ -4155,6 +4164,8 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         {
             continue;
         }
+        if (Removal.EffectId.Contains(TEXT(":BearForm")))
+            if (ARoundCharacterDruid* Druid = Cast<ARoundCharacterDruid>(Removal.Character)) Druid->ExitBearForm();
         RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
         const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
         for (ARoundEffectActor* Effect : EffectsSnapshot)
@@ -4169,6 +4180,12 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
     }
     for (const FRoundCoreModifierEffectAddition& Addition : Execution.AddedModifierEffects)
     {
+        if (Addition.CoreEffectKind == static_cast<int32>(roundcore::ModifierEffectKind::BearForm))
+        {
+            PresentCoreGenericModifier(GetWorld(), Addition, TEXT("Bear Form"),
+                TEXT("Der Druide befindet sich in Baerenform."));
+            continue;
+        }
         if (!Addition.Character || !GetWorld())
         {
             continue;
@@ -4761,6 +4778,8 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
         for (const FRoundCoreEffectRemoval& Removal : Execution.RemovedEffects)
         {
             if (!Removal.Character) continue;
+            if (Removal.EffectId.Contains(TEXT(":BearForm")))
+                if (ARoundCharacterDruid* Druid = Cast<ARoundCharacterDruid>(Removal.Character)) Druid->ExitBearForm();
             RemoveCoreAimPresentation(Removal.Character, Removal.EffectId);
             const TArray<TObjectPtr<ARoundEffectActor>> EffectsSnapshot = Removal.Character->ActiveEffects;
             for (ARoundEffectActor* Effect : EffectsSnapshot)

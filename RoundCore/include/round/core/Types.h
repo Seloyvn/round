@@ -70,7 +70,13 @@ enum class AbilityOperation : std::uint8_t
     TimeSiphon,
     BorrowedTime,
     Stasis,
-    TemporalAnchor
+    TemporalAnchor,
+    ThornPatch,
+    Grove,
+    Rootsnare,
+    WildBloom,
+    BearForm,
+    CancelBearForm
 };
 
 enum class DeviceType : std::uint8_t
@@ -114,7 +120,9 @@ enum class ModifierEffectKind : std::uint8_t
     EngineerSpotted,
     BorrowedTime,
     Stasis,
-    TemporalAnchor
+    TemporalAnchor,
+    Rootsnare,
+    BearForm
 };
 
 enum class AbilityTargetRelation : std::uint8_t

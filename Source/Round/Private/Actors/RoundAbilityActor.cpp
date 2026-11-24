@@ -596,7 +596,8 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
         *(AbilityData ? AbilityData->AbilityId.ToString() : RowName.ToString()),
         *GetNameSafe(TargetTile));
     const int32 CoreOperation = FMath::RoundToInt(GetAbilityValueFromKey(TEXT("CoreOperation")));
-    if ((CoreOperation == 5 || CoreOperation == 13 || (CoreOperation >= 31 && CoreOperation <= 34)) && OwningCharacter)
+    if ((CoreOperation == 5 || CoreOperation == 13 || (CoreOperation >= 31 && CoreOperation <= 34)
+        || CoreOperation == 41 || CoreOperation == 42) && OwningCharacter)
     {
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
         {
@@ -606,7 +607,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
     if ((CoreOperation == 1 || CoreOperation == 2 || CoreOperation == 4
         || (CoreOperation >= 6 && CoreOperation <= 11) || CoreOperation == 14 || CoreOperation == 15
         || CoreOperation == 26 || CoreOperation == 27 || CoreOperation == 30
-        || (CoreOperation >= 36 && CoreOperation <= 40)) && OwningCharacter)
+        || (CoreOperation >= 36 && CoreOperation <= 40) || CoreOperation == 43) && OwningCharacter)
     {
         ARoundCharacter* TargetCharacter = ResolveTargetCharacter(TargetTile);
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
@@ -615,7 +616,7 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
         }
     }
     if ((CoreOperation == 3 || CoreOperation == 12 || CoreOperation == 28 || CoreOperation == 29
-        || CoreOperation == 35) && OwningCharacter)
+        || CoreOperation == 35 || (CoreOperation >= 44 && CoreOperation <= 46)) && OwningCharacter)
     {
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
         {

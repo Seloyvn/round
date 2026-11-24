@@ -10,6 +10,10 @@ bool ARoundCancelBearFormAbility::CanTargetTile(const ARoundGridTile* TargetTile
 
 FRoundActionResult ARoundCancelBearFormAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (GetAbilityValueFromKey(TEXT("CoreOperation")) > 0.0)
+    {
+        return Super::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     ARoundCharacterDruid* Druid = Cast<ARoundCharacterDruid>(OwningCharacter);
     if (!Druid || !Druid->IsBearFormActive())

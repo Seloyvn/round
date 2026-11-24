@@ -4,6 +4,10 @@
 
 FRoundActionResult ARoundBearFormAbility::ExecuteAbility(ARoundGridTile* TargetTile)
 {
+    if (GetAbilityValueFromKey(TEXT("CoreOperation")) > 0.0)
+    {
+        return Super::ExecuteAbility(TargetTile);
+    }
     FRoundActionResult Result;
     if (!OwningCharacter)
     {

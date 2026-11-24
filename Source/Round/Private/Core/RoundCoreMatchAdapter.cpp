@@ -7,6 +7,7 @@
 #include "Actors/RoundEngineerDeviceActor.h"
 #include "Actors/RoundCharacterEngineer.h"
 #include "Actors/RoundCharacterChronomancer.h"
+#include "Actors/RoundCharacterDruid.h"
 #include "Actors/RoundTurretDeviceActor.h"
 #include "Actors/RoundMineDeviceActor.h"
 #include "Actors/RoundShieldEmitterDeviceActor.h"
@@ -461,6 +462,15 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             Definition.passiveValues.emplace("CoreChronomancerCharacter", 1.0);
             Definition.passiveValues.emplace("BaseMaxFragments", Chronomancer->GetValueFromKey(TEXT("MaxFragments")));
         }
+        if (const ARoundCharacterDruid* Druid = Cast<ARoundCharacterDruid>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("MoveCostReductionOnNature"), TEXT("HealOnNatureTurnStart"),
+                TEXT("InitiativeOnNatureTurnStart"), TEXT("IncomingDamageMultiplierAddOnNature")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Druid->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreDruidCharacter", 1.0);
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -585,7 +595,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 40
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 46
                 ? static_cast<roundcore::AbilityOperation>(CoreOperation)
                 : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
@@ -1064,7 +1074,7 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
     const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
         || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25
-        || (CoreOperation >= 31 && CoreOperation <= 34);
+        || (CoreOperation >= 31 && CoreOperation <= 34) || CoreOperation == 41 || CoreOperation == 42;
     if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
@@ -1308,7 +1318,7 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
     const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
         || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25
-        || (CoreOperation >= 31 && CoreOperation <= 34);
+        || (CoreOperation >= 31 && CoreOperation <= 34) || CoreOperation == 41 || CoreOperation == 42;
     if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");

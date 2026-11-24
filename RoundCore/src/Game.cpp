@@ -59,6 +59,27 @@ std::int64_t ApplyBasisPoints(const std::int64_t value, const std::int32_t basis
 {
     return (value * std::max(0, basisPoints) + 5000) / 10000;
 }
+
+std::int32_t TerrainTypeIndex(const DefinitionId& id) noexcept
+{
+    constexpr const char* prefix = "Terrain:";
+    if (id.rfind(prefix, 0) != 0) return -1;
+    try { return std::stoi(id.substr(8, id.find(':', 8) - 8)); }
+    catch (...) { return -1; }
+}
+
+bool IsNatureTerrain(const DefinitionId& id) noexcept
+{
+    const std::int32_t type = TerrainTypeIndex(id);
+    return type == 1 || type == 2 || type == 3;
+}
+
+DefinitionId ReplaceTerrainType(const DefinitionId& id, const std::int32_t type)
+{
+    if (id.rfind("Terrain:", 0) != 0) return id;
+    const std::size_t end = id.find(':', 8);
+    return end == std::string::npos ? id : "Terrain:" + std::to_string(type) + id.substr(end);
+}
 }
 
 ActionResult Game::Reset(MatchSetup setup)
@@ -87,7 +108,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::TemporalAnchor
+        if (ability.operation > AbilityOperation::CancelBearForm
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -876,6 +897,12 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
     const TileState* initialSourceTile = FindTile(source.tileId);
     const TileState* initialTargetTile = FindTile(target.tileId);
+    if (initialTargetTile && IsNatureTerrain(initialTargetTile->terrainId)
+        && PassiveValue(targetDefinition, "CoreDruidCharacter") > 0.0)
+    {
+        damage = static_cast<std::int32_t>(std::max(0.0,
+            damage * (1.0 + PassiveValue(targetDefinition, "IncomingDamageMultiplierAddOnNature"))) + 0.5);
+    }
     if (PassiveValue(sourceDefinition, "CoreAmmoCharacter") > 0.0)
     {
         if (!source.movedSinceLastTurn && source.stationaryShotStacks > 0)
@@ -1219,7 +1246,10 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
             return device.ownerId == target.id && tile && HexDistance(protectedTargetTile->coord, tile->coord) <= networkRange;
         }))
         deviceDefense += std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseNearDevice")));
-    const std::int64_t defense = std::max(0, targetDefinition.stats.defense + resourceDefense + heldDefense + bloodDefense
+    const auto bear = std::find_if(target.modifierEffects.begin(), target.modifierEffects.end(),
+        [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+    const std::int32_t baseDefense = bear != target.modifierEffects.end() ? bear->counterC : targetDefinition.stats.defense;
+    const std::int64_t defense = std::max(0, baseDefense + resourceDefense + heldDefense + bloodDefense
         + elementDefense + target.rockDefenseBonus + deviceDefense - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
@@ -1387,6 +1417,21 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
                 target.tileId, "NativeResource", -consumed});
             modifierEvents.push_back(GameEvent{EventType::HealingApplied, target.id, target.id,
                 target.tileId, "CheatDeath", target.health});
+        }
+    }
+    if (target.health <= 0)
+    {
+        const auto bearEffect = std::find_if(target.modifierEffects.begin(), target.modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+        if (bearEffect != target.modifierEffects.end())
+        {
+            const DefinitionId effectId = bearEffect->id;
+            target.health = std::clamp(bearEffect->counterA + bearEffect->valueC, 1, targetDefinition.stats.maxHealth);
+            target.modifierEffects.erase(bearEffect);
+            modifierEvents.push_back(GameEvent{EventType::EffectRemoved, target.id, target.id,
+                target.tileId, effectId, 0});
+            modifierEvents.push_back(GameEvent{EventType::HealingApplied, target.id, target.id,
+                target.tileId, "BearFormExit", target.health});
         }
     }
     return appliedDamage;
@@ -1747,7 +1792,14 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     const std::int32_t attackCost = BasicAttackCost(*attacker);
     attacker->initiative -= attackCost;
 
-    std::int64_t damage = std::max(0, attackerDefinition.stats.attack);
+    const auto attackerBear = std::find_if(attacker->modifierEffects.begin(), attacker->modifierEffects.end(),
+        [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+    const std::int32_t bearLifesteal = attackerBear != attacker->modifierEffects.end()
+        ? attackerBear->healFractionFromDamageDealtBasisPoints : 0;
+    const std::int32_t bearMaximumHealth = attackerBear != attacker->modifierEffects.end()
+        ? attackerBear->areaDamage : 0;
+    std::int64_t damage = std::max(0, attackerBear != attacker->modifierEffects.end()
+        ? attackerBear->counterB : attackerDefinition.stats.attack);
     std::int32_t defenseIgnore = 0;
     std::vector<GameEvent> modifierEvents;
     const std::int32_t criticalChance = std::clamp(attackerDefinition.criticalChanceBasisPoints, 0, 10000);
@@ -1766,6 +1818,12 @@ ActionResult Game::ApplyBasicAttack(const GameAction& action)
     std::vector<GameEvent> auraEvents;
     const std::int32_t appliedDamage = ResolveDamage(
         *attacker, *target, damage, defenseIgnore, auraEvents, modifierEvents);
+    if (bearLifesteal > 0 && appliedDamage > 0)
+    {
+        const std::int32_t heal = static_cast<std::int32_t>(ApplyBasisPoints(
+            appliedDamage, bearLifesteal));
+        attacker->health = std::min(bearMaximumHealth, attacker->health + heal);
+    }
 
     ActionResult result;
     result.success = true;
@@ -1976,7 +2034,10 @@ ActionResult Game::ValidateBasicAttack(const GameAction& action) const
     {
         return Failure("insufficient_resource", "The character has no ammunition for a basic attack.");
     }
-    std::int32_t attackRange = std::max(0, definition.stats.attackRange);
+    const auto bearRange = std::find_if(attacker->modifierEffects.begin(), attacker->modifierEffects.end(),
+        [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+    std::int32_t attackRange = std::max(0, bearRange != attacker->modifierEffects.end()
+        ? bearRange->areaInitiativeLossPerPulse : definition.stats.attackRange);
     for (const ModifierEffectState& effect : target->modifierEffects)
     {
         if (effect.kind == ModifierEffectKind::PiercingMark && effect.causerId == attacker->id && !effect.sourceAbilityId.empty())
@@ -2045,6 +2106,10 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     }
 
     const AbilityDefinition& definition = abilityDefinition->second;
+    const bool inBearForm = std::any_of(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+        [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+    if (inBearForm && definition.operation != AbilityOperation::CancelBearForm)
+        return Failure("ability_blocked_by_form", "Bear Form only allows returning to druid form.");
     if ((definition.operation == AbilityOperation::Snipe || definition.operation == AbilityOperation::PiercingShot)
         && actor->resourceCurrent <= 0)
     {
@@ -2065,7 +2130,9 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
         || definition.operation == AbilityOperation::Lightningstrike || definition.operation == AbilityOperation::Rockblast
         || definition.operation == AbilityOperation::ArcaneShift || definition.operation == AbilityOperation::BuildTurret
         || definition.operation == AbilityOperation::BuildMine || definition.operation == AbilityOperation::BuildShieldEmitter
-        || definition.operation == AbilityOperation::BuildSpotterBeacon)
+        || definition.operation == AbilityOperation::BuildSpotterBeacon
+        || definition.operation == AbilityOperation::ThornPatch
+        || definition.operation == AbilityOperation::Grove)
     {
         const TileState* targetTile = FindTile(action.targetTileId);
         if (!targetTile)
@@ -2441,7 +2508,208 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             damaged.tileId, action.abilityId, 0});
     };
 
-    if (definition.operation == AbilityOperation::Accelerate)
+    const auto setTerrainType = [this, &result, actor](TileState& tile, const std::int32_t type,
+        const DefinitionId& reason)
+    {
+        const DefinitionId previous = tile.terrainId;
+        const DefinitionId replacement = ReplaceTerrainType(previous, type);
+        if (replacement == previous) return;
+        const auto oldDefinition = definitions_.terrains.find(previous);
+        if (oldDefinition != definitions_.terrains.end()
+            && definitions_.terrains.find(replacement) == definitions_.terrains.end())
+        {
+            TerrainDefinition copied = oldDefinition->second;
+            copied.id = replacement;
+            definitions_.terrains.emplace(replacement, std::move(copied));
+        }
+        tile.terrainId = replacement;
+        result.events.push_back(GameEvent{EventType::TerrainChanged, actor->id, InvalidEntityId,
+            tile.id, reason, type});
+    };
+    const auto connectedNature = [this](const CharacterState& owner)
+    {
+        std::vector<TileState*> connected;
+        const TileState* origin = FindTile(owner.tileId);
+        if (!origin) return connected;
+        std::vector<EntityId> open;
+        for (TileState& tile : state_.tiles)
+            if (IsNatureTerrain(tile.terrainId) && HexDistance(origin->coord, tile.coord) <= 1) open.push_back(tile.id);
+        while (!open.empty())
+        {
+            const EntityId id = open.back(); open.pop_back();
+            TileState* tile = FindTile(id);
+            if (!tile || !IsNatureTerrain(tile->terrainId)
+                || std::find(connected.begin(), connected.end(), tile) != connected.end()) continue;
+            connected.push_back(tile);
+            for (TileState& neighbor : state_.tiles)
+                if (IsNatureTerrain(neighbor.terrainId) && HexDistance(tile->coord, neighbor.coord) == 1)
+                    open.push_back(neighbor.id);
+        }
+        return connected;
+    };
+
+    if (definition.operation == AbilityOperation::BearForm)
+    {
+        ModifierEffectState form; form.id = action.abilityId + ":BearForm";
+        form.sourceAbilityId = action.abilityId; form.kind = ModifierEffectKind::BearForm;
+        form.causerId = actor->id; form.counterA = actor->health;
+        form.counterB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BearAttack")));
+        form.counterC = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BearDefense")));
+        form.valueA = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BearMoveCost")));
+        form.valueB = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BearAttackCost")));
+        form.valueC = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "DruidHealOnExit")));
+        form.areaDamage = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BearMaxHealth")));
+        form.areaRadius = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BearVisionRange")));
+        form.areaInitiativeLossPerPulse = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BearAttackRange")));
+        form.triggerDamageOnMove = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BearHealOnTurnStart")));
+        form.healFractionFromDamageDealtBasisPoints = std::max(0, static_cast<std::int32_t>(
+            AbilityValue(definition, "BearLifestealFraction") * 10000.0 + 0.5));
+        actor->health = form.areaDamage;
+        actor->initiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnEnter")));
+        addEffect(*actor, form);
+    }
+    else if (definition.operation == AbilityOperation::CancelBearForm)
+    {
+        const auto form = std::find_if(actor->modifierEffects.begin(), actor->modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+        if (form != actor->modifierEffects.end())
+        {
+            const DefinitionId id = form->id;
+            actor->health = std::clamp(form->counterA + form->valueC, 1, castingDefinition.stats.maxHealth);
+            actor->modifierEffects.erase(form);
+            result.events.push_back(GameEvent{EventType::EffectRemoved, actor->id, actor->id,
+                actor->tileId, id, 0});
+        }
+    }
+    else if (definition.operation == AbilityOperation::ThornPatch)
+    {
+        TileState* center = FindTile(action.targetTileId);
+        std::vector<TileState*> affected{center};
+        bool connected = false;
+        if (center) for (const TileState& tile : state_.tiles)
+            if (HexDistance(center->coord, tile.coord) == 1 && IsNatureTerrain(tile.terrainId)) connected = true;
+        if (center && AbilityValue(definition, "SpreadToAdjacentFields") > 0.0)
+            for (TileState& tile : state_.tiles) if (HexDistance(center->coord, tile.coord) == 1) affected.push_back(&tile);
+        for (TileState* tile : affected)
+        {
+            if (!tile) continue;
+            CharacterState* occupant = FindCharacter(tile->occupantId);
+            if (occupant && occupant->alive && occupant->team != actor->team && occupant->team != Team::Neutral)
+            {
+                applyDamage(*actor, *occupant, definition.amount, definition.defenseIgnore, {});
+                if (occupant->health <= 0) finalizeDeath(*actor, *occupant);
+                else applyDelay(*actor, *occupant, std::max(0, static_cast<std::int32_t>(
+                    AbilityValue(definition, "InitiativeLossOnHit"))), action.abilityId);
+            }
+            setTerrainType(*tile, 2, action.abilityId);
+        }
+        if (connected)
+        {
+            const std::int32_t refund = std::max(0, static_cast<std::int32_t>(
+                AbilityValue(definition, "InitiativeRefundIfConnected")));
+            actor->initiative += refund;
+            if (refund > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                actor->id, actor->id, actor->tileId, action.abilityId, refund});
+        }
+    }
+    else if (definition.operation == AbilityOperation::Grove)
+    {
+        TileState* center = FindTile(action.targetTileId);
+        std::vector<TileState*> affected{center};
+        if (center && AbilityValue(definition, "SpreadToAdjacentFields") > 0.0)
+            for (TileState& tile : state_.tiles) if (HexDistance(center->coord, tile.coord) == 1) affected.push_back(&tile);
+        for (TileState* tile : affected)
+        {
+            if (!tile) continue;
+            setTerrainType(*tile, 3, action.abilityId);
+            CharacterState* occupant = FindCharacter(tile->occupantId);
+            if (!occupant || !occupant->alive || occupant->team != actor->team) continue;
+            const std::int32_t heal = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "HealOnPlacement")));
+            const CharacterDefinition& recipient = definitions_.characters.at(occupant->definitionId);
+            const std::int32_t applied = std::min(heal, std::max(0, recipient.stats.maxHealth - occupant->health));
+            occupant->health += applied;
+            if (applied > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                actor->id, occupant->id, occupant->tileId, action.abilityId, applied});
+            const std::int32_t gain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnPlacement")));
+            occupant->initiative += gain;
+            if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                actor->id, occupant->id, occupant->tileId, action.abilityId, gain});
+            if (AbilityValue(definition, "CleanseOneDebuff") > 0.0)
+            {
+                const auto debuff = std::find_if(occupant->modifierEffects.begin(), occupant->modifierEffects.end(),
+                    [](const ModifierEffectState& effect) { return effect.isDebuff; });
+                if (debuff != occupant->modifierEffects.end())
+                {
+                    const DefinitionId id = debuff->id; occupant->modifierEffects.erase(debuff);
+                    result.events.push_back(GameEvent{EventType::EffectRemoved, actor->id, occupant->id,
+                        occupant->tileId, id, 0});
+                }
+            }
+        }
+    }
+    else if (definition.operation == AbilityOperation::Rootsnare)
+    {
+        applyDamage(*actor, *target, definition.amount, definition.defenseIgnore, {});
+        if (target->health <= 0) finalizeDeath(*actor, *target);
+        else
+        {
+            const TileState* tile = FindTile(target->tileId);
+            std::int32_t duration = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+            if (tile && IsNatureTerrain(tile->terrainId)) duration += std::max(0, static_cast<std::int32_t>(
+                AbilityValue(definition, "BonusDurationOnNatureInitiative") + AbilityValue(definition, "BonusDurationInitiative")));
+            ModifierEffectState root; root.id = action.abilityId + ":Rootsnare";
+            root.sourceAbilityId = action.abilityId; root.kind = ModifierEffectKind::Rootsnare;
+            root.causerId = actor->id; root.remainingInitiative = duration; root.isDebuff = true; root.preventsMovement = true;
+            root.incomingDamageMultiplierFromCauserBasisPoints = std::max(0, static_cast<std::int32_t>(
+                (1.0 + AbilityValue(definition, "IncomingDamageMultiplierFromCauserAdd")) * 10000.0 + 0.5));
+            root.initiativeLossOnExpire = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnExpire")));
+            addEffect(*target, root);
+        }
+    }
+    else if (definition.operation == AbilityOperation::WildBloom)
+    {
+        const std::vector<TileState*> fields = connectedNature(*actor);
+        std::int32_t triggered = 0;
+        for (TileState* tile : fields)
+        {
+            CharacterState* occupant = tile ? FindCharacter(tile->occupantId) : nullptr;
+            const std::int32_t terrain = tile ? TerrainTypeIndex(tile->terrainId) : -1;
+            if (occupant && occupant->alive && terrain == 2 && occupant->team != actor->team && occupant->team != Team::Neutral)
+            {
+                applyDamage(*actor, *occupant, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ThornDamage"))), 0, action.abilityId);
+                if (occupant->health <= 0) finalizeDeath(*actor, *occupant); ++triggered;
+            }
+            else if (occupant && occupant->alive && terrain == 3 && occupant->team == actor->team)
+            {
+                const CharacterDefinition& recipient = definitions_.characters.at(occupant->definitionId);
+                const std::int32_t heal = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "GroveHeal")));
+                const std::int32_t applied = std::min(heal, std::max(0, recipient.stats.maxHealth - occupant->health));
+                occupant->health += applied; ++triggered;
+                if (applied > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                    actor->id, occupant->id, occupant->tileId, action.abilityId, applied});
+            }
+            else if (occupant && occupant->alive && terrain == 1 && occupant->team == actor->team)
+            {
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ForestInitiativeGain")));
+                occupant->initiative += gain; ++triggered;
+                if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                    actor->id, occupant->id, occupant->tileId, action.abilityId, gain});
+            }
+            if (tile && AbilityValue(definition, "WitherAfterBloom") > 0.0) setTerrainType(*tile, 0, action.abilityId + ":Wither");
+        }
+        const std::int32_t reduction = std::min(100, triggered * std::max(0, static_cast<std::int32_t>(
+            AbilityValue(definition, "CooldownReductionPerTriggeredField"))));
+        const std::int32_t before = abilityState->cooldownRemaining;
+        abilityState->cooldownRemaining = std::max(0, before - reduction);
+        if (before != abilityState->cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged,
+            actor->id, actor->id, actor->tileId, action.abilityId, abilityState->cooldownRemaining - before});
+        const std::int32_t heal = triggered * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfHealPerTriggeredField")));
+        const std::int32_t applied = std::min(heal, std::max(0, castingDefinition.stats.maxHealth - actor->health));
+        actor->health += applied;
+        if (applied > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+            actor->id, actor->id, actor->tileId, action.abilityId, applied});
+    }
+    else if (definition.operation == AbilityOperation::Accelerate)
     {
         std::vector<CharacterState*> accelerated{target};
         const TileState* center = FindTile(target->tileId);
@@ -4584,6 +4852,35 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             selected->basicAttackBloodAvailable = true;
             selected->bloodCapTriggerAvailable = true;
         }
+        if (PassiveValue(definition, "CoreDruidCharacter") > 0.0)
+        {
+            const TileState* tile = FindTile(selected->tileId);
+            if (tile && IsNatureTerrain(tile->terrainId))
+            {
+                const std::int32_t heal = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "HealOnNatureTurnStart")));
+                const std::int32_t applied = std::min(heal,
+                    std::max(0, definition.stats.maxHealth - selected->health));
+                selected->health += applied;
+                if (applied > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                    selected->id, selected->id, selected->tileId, "DruidNatureTurnStart", applied});
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "InitiativeOnNatureTurnStart")));
+                selected->initiative += gain;
+                if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                    selected->id, selected->id, selected->tileId, "DruidNatureTurnStart", gain});
+            }
+            const auto bear = std::find_if(selected->modifierEffects.begin(), selected->modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+            if (bear != selected->modifierEffects.end() && bear->triggerDamageOnMove > 0)
+            {
+                const std::int32_t applied = std::min(bear->triggerDamageOnMove,
+                    std::max(0, bear->areaDamage - selected->health));
+                selected->health += applied;
+                if (applied > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                    selected->id, selected->id, selected->tileId, "BearTurnStart", applied});
+            }
+        }
         if (PassiveValue(definition, "CoreChronomancerCharacter") > 0.0)
         {
             selected->firstResourceDiscountAvailable = true;
@@ -5350,10 +5647,20 @@ std::int32_t Game::MovementCost(const CharacterState& character, const TileState
         return std::numeric_limits<std::int32_t>::max();
     }
 
-    const std::int64_t baseCost = std::max<std::int32_t>(1, characterDefinition->second.stats.moveCost);
+    const auto bear = std::find_if(character.modifierEffects.begin(), character.modifierEffects.end(),
+        [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+    const std::int64_t baseCost = std::max<std::int32_t>(1, bear != character.modifierEffects.end()
+        ? bear->valueA : characterDefinition->second.stats.moveCost);
     const std::int64_t multiplier = std::max<std::int32_t>(0, terrainDefinition->second.movementCostMultiplierBasisPoints);
     const std::int64_t scaledCost = (baseCost * multiplier + 5000) / 10000;
     std::int64_t cost = std::max<std::int64_t>(terrainDefinition->second.movementCost, scaledCost);
+    if (PassiveValue(characterDefinition->second, "CoreDruidCharacter") > 0.0
+        && IsNatureTerrain(character.tileId == destination.id ? destination.terrainId
+            : (FindTile(character.tileId) ? FindTile(character.tileId)->terrainId : destination.terrainId)))
+    {
+        cost -= std::max(0, static_cast<std::int32_t>(
+            PassiveValue(characterDefinition->second, "MoveCostReductionOnNature")));
+    }
     for (const ModifierEffectState& effect : character.modifierEffects)
     {
         cost = std::max<std::int64_t>(1,
@@ -5376,7 +5683,10 @@ std::int32_t Game::BasicAttackCost(const CharacterState& character) const noexce
     {
         return std::numeric_limits<std::int32_t>::max();
     }
-    std::int64_t cost = std::max(0, definition->second.stats.attackCost);
+    const auto bear = std::find_if(character.modifierEffects.begin(), character.modifierEffects.end(),
+        [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
+    std::int64_t cost = std::max(0, bear != character.modifierEffects.end()
+        ? bear->valueB : definition->second.stats.attackCost);
     if (PassiveValue(definition->second, "CoreComboCharacter") > 0.0 && !character.attackedThisTurn)
         cost = std::max<std::int64_t>(1, cost - std::max(0, static_cast<std::int32_t>(
             PassiveValue(definition->second, "FirstBasicAttackCostReduction"))));

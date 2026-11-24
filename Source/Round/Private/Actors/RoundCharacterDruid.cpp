@@ -24,6 +24,8 @@ URoundAbilityData* BuildBearCancelAbilityData(UObject* Outer)
     AbilityData->bRequiresTargetCharacter = false;
     AbilityData->bRequiresTargetTile = false;
     AbilityData->AbilityClass = ARoundCancelBearFormAbility::StaticClass();
+    AbilityData->Values.Add(TEXT("CoreOperation"), 46.0);
+    AbilityData->Values.Add(TEXT("CoreTargetRelation"), 0.0);
     return AbilityData;
 }
 }
