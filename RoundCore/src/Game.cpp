@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::OverloadDevices
+        if (ability.operation > AbilityOperation::TimeSiphon
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -2190,8 +2190,16 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     {
         return Failure("insufficient_initiative", "The character cannot afford this ability.");
     }
-    const std::int32_t resourceCost = std::max(0,
+    std::int32_t resourceCost = std::max(0,
         static_cast<std::int32_t>(AbilityValue(definition, "ChainCost")));
+    if (definition.operation == AbilityOperation::Accelerate)
+    {
+        resourceCost = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FragmentCost")));
+        const CharacterDefinition& chronoDefinition = definitions_.characters.at(actor->definitionId);
+        if (actor->firstResourceDiscountAvailable)
+            resourceCost = std::max(0, resourceCost - std::max(0, static_cast<std::int32_t>(
+                PassiveValue(chronoDefinition, "FirstFragmentSpendDiscount"))));
+    }
     if (actor->resourceCurrent < resourceCost)
     {
         return Failure("insufficient_resource", "The character cannot afford this ability's resource cost.");
@@ -2270,8 +2278,18 @@ ActionResult Game::ApplyAbility(const GameAction& action)
     result.message = "Ability executed.";
     result.events.push_back(GameEvent{
         EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, -cost});
-    const std::int32_t resourceCost = std::max(0,
+    std::int32_t resourceCost = std::max(0,
         static_cast<std::int32_t>(AbilityValue(definition, "ChainCost")));
+    if (definition.operation == AbilityOperation::Accelerate)
+    {
+        const std::int32_t configuredCost = std::max(0, static_cast<std::int32_t>(
+            AbilityValue(definition, "FragmentCost")));
+        resourceCost = configuredCost;
+        const std::int32_t discount = actor->firstResourceDiscountAvailable
+            ? std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "FirstFragmentSpendDiscount"))) : 0;
+        resourceCost = std::max(0, resourceCost - discount);
+        if (discount > 0) actor->firstResourceDiscountAvailable = false;
+    }
     if (resourceCost > 0)
     {
         actor->resourceCurrent -= resourceCost;
@@ -2281,14 +2299,36 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         {
             actor->firstResourceSpendRefundAvailable = false;
             const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
+            const char* refundKey = definition.operation == AbilityOperation::Accelerate
+                ? "InitiativeGainOnFirstFragmentSpend" : "FirstChainSpendInitiativeRefund";
             const std::int32_t refund = std::max(0, static_cast<std::int32_t>(
-                PassiveValue(actorDefinition, "FirstChainSpendInitiativeRefund")));
+                PassiveValue(actorDefinition, refundKey)));
             actor->initiative += refund;
             if (refund > 0)
             {
                 result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id,
                     actor->tileId, action.abilityId, refund});
             }
+        }
+        if (definition.operation == AbilityOperation::Accelerate)
+        {
+            const std::int32_t reduction = resourceCost * std::max(0, static_cast<std::int32_t>(
+                PassiveValue(castingDefinition, "TimeSiphonCooldownReductionPerFragmentSpent")));
+            const std::int32_t heal = resourceCost * std::max(0, static_cast<std::int32_t>(
+                PassiveValue(castingDefinition, "HealPerFragmentSpent")));
+            for (AbilityState& ability : actor->abilities)
+            {
+                const auto found = definitions_.abilities.find(ability.definitionId);
+                if (found == definitions_.abilities.end() || found->second.operation != AbilityOperation::TimeSiphon) continue;
+                const std::int32_t before = ability.cooldownRemaining;
+                ability.cooldownRemaining = std::max(0, before - reduction);
+                if (before != ability.cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged,
+                    actor->id, actor->id, actor->tileId, ability.definitionId, ability.cooldownRemaining - before});
+            }
+            const std::int32_t appliedHeal = std::min(heal, std::max(0, castingDefinition.stats.maxHealth - actor->health));
+            actor->health += appliedHeal;
+            if (appliedHeal > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                actor->id, actor->id, actor->tileId, action.abilityId, appliedHeal});
         }
     }
     if (abilityState->usesCharges)
@@ -2379,7 +2419,80 @@ ActionResult Game::ApplyAbility(const GameAction& action)
             damaged.tileId, action.abilityId, 0});
     };
 
-    if (definition.operation == AbilityOperation::GroundAura)
+    if (definition.operation == AbilityOperation::Accelerate)
+    {
+        std::vector<CharacterState*> accelerated{target};
+        const TileState* center = FindTile(target->tileId);
+        if (AbilityValue(definition, "AffectAdjacentAllies") > 0.0 && center)
+            for (CharacterState& other : state_.characters)
+            {
+                const TileState* tile = FindTile(other.tileId);
+                if (other.alive && other.team == actor->team && tile && other.id != target->id
+                    && HexDistance(center->coord, tile->coord) == 1) accelerated.push_back(&other);
+            }
+        if (target->id != actor->id && AbilityValue(definition, "AccelerateSelf") > 0.0
+            && std::find(accelerated.begin(), accelerated.end(), actor) == accelerated.end()) accelerated.push_back(actor);
+        const std::int32_t reduction = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReduction")));
+        const std::int32_t extra = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ExtraReductionToHighestCooldown")));
+        for (CharacterState* recipient : accelerated)
+        {
+            AbilityState* highest = nullptr;
+            for (AbilityState& ability : recipient->abilities)
+                if (!highest || ability.cooldownRemaining > highest->cooldownRemaining) highest = &ability;
+            for (AbilityState& ability : recipient->abilities)
+            {
+                const std::int32_t before = ability.cooldownRemaining;
+                ability.cooldownRemaining = std::max(0, before - reduction);
+                if (before != ability.cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged,
+                    actor->id, recipient->id, recipient->tileId, ability.definitionId, ability.cooldownRemaining - before});
+            }
+            if (highest && extra > 0)
+            {
+                const std::int32_t before = highest->cooldownRemaining;
+                highest->cooldownRemaining = std::max(0, before - extra);
+                if (before != highest->cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged,
+                    actor->id, recipient->id, recipient->tileId, highest->definitionId, highest->cooldownRemaining - before});
+            }
+        }
+        const std::int32_t gain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "TargetInitiativeGain")));
+        target->initiative += gain;
+        if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+            actor->id, target->id, target->tileId, action.abilityId, gain});
+    }
+    else if (definition.operation == AbilityOperation::TimeSiphon)
+    {
+        std::int32_t drain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeDrain")));
+        if (actor->resourceCurrent >= actor->resourceMaximum)
+            drain += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusDrainAtFullFragments")));
+        applyDelay(*actor, *target, drain, {});
+        const TileState* center = FindTile(target->tileId);
+        const std::int32_t adjacentDrain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "AdjacentInitiativeDrain")));
+        if (center && adjacentDrain > 0) for (CharacterState& other : state_.characters)
+        {
+            const TileState* tile = FindTile(other.tileId);
+            if (other.alive && other.team != actor->team && other.team != Team::Neutral && other.id != target->id
+                && tile && HexDistance(center->coord, tile->coord) == 1) applyDelay(*actor, other, adjacentDrain, action.abilityId + ":Adjacent");
+        }
+        const std::int32_t requested = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FragmentsGained")));
+        const std::int32_t before = actor->resourceCurrent;
+        actor->resourceCurrent = std::min(actor->resourceMaximum, before + requested);
+        const std::int32_t overflow = std::max(0, before + requested - actor->resourceMaximum);
+        if (actor->resourceCurrent != before) result.events.push_back(GameEvent{EventType::ResourceChanged,
+            actor->id, actor->id, actor->tileId, action.abilityId, actor->resourceCurrent - before});
+        if (overflow > 0)
+        {
+            const std::int32_t heal = overflow * std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "HealPerOverflowFragment")));
+            const std::int32_t appliedHeal = std::min(heal, std::max(0, castingDefinition.stats.maxHealth - actor->health)); actor->health += appliedHeal;
+            if (appliedHeal > 0) result.events.push_back(GameEvent{EventType::HealingApplied, actor->id, actor->id, actor->tileId, action.abilityId, appliedHeal});
+            const std::int32_t cooldownReduction = overflow * std::max(0, static_cast<std::int32_t>(PassiveValue(castingDefinition, "AllCooldownReductionPerOverflowFragment")));
+            for (AbilityState& ability : actor->abilities) { const std::int32_t previous = ability.cooldownRemaining; ability.cooldownRemaining = std::max(0, previous - cooldownReduction);
+                if (previous != ability.cooldownRemaining) result.events.push_back(GameEvent{EventType::CooldownChanged, actor->id, actor->id, actor->tileId, ability.definitionId, ability.cooldownRemaining - previous}); }
+        }
+        const std::int32_t selfGain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfInitiativeGain")));
+        actor->initiative += selfGain;
+        if (selfGain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, selfGain});
+    }
+    else if (definition.operation == AbilityOperation::GroundAura)
     {
         ModifierEffectState effect;
         effect.id = action.abilityId + ":GroundAura";

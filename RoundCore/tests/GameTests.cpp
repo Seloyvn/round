@@ -1296,6 +1296,45 @@ int main()
             && chronomancerGame.State().characters[0].firstResourceDiscountAvailable,
         "Chronomancer turn start should reset discounts and generate an empty fragment reserve");
 
+    const auto chronomancerAbilitySetup = [](AbilityDefinition ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.characters.at("Tank").passiveValues = {
+            {"CoreChronomancerCharacter", 1.0}, {"BaseMaxFragments", 5.0},
+            {"FirstFragmentSpendDiscount", 1.0}, {"InitiativeGainOnFirstFragmentSpend", 10.0},
+            {"TimeSiphonCooldownReductionPerFragmentSpent", 5.0}, {"HealPerFragmentSpent", 4.0},
+            {"HealPerOverflowFragment", 8.0}, {"AllCooldownReductionPerOverflowFragment", 10.0}};
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds = {ability.id};
+        setup.initialState.characters[0].abilities = {AbilityState{ability.id, 0, 40, 1, 1, false}};
+        setup.initialState.characters[0].resourceCurrent = 3;
+        setup.initialState.characters[0].resourceMaximum = 5;
+        setup.initialState.characters[0].health = 80;
+        return setup;
+    };
+    AbilityDefinition accelerate; accelerate.id = "Accelerate"; accelerate.operation = AbilityOperation::Accelerate;
+    accelerate.targetRelation = AbilityTargetRelation::Ally; accelerate.range = 4;
+    accelerate.values = {{"FragmentCost", 2.0}, {"CooldownReduction", 20.0}, {"TargetInitiativeGain", 5.0}};
+    Game accelerateGame; Require(accelerateGame.Reset(chronomancerAbilitySetup(accelerate)).success, "Accelerate setup should reset");
+    GameAction chronoCast{ActionType::UseAbility, 10, 10, InvalidEntityId, accelerate.id};
+    Require(accelerateGame.ApplyAction(chronoCast).success
+            && accelerateGame.State().characters[0].resourceCurrent == 2
+            && accelerateGame.State().characters[0].abilities[0].cooldownRemaining == 20
+            && !accelerateGame.State().characters[0].firstResourceDiscountAvailable,
+        "Accelerate should spend discounted fragments and reduce authoritative cooldowns");
+
+    AbilityDefinition siphon; siphon.id = "TimeSiphon"; siphon.operation = AbilityOperation::TimeSiphon;
+    siphon.targetRelation = AbilityTargetRelation::Enemy; siphon.range = 4;
+    siphon.values = {{"InitiativeDrain", 35.0}, {"FragmentsGained", 2.0}, {"SelfInitiativeGain", 5.0}};
+    MatchSetup siphonSetup = chronomancerAbilitySetup(siphon); siphonSetup.initialState.characters[0].resourceCurrent = 4;
+    Game siphonGame; Require(siphonGame.Reset(std::move(siphonSetup)).success, "Time Siphon setup should reset");
+    chronoCast.targetEntityId = 20; chronoCast.abilityId = siphon.id;
+    Require(siphonGame.ApplyAction(chronoCast).success
+            && siphonGame.State().characters[0].resourceCurrent == 5
+            && siphonGame.State().characters[0].health == 88
+            && siphonGame.State().characters[1].initiative == 65,
+        "Time Siphon should drain initiative and resolve fragment overflow rewards in Core");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

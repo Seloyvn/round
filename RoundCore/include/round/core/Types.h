@@ -65,7 +65,9 @@ enum class AbilityOperation : std::uint8_t
     BuildMine,
     BuildShieldEmitter,
     BuildSpotterBeacon,
-    OverloadDevices
+    OverloadDevices,
+    Accelerate,
+    TimeSiphon
 };
 
 enum class DeviceType : std::uint8_t

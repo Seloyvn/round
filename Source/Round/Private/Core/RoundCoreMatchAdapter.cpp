@@ -585,7 +585,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 35
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 37
                 ? static_cast<roundcore::AbilityOperation>(CoreOperation)
                 : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
@@ -855,6 +855,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
     for (const roundcore::CharacterState& Character : Setup.initialState.characters) NextDeviceId = FMath::Max(NextDeviceId, Character.id + 1);
     for (ARoundCharacter* Character : SortedCharacters)
     {
+        if (ARoundCharacterChronomancer* Chronomancer = Cast<ARoundCharacterChronomancer>(Character))
+            Chronomancer->SetCoreChronomancerAuthoritative(true);
         ARoundCharacterEngineer* Engineer = Cast<ARoundCharacterEngineer>(Character);
         if (!Engineer) continue;
         Engineer->SetCoreDevicesAuthoritative(true);

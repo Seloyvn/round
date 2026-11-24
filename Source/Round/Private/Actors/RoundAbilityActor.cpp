@@ -605,7 +605,8 @@ FRoundActionResult ARoundAbilityActor::ExecuteAbility(ARoundGridTile* TargetTile
     }
     if ((CoreOperation == 1 || CoreOperation == 2 || CoreOperation == 4
         || (CoreOperation >= 6 && CoreOperation <= 11) || CoreOperation == 14 || CoreOperation == 15
-        || CoreOperation == 26 || CoreOperation == 27 || CoreOperation == 30) && OwningCharacter)
+        || CoreOperation == 26 || CoreOperation == 27 || CoreOperation == 30
+        || CoreOperation == 36 || CoreOperation == 37) && OwningCharacter)
     {
         ARoundCharacter* TargetCharacter = ResolveTargetCharacter(TargetTile);
         if (ARoundGameState* RoundGameState = OwningCharacter->GetRoundGameState())
