@@ -1444,6 +1444,102 @@ int main()
             && borrowedExpiryGame.State().characters[0].modifierEffects.empty(),
         "Borrowed Time expiry should forgive its configured share, apply deferred damage, and then heal");
 
+    const auto dragoonAbilitySetup = [](AbilityDefinition ability)
+    {
+        MatchSetup setup = ValidSetup();
+        setup.definitions.characters.at("Tank").passiveValues = {
+            {"CoreDragoonCharacter", 1.0}, {"BaseMomentumMaximum", 5.0},
+            {"BaseMomentumDamagePerStack", 25.0}, {"MomentumRetainedOnMiss", 1.0}};
+        setup.definitions.abilities.emplace(ability.id, ability);
+        setup.definitions.characters.at("Tank").abilityIds = {ability.id};
+        setup.initialState.characters[0].abilities = {AbilityState{ability.id, 0, 0, 1, 1, false}};
+        setup.initialState.characters[0].resourceMaximum = 5;
+        return setup;
+    };
+
+    MatchSetup dragoonPassiveSetup = ValidSetup();
+    dragoonPassiveSetup.definitions.characters.at("Tank").passiveValues = {
+        {"CoreDragoonCharacter", 1.0}, {"BaseMomentumMaximum", 5.0},
+        {"BaseMomentumDamagePerStack", 25.0}, {"BonusMomentumOnFirstHit", 1.0}};
+    Game dragoonPassiveGame; Require(dragoonPassiveGame.Reset(std::move(dragoonPassiveSetup)).success,
+        "Dragoon passive setup should reset");
+    GameAction dragoonAttack{ActionType::BasicAttack, 10, 20};
+    Require(dragoonPassiveGame.ApplyAction(dragoonAttack).success
+            && dragoonPassiveGame.State().characters[0].resourceCurrent == 2
+            && dragoonPassiveGame.State().characters[0].attackedThisTurn,
+        "Dragoon hits should gain authoritative momentum and record the turn hit");
+
+    AbilityDefinition lunge; lunge.id = "Lunge"; lunge.operation = AbilityOperation::DragoonLunge;
+    lunge.targetRelation = AbilityTargetRelation::AnyCharacter; lunge.range = 3; lunge.amount = 20;
+    lunge.values = {{"DamageMultiplierAddPerTile", 0.1}, {"BonusMomentumOnHit", 1.0}};
+    MatchSetup lungeSetup = dragoonAbilitySetup(lunge);
+    lungeSetup.initialState.characters[1].tileId = 4;
+    Game lungeGame; Require(lungeGame.Reset(std::move(lungeSetup)).success, "Lunge setup should reset");
+    GameAction dragoonCast{ActionType::UseAbility, 10, InvalidEntityId, 2, lunge.id};
+    const ActionResult lungeResult = lungeGame.ApplyAction(dragoonCast);
+    Require(lungeResult.success
+            && lungeGame.State().characters[0].tileId == 2
+            && lungeGame.State().characters[1].health < 100,
+        "Lunge should advance along its line and hit the first enemy in Core: "
+            + lungeResult.errorCode + " / " + lungeResult.message);
+
+    AbilityDefinition overshoot; overshoot.id = "Overshoot"; overshoot.operation = AbilityOperation::DragoonOvershoot;
+    overshoot.targetRelation = AbilityTargetRelation::AnyCharacter; overshoot.range = 4; overshoot.amount = 20;
+    overshoot.values = {{"BehindDistance", 1.0}, {"InitiativeLossOnHit", 5.0}};
+    Game overshootGame; Require(overshootGame.Reset(dragoonAbilitySetup(overshoot)).success,
+        "Overshoot setup should reset");
+    dragoonCast.targetTileId = 2; dragoonCast.abilityId = overshoot.id;
+    Require(overshootGame.ApplyAction(dragoonCast).success
+            && overshootGame.State().characters[0].tileId == 4
+            && overshootGame.State().characters[1].health < 100,
+        "Overshoot should land behind its target and damage it in Core");
+
+    AbilityDefinition dive; dive.id = "ExecuteDive"; dive.operation = AbilityOperation::DragoonExecuteDive;
+    dive.targetRelation = AbilityTargetRelation::Enemy; dive.range = 4; dive.amount = 20;
+    dive.values = {{"BonusDamagePerMomentumConsumed", 3.0}, {"ConsumeMomentum", 1.0},
+        {"LowHealthThresholdPercent", 0.35}, {"DamageMultiplierVsLowHealth", 1.8}};
+    MatchSetup diveSetup = dragoonAbilitySetup(dive); diveSetup.initialState.characters[0].resourceCurrent = 3;
+    Game diveGame; Require(diveGame.Reset(std::move(diveSetup)).success, "Execute Dive setup should reset");
+    dragoonCast.targetEntityId = 20; dragoonCast.targetTileId = InvalidEntityId; dragoonCast.abilityId = dive.id;
+    Require(diveGame.ApplyAction(dragoonCast).success
+            && diveGame.State().characters[0].tileId == 3
+            && diveGame.State().characters[0].resourceCurrent == 0
+            && diveGame.State().characters[1].health < 100,
+        "Execute Dive should land adjacent, consume momentum, and damage its target in Core");
+
+    AbilityDefinition hold; hold.id = "HoldtheLine"; hold.operation = AbilityOperation::DragoonHoldTheLine;
+    hold.targetRelation = AbilityTargetRelation::Self; hold.amount = 20;
+    hold.values = {{"ThreatRangeAdd", 0.0}, {"InitiativeLossOnTrigger", 5.0},
+        {"IncomingDamageMultiplierAdd", -0.15}, {"MaxTriggers", 1.0}};
+    Game holdGame; Require(holdGame.Reset(dragoonAbilitySetup(hold)).success,
+        "Hold the Line setup should reset");
+    dragoonCast.targetEntityId = 10; dragoonCast.abilityId = hold.id;
+    Require(holdGame.ApplyAction(dragoonCast).success
+            && holdGame.State().characters[0].modifierEffects.size() == 1
+            && holdGame.State().characters[0].modifierEffects[0].kind == ModifierEffectKind::DragoonThreat,
+        "Hold the Line should create the authoritative threat stance");
+    MatchSetup threatSetup = ValidSetup(); threatSetup.initialState.activeCharacterId = 20;
+    ModifierEffectState threat; threat.id = "HoldtheLine:Threat"; threat.kind = ModifierEffectKind::DragoonThreat;
+    threat.causerId = 10; threat.areaDamage = 20; threat.initiativeLossOnMove = 5; threat.counterA = 1;
+    threat.areaFollowsCauser = true;
+    threatSetup.initialState.characters[0].modifierEffects.push_back(threat);
+    Game threatGame; Require(threatGame.Reset(std::move(threatSetup)).success, "Dragoon threat setup should reset");
+    GameAction leaveThreat{ActionType::Move, 20, InvalidEntityId, 4};
+    Require(threatGame.ApplyAction(leaveThreat).success
+            && threatGame.State().characters[1].health < 100
+            && threatGame.State().characters[0].modifierEffects.empty(),
+        "Hold the Line should react when an enemy leaves its range and honor its trigger limit");
+
+    AbilityDefinition repel; repel.id = "Repel"; repel.operation = AbilityOperation::DragoonRepel;
+    repel.targetRelation = AbilityTargetRelation::Enemy; repel.range = 2; repel.amount = 20;
+    repel.values = {{"PushDistance", 1.0}, {"InitiativeLossOnHit", 5.0}};
+    Game repelGame; Require(repelGame.Reset(dragoonAbilitySetup(repel)).success, "Repel setup should reset");
+    dragoonCast.targetEntityId = 20; dragoonCast.targetTileId = InvalidEntityId; dragoonCast.abilityId = repel.id;
+    Require(repelGame.ApplyAction(dragoonCast).success
+            && repelGame.State().characters[1].tileId == 4
+            && repelGame.State().characters[1].health < 100,
+        "Repel should damage and displace its target without duplicating Actor rules");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

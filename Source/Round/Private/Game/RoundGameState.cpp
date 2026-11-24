@@ -9,6 +9,7 @@
 #include "Actors/RoundCharacter6.h"
 #include "Actors/RoundCharacterChronomancer.h"
 #include "Actors/RoundCharacterDruid.h"
+#include "Actors/RoundCharacterDragoon.h"
 #include "Actors/RoundAbilityActor.h"
 #include "Abilities/RoundSnipeAbility.h"
 #include "Actors/RoundGridTile.h"
@@ -134,6 +135,12 @@ void ApplyChronomancerCoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
         Chronomancer->ApplyCoreChronomancerState(Update.ResourceCurrent,
             Update.bFirstResourceDiscountAvailable, Update.bFirstResourceSpendRefundAvailable);
     }
+}
+
+void ApplyDragoonCoreState(const FRoundCoreCharacterRuntimeUpdate& Update)
+{
+    if (ARoundCharacterDragoon* Dragoon = Cast<ARoundCharacterDragoon>(Update.Character))
+        Dragoon->ApplyCoreDragoonState(Update.ResourceCurrent, Update.bAttackedThisTurn);
 }
 
 void PresentCoreGenericModifier(UWorld* World, const FRoundCoreModifierEffectAddition& Addition,
@@ -4007,6 +4014,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreBasicAttack(
         ApplyCharacter3CoreState(Update);
         ApplyCharacter4CoreState(Update);
         ApplyChronomancerCoreState(Update);
+        ApplyDragoonCoreState(Update);
         if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
             Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                 Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
@@ -4141,6 +4149,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
         ApplyCharacter3CoreState(Update);
         ApplyCharacter4CoreState(Update);
         ApplyChronomancerCoreState(Update);
+        ApplyDragoonCoreState(Update);
         if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
             Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                 Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
@@ -4229,6 +4238,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreAbility(
             }
         }
         if (Addition.CoreEffectKind != static_cast<int32>(roundcore::ModifierEffectKind::AimField)
+            && Addition.CoreEffectKind != static_cast<int32>(roundcore::ModifierEffectKind::DragoonThreat)
             && (Addition.AreaCenterTile || Addition.AreaDamage > 0 || Addition.AreaInitiativeLossPerPulse > 0))
         {
             if (ARoundSanctifiedGroundAuraEffect* Effect = GetWorld()->SpawnActor<ARoundSanctifiedGroundAuraEffect>())
@@ -4587,6 +4597,7 @@ FRoundActionResult ARoundGameState::ExecuteCoreMovePath(ARoundCharacter* Charact
             ApplyCharacter3CoreState(Update);
             ApplyCharacter4CoreState(Update);
             ApplyChronomancerCoreState(Update);
+            ApplyDragoonCoreState(Update);
             if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
                 Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                     Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);
@@ -4739,6 +4750,7 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
             ApplyCharacter3CoreState(Update);
             ApplyCharacter4CoreState(Update);
             ApplyChronomancerCoreState(Update);
+            ApplyDragoonCoreState(Update);
             if (ARoundCharacter5* Character5 = Cast<ARoundCharacter5>(Update.Character))
                 Character5->ApplyCoreBloodState(Update.ResourceCurrent, Update.SpecialCooldownRemaining,
                     Update.bFirstBloodDamageReductionAvailable, Update.bBasicAttackBloodAvailable, Update.bBloodCapTriggerAvailable);

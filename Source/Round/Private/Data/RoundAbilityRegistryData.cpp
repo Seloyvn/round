@@ -2315,7 +2315,7 @@ void URoundAbilityRegistryData::PopulateDragoonAbilityProgressionDefaults()
             MakeAbilitySkillpoint(TEXT("Volle Distanz"), TEXT("Nach einem Treffer am Ende eines fast vollstaendigen Anlaufs erhaelt der Dragoon {InitiativeRefundAtLongRange} Initiative."), {{TEXT("InitiativeRefundAtLongRange"), 18.0}}),
             MakeAbilitySkillpoint(TEXT("Panzerstecher"), TEXT("Der Treffer ignoriert {DefenseIgnore} Verteidigung."), {{TEXT("DefenseIgnore"), 30.0}}),
             MakeAbilitySkillpoint(TEXT("Trefferfolge"), TEXT("Ein Treffer reduziert den aktuellen Cooldown um {CooldownReductionOnHit} Initiative."), {{TEXT("CooldownReductionOnHit"), 55.0}}),
-            MakeAbilitySkillpoint(TEXT("Meteorlanze"), TEXT("Jedes durchquerte Feld erhoeht den Schaden um 10%; die Initiativekosten steigen."), {{TEXT("DamageMultiplierAddPerTile"), 0.10}, {TEXT("InitativeCost"), 8.0}}),
+            MakeAbilitySkillpoint(TEXT("Meteorlanze"), TEXT("Jedes durchquerte Feld erhoeht den Schaden um 10%; die Initiativekosten steigen."), {{TEXT("DamageMultiplierAddPerTile"), 0.10}, {TEXT("InitiativeCost"), 8.0}}),
             MakeAbilitySkillpoint(TEXT("Fixierender Sturm"), TEXT("Der Treffer verwurzelt lange und erzeugt zusaetzliches Momentum."), {{TEXT("RootDurationInitiative"), 60.0}, {TEXT("BonusMomentumOnHit"), 1.0}}),
             MakeAbilitySkillpoint(TEXT("Endloser Anlauf"), TEXT("Erhoeht Reichweite und reduziert den Cooldown nach einem Treffer."), {{TEXT("Range"), 2.0}, {TEXT("CooldownReductionOnHit"), 70.0}})
         }},
@@ -2328,7 +2328,7 @@ void URoundAbilityRegistryData::PopulateDragoonAbilityProgressionDefaults()
             MakeAbilitySkillpoint(TEXT("Weicher Fall"), TEXT("Nach der Landung erhaelt der Dragoon {InitiativeGainOnLanding} Initiative."), {{TEXT("InitiativeGainOnLanding"), 15.0}}),
             MakeAbilitySkillpoint(TEXT("Fallhoehe"), TEXT("Jedes Feld hinter dem Ziel erhoeht den Schaden um 12%."), {{TEXT("DamageMultiplierAddPerBehindTile"), 0.12}}),
             MakeAbilitySkillpoint(TEXT("Luftkampf"), TEXT("Ein Treffer erzeugt {BonusMomentumOnHit} zusaetzliches Momentum."), {{TEXT("BonusMomentumOnHit"), 1.0}}),
-            MakeAbilitySkillpoint(TEXT("Praezisionssprung"), TEXT("Ignoriert Verteidigung und kostet weniger Initiative."), {{TEXT("DefenseIgnore"), 30.0}, {TEXT("InitativeCost"), -8.0}}),
+            MakeAbilitySkillpoint(TEXT("Praezisionssprung"), TEXT("Ignoriert Verteidigung und kostet weniger Initiative."), {{TEXT("DefenseIgnore"), 30.0}, {TEXT("InitiativeCost"), -8.0}}),
             MakeAbilitySkillpoint(TEXT("Himmelssturz"), TEXT("Jedes Feld hinter dem Ziel erhoeht den Schaden um 20%; die Landedistanz steigt."), {{TEXT("DamageMultiplierAddPerBehindTile"), 0.20}, {TEXT("BehindDistance"), 1.0}}),
             MakeAbilitySkillpoint(TEXT("Fliegender Rhythmus"), TEXT("Die Landung gibt Initiative und ein Treffer erzeugt Momentum."), {{TEXT("InitiativeGainOnLanding"), 25.0}, {TEXT("BonusMomentumOnHit"), 1.0}}),
             MakeAbilitySkillpoint(TEXT("Grenzenlos"), TEXT("Erhoeht Reichweite und Landedistanz deutlich."), {{TEXT("Range"), 2.0}, {TEXT("BehindDistance"), 2.0}})
@@ -2370,7 +2370,7 @@ void URoundAbilityRegistryData::PopulateDragoonAbilityProgressionDefaults()
             MakeAbilitySkillpoint(TEXT("Abstossimpuls"), TEXT("Der Dragoon erhaelt {SelfInitiativeGain} Initiative."), {{TEXT("SelfInitiativeGain"), 12.0}}),
             MakeAbilitySkillpoint(TEXT("Wandbrecher"), TEXT("Kann der Gegner nicht die volle Distanz bewegt werden, erleidet er {CollisionDamage} zusaetzlichen Schaden."), {{TEXT("CollisionDamage"), 120.0}}),
             MakeAbilitySkillpoint(TEXT("Schwungstoss"), TEXT("Ein Treffer erzeugt {BonusMomentumOnHit} zusaetzliches Momentum."), {{TEXT("BonusMomentumOnHit"), 1.0}}),
-            MakeAbilitySkillpoint(TEXT("Ruestungsbrecher"), TEXT("Ignoriert Verteidigung und kostet weniger Initiative."), {{TEXT("DefenseIgnore"), 30.0}, {TEXT("InitativeCost"), -5.0}}),
+            MakeAbilitySkillpoint(TEXT("Ruestungsbrecher"), TEXT("Ignoriert Verteidigung und kostet weniger Initiative."), {{TEXT("DefenseIgnore"), 30.0}, {TEXT("InitiativeCost"), -5.0}}),
             MakeAbilitySkillpoint(TEXT("Katapult"), TEXT("Erhoeht die Stossdistanz um {PushDistance}; eine blockierte Bewegung verursacht hohen Kollisionsschaden."), {{TEXT("PushDistance"), 2.0}, {TEXT("CollisionDamage"), 170.0}}),
             MakeAbilitySkillpoint(TEXT("Taktischer Abstand"), TEXT("Entzieht dem Gegner Initiative und gibt dem Dragoon Initiative."), {{TEXT("InitiativeLossOnHit"), 28.0}, {TEXT("SelfInitiativeGain"), 18.0}}),
             MakeAbilitySkillpoint(TEXT("Unaufhaltsamer Stoss"), TEXT("Erhoeht Schaden, Verteidigungsignorierung und erzeugt Momentum."), {{TEXT("Damage"), 100.0}, {TEXT("DefenseIgnore"), 35.0}, {TEXT("BonusMomentumOnHit"), 1.0}})

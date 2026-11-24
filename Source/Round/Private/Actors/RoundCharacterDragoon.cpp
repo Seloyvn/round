@@ -123,3 +123,11 @@ int32 ARoundCharacterDragoon::GetDamagePerStack() const
     const int32 AlternateBonus = FMath::RoundToInt(GetPassiveValueFromKey(TEXT("MomentumDamagePerStack")));
     return FMath::Max(0, (BaseDamage > 0 ? BaseDamage : 25) + BonusDamage + AlternateBonus);
 }
+
+void ARoundCharacterDragoon::ApplyCoreDragoonState(const int32 InMomentumStacks, const bool bInHitEnemyThisTurn)
+{
+    MomentumStacks = FMath::Clamp(InMomentumStacks, 0, GetMomentumMaxStacks());
+    bHitEnemyThisTurn = bInHitEnemyThisTurn;
+    NotifyRoundStateChanged();
+    ForceNetUpdate();
+}

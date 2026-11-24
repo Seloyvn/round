@@ -76,7 +76,12 @@ enum class AbilityOperation : std::uint8_t
     Rootsnare,
     WildBloom,
     BearForm,
-    CancelBearForm
+    CancelBearForm,
+    DragoonLunge,
+    DragoonOvershoot,
+    DragoonExecuteDive,
+    DragoonHoldTheLine,
+    DragoonRepel
 };
 
 enum class DeviceType : std::uint8_t
@@ -122,7 +127,8 @@ enum class ModifierEffectKind : std::uint8_t
     Stasis,
     TemporalAnchor,
     Rootsnare,
-    BearForm
+    BearForm,
+    DragoonThreat
 };
 
 enum class AbilityTargetRelation : std::uint8_t

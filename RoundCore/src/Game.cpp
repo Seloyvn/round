@@ -1,6 +1,7 @@
 #include "round/core/Game.h"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <limits>
 #include <stdexcept>
@@ -108,7 +109,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::CancelBearForm
+        if (ability.operation > AbilityOperation::DragoonRepel
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -311,6 +312,13 @@ ActionResult Game::Reset(MatchSetup setup)
                 PassiveValue(definition, "BaseMaxFragments") + PassiveValue(definition, "MaxFragments")));
             character.resourceCurrent = std::clamp(character.resourceCurrent, 0, character.resourceMaximum);
         }
+        if (PassiveValue(definition, "CoreDragoonCharacter") > 0.0)
+        {
+            character.resourceMaximum = std::max(1, static_cast<std::int32_t>(
+                PassiveValue(definition, "BaseMomentumMaximum")
+                + PassiveValue(definition, "MomentumMaxStacks")));
+            character.resourceCurrent = std::clamp(character.resourceCurrent, 0, character.resourceMaximum);
+        }
         if (PassiveValue(definition, "CoreComboCharacter") <= 0.0) continue;
         character.resourceMaximum = std::max(1, static_cast<std::int32_t>(
             PassiveValue(definition, "BaseComboMaximum") + PassiveValue(definition, "MaxComboPointsAdd")));
@@ -492,6 +500,58 @@ ActionResult Game::ApplyAction(const GameAction& action)
         (void)suppressing;
     }
     if (!character->alive) return result;
+    // Hold the Line reacts once an enemy leaves the Dragoon's threatened area.
+    // The effect lives on its owner, so movement remains the single authoritative
+    // place where crossing the boundary is evaluated.
+    for (CharacterState& owner : state_.characters)
+    {
+        if (!owner.alive || owner.team == character->team || owner.team == Team::Neutral) continue;
+        const TileState* ownerTile = FindTile(owner.tileId);
+        if (!ownerTile) continue;
+        const CharacterDefinition& ownerDefinition = definitions_.characters.at(owner.definitionId);
+        for (auto threat = owner.modifierEffects.begin(); threat != owner.modifierEffects.end();)
+        {
+            if (threat->kind != ModifierEffectKind::DragoonThreat) { ++threat; continue; }
+            const std::int32_t threatRange = std::max(0, ownerDefinition.stats.attackRange + threat->areaRadius);
+            const bool wasInRange = HexDistance(ownerTile->coord, origin->coord) <= threatRange;
+            const bool remainsInRange = HexDistance(ownerTile->coord, destination->coord) <= threatRange;
+            if (!wasInRange || remainsInRange) { ++threat; continue; }
+
+            std::vector<GameEvent> auraEvents, modifierEvents;
+            const std::int32_t damage = ResolveDamage(owner, *character, threat->areaDamage,
+                threat->defenseIgnoreAdd, auraEvents, modifierEvents);
+            result.events.push_back(GameEvent{EventType::DamageApplied, owner.id, character->id,
+                character->tileId, threat->id, damage});
+            result.events.insert(result.events.end(), auraEvents.begin(), auraEvents.end());
+            result.events.insert(result.events.end(), modifierEvents.begin(), modifierEvents.end());
+            if (threat->initiativeLossOnMove > 0)
+            {
+                const std::int32_t previous = character->initiative;
+                character->initiative = std::max(0, character->initiative - threat->initiativeLossOnMove);
+                if (previous != character->initiative) result.events.push_back(GameEvent{
+                    EventType::InitiativeChanged, owner.id, character->id, character->tileId,
+                    threat->id, character->initiative - previous});
+            }
+            ++threat->counterB;
+            const bool exhausted = threat->counterA > 0 && threat->counterB >= threat->counterA;
+            if (exhausted)
+            {
+                const DefinitionId effectId = threat->id;
+                threat = owner.modifierEffects.erase(threat);
+                result.events.push_back(GameEvent{EventType::EffectRemoved, owner.id, owner.id,
+                    owner.tileId, effectId, 0});
+            }
+            else ++threat;
+
+            if (character->health <= 0)
+            {
+                character->health = 0; character->alive = false; destination->occupantId = InvalidEntityId;
+                result.events.push_back(GameEvent{EventType::CharacterDied, owner.id, character->id,
+                    character->tileId, "DragoonThreat", 0});
+                return result;
+            }
+        }
+    }
     // Aim fields belong to their owner and react when an enemy enters their configured area.
     for (CharacterState& owner : state_.characters)
     {
@@ -895,6 +955,20 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
         return 0;
     const CharacterDefinition& sourceDefinition = definitions_.characters.at(source.definitionId);
     const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
+    const bool dragoonSource = PassiveValue(sourceDefinition, "CoreDragoonCharacter") > 0.0;
+    if (dragoonSource)
+    {
+        const std::int32_t damagePerStack = std::max(0, static_cast<std::int32_t>(
+            PassiveValue(sourceDefinition, "BaseMomentumDamagePerStack")
+            + PassiveValue(sourceDefinition, "DamagePerStack")
+            + PassiveValue(sourceDefinition, "MomentumDamagePerStack")));
+        damage += source.resourceCurrent * damagePerStack;
+        defenseIgnore += source.resourceCurrent * std::max(0, static_cast<std::int32_t>(
+            PassiveValue(sourceDefinition, "DefenseIgnorePerMomentum")));
+        if (source.resourceMaximum > 0 && source.resourceCurrent >= source.resourceMaximum)
+            damage = static_cast<std::int32_t>(damage * std::max(0.0,
+                1.0 + PassiveValue(sourceDefinition, "DamageMultiplierAddAtMaxMomentum")) + 0.5);
+    }
     const TileState* initialSourceTile = FindTile(source.tileId);
     const TileState* initialTargetTile = FindTile(target.tileId);
     if (initialTargetTile && IsNatureTerrain(initialTargetTile->terrainId)
@@ -1249,7 +1323,9 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     const auto bear = std::find_if(target.modifierEffects.begin(), target.modifierEffects.end(),
         [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::BearForm; });
     const std::int32_t baseDefense = bear != target.modifierEffects.end() ? bear->counterC : targetDefinition.stats.defense;
-    const std::int64_t defense = std::max(0, baseDefense + resourceDefense + heldDefense + bloodDefense
+    const std::int32_t momentumDefense = PassiveValue(targetDefinition, "CoreDragoonCharacter") > 0.0
+        ? target.resourceCurrent * std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefensePerMomentum"))) : 0;
+    const std::int64_t defense = std::max(0, baseDefense + resourceDefense + heldDefense + bloodDefense + momentumDefense
         + elementDefense + target.rockDefenseBonus + deviceDefense - defenseIgnore);
     const std::int64_t denominator = 100 + defense;
     std::int32_t finalDamage = static_cast<std::int32_t>(std::min<std::int64_t>(
@@ -1432,6 +1508,22 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
                 target.tileId, effectId, 0});
             modifierEvents.push_back(GameEvent{EventType::HealingApplied, target.id, target.id,
                 target.tileId, "BearFormExit", target.health});
+        }
+    }
+    if (appliedDamage > 0 && dragoonSource && source.team != target.team)
+    {
+        const bool firstHit = !source.attackedThisTurn;
+        source.attackedThisTurn = true;
+        const std::int32_t gain = 1 + (firstHit ? std::max(0, static_cast<std::int32_t>(
+            PassiveValue(sourceDefinition, "BonusMomentumOnFirstHit"))) : 0);
+        source.resourceCurrent = std::min(source.resourceMaximum, source.resourceCurrent + gain);
+        if (source.resourceCurrent >= source.resourceMaximum)
+        {
+            const std::int32_t heal = std::max(0, static_cast<std::int32_t>(PassiveValue(sourceDefinition, "HealOnHitAtMaxMomentum")));
+            const std::int32_t actual = std::min(heal, std::max(0, sourceDefinition.stats.maxHealth - source.health));
+            source.health += actual;
+            if (actual > 0) modifierEvents.push_back(GameEvent{EventType::HealingApplied, source.id, source.id,
+                source.tileId, "DragoonMaxMomentum", actual});
         }
     }
     return appliedDamage;
@@ -2132,7 +2224,9 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
         || definition.operation == AbilityOperation::BuildMine || definition.operation == AbilityOperation::BuildShieldEmitter
         || definition.operation == AbilityOperation::BuildSpotterBeacon
         || definition.operation == AbilityOperation::ThornPatch
-        || definition.operation == AbilityOperation::Grove)
+        || definition.operation == AbilityOperation::Grove
+        || definition.operation == AbilityOperation::DragoonLunge
+        || definition.operation == AbilityOperation::DragoonOvershoot)
     {
         const TileState* targetTile = FindTile(action.targetTileId);
         if (!targetTile)
@@ -2319,7 +2413,10 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         && definition.operation != AbilityOperation::Lightningstrike && definition.operation != AbilityOperation::Rockblast
         && definition.operation != AbilityOperation::ArcaneShift && definition.operation != AbilityOperation::BuildTurret
         && definition.operation != AbilityOperation::BuildMine && definition.operation != AbilityOperation::BuildShieldEmitter
-        && definition.operation != AbilityOperation::BuildSpotterBeacon && !target)
+        && definition.operation != AbilityOperation::BuildSpotterBeacon
+        && definition.operation != AbilityOperation::ThornPatch && definition.operation != AbilityOperation::Grove
+        && definition.operation != AbilityOperation::DragoonLunge
+        && definition.operation != AbilityOperation::DragoonOvershoot && !target)
     {
         return Failure("invalid_state", "Validated ability references missing target state.");
     }
@@ -2547,8 +2644,156 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         }
         return connected;
     };
+    const auto dragoonLineTiles = [this](const TileState& start, const TileState& selected, const std::int32_t total)
+    {
+        std::vector<TileState*> line;
+        const std::int32_t selectedDistance = std::max(1, HexDistance(start.coord, selected.coord));
+        for (std::int32_t step = 1; step <= total; ++step)
+        {
+            const double scale = static_cast<double>(step) / selectedDistance;
+            const HexCoord wanted{static_cast<std::int32_t>(std::round(start.coord.q + (selected.coord.q - start.coord.q) * scale)),
+                static_cast<std::int32_t>(std::round(start.coord.r + (selected.coord.r - start.coord.r) * scale))};
+            const auto found = std::find_if(state_.tiles.begin(), state_.tiles.end(),
+                [&wanted](const TileState& tile) { return tile.coord == wanted; });
+            if (found == state_.tiles.end()) break;
+            TileState* tile = &*found;
+            if (line.empty() || line.back()->id != tile->id) line.push_back(tile);
+        }
+        return line;
+    };
 
-    if (definition.operation == AbilityOperation::BearForm)
+    if (definition.operation == AbilityOperation::DragoonLunge)
+    {
+        TileState* origin = FindTile(actor->tileId); TileState* selected = FindTile(action.targetTileId);
+        if (!origin || !selected) return Failure("invalid_lunge", "Lunge requires a direction tile.");
+        const std::vector<TileState*> line = dragoonLineTiles(*origin, *selected, std::max(1, definition.range));
+        CharacterState* hit = nullptr; std::int32_t traversed = 0;
+        for (TileState* tile : line)
+        {
+            if (tile->occupantId != InvalidEntityId)
+            {
+                CharacterState* occupant = FindCharacter(tile->occupantId);
+                if (occupant && occupant->team != actor->team && occupant->team != Team::Neutral) hit = occupant;
+                break;
+            }
+            const auto terrain = definitions_.terrains.find(tile->terrainId);
+            if (tile->blocksMovement || terrain == definitions_.terrains.end() || !terrain->second.walkable) break;
+            if (TileState* current = FindTile(actor->tileId)) current->occupantId = InvalidEntityId;
+            tile->occupantId = actor->id; actor->tileId = tile->id; ++traversed;
+            result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, tile->id, action.abilityId, 0});
+        }
+        if (hit)
+        {
+            const std::int32_t damage = static_cast<std::int32_t>(definition.amount
+                * (1.0 + traversed * std::max(0.0, AbilityValue(definition, "DamageMultiplierAddPerTile"))) + 0.5);
+            applyDamage(*actor, *hit, damage, definition.defenseIgnore, {});
+            actor->resourceCurrent = std::min(actor->resourceMaximum, actor->resourceCurrent
+                + std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusMomentumOnHit"))));
+            if (traversed >= definition.range - 1) actor->initiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeRefundAtLongRange")));
+            abilityState->cooldownRemaining = std::max(0, abilityState->cooldownRemaining
+                - std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReductionOnHit"))));
+            if (hit->health > 0 && AbilityValue(definition, "RootDurationInitiative") > 0.0)
+            {
+                ModifierEffectState root; root.id = action.abilityId + ":Root"; root.causerId = actor->id;
+                root.kind = ModifierEffectKind::Rootsnare; root.isDebuff = true; root.preventsMovement = true;
+                root.remainingInitiative = static_cast<std::int32_t>(AbilityValue(definition, "RootDurationInitiative")); addEffect(*hit, root);
+            }
+            finalizeDeath(*actor, *hit);
+        }
+        if (traversed == 0 && !hit) return Failure("lunge_blocked", "Lunge could not move or hit.");
+    }
+    else if (definition.operation == AbilityOperation::DragoonOvershoot)
+    {
+        TileState* origin = FindTile(actor->tileId); TileState* selected = FindTile(action.targetTileId);
+        if (!origin || !selected) return Failure("invalid_overshoot", "Overshoot requires a target tile.");
+        const std::int32_t behind = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "BehindDistance")));
+        const std::int32_t distance = HexDistance(origin->coord, selected->coord);
+        const std::vector<TileState*> line = dragoonLineTiles(*origin, *selected, distance + behind);
+        TileState* destination = nullptr;
+        for (auto it = line.rbegin(); it != line.rend(); ++it)
+        {
+            TileState* tile = *it; const auto terrain = definitions_.terrains.find(tile->terrainId);
+            if (HexDistance(origin->coord, tile->coord) > distance && tile->occupantId == InvalidEntityId
+                && !tile->blocksMovement && terrain != definitions_.terrains.end() && terrain->second.walkable) { destination = tile; break; }
+        }
+        if (!destination) return Failure("no_landing_tile", "Overshoot has no free landing tile.");
+        origin->occupantId = InvalidEntityId; destination->occupantId = actor->id; actor->tileId = destination->id;
+        result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, destination->id, action.abilityId, 0});
+        if (CharacterState* hit = FindCharacter(selected->occupantId); hit && hit->team != actor->team)
+        {
+            const std::int32_t damage = static_cast<std::int32_t>(definition.amount
+                * (1.0 + behind * std::max(0.0, AbilityValue(definition, "DamageMultiplierAddPerBehindTile"))) + 0.5);
+            applyDamage(*actor, *hit, damage, definition.defenseIgnore, {});
+            applyDelay(*actor, *hit, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), action.abilityId);
+            finalizeDeath(*actor, *hit);
+            actor->resourceCurrent = std::min(actor->resourceMaximum, actor->resourceCurrent
+                + std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusMomentumOnHit"))));
+        }
+        actor->initiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnLanding")));
+    }
+    else if (definition.operation == AbilityOperation::DragoonExecuteDive)
+    {
+        const TileState* origin = FindTile(actor->tileId); TileState* targetTile = FindTile(target->tileId); TileState* destination = nullptr;
+        for (TileState& tile : state_.tiles)
+        {
+            const auto terrain = definitions_.terrains.find(tile.terrainId);
+            if (tile.occupantId == InvalidEntityId && !tile.blocksMovement && targetTile
+                && HexDistance(tile.coord, targetTile->coord) == 1 && terrain != definitions_.terrains.end() && terrain->second.walkable
+                && (!destination || (origin && HexDistance(tile.coord, origin->coord) < HexDistance(destination->coord, origin->coord)))) destination = &tile;
+        }
+        if (!destination) return Failure("no_landing_tile", "Execute Dive has no free landing tile.");
+        if (TileState* current = FindTile(actor->tileId)) current->occupantId = InvalidEntityId;
+        destination->occupantId = actor->id; actor->tileId = destination->id;
+        result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, actor->id, destination->id, action.abilityId, 0});
+        const CharacterDefinition& targetDefinition = definitions_.characters.at(target->definitionId);
+        std::int32_t damage = definition.amount + actor->resourceCurrent * std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusDamagePerMomentumConsumed")));
+        const double threshold = AbilityValue(definition, "LowHealthThresholdPercent");
+        if (threshold > 0.0 && target->health <= targetDefinition.stats.maxHealth * threshold)
+            damage = static_cast<std::int32_t>(damage * std::max(0.0, AbilityValue(definition, "DamageMultiplierVsLowHealth")) + 0.5);
+        applyDamage(*actor, *target, damage, definition.defenseIgnore, {}); const bool killed = target->health <= 0;
+        if (AbilityValue(definition, "ConsumeMomentum") > 0.0) actor->resourceCurrent = 0;
+        if (killed) { actor->initiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnKill")));
+            abilityState->cooldownRemaining = std::max(0, abilityState->cooldownRemaining - std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CooldownReductionOnKill")))); }
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::DragoonHoldTheLine)
+    {
+        ModifierEffectState threat; threat.id = action.abilityId + ":Threat"; threat.sourceAbilityId = action.abilityId;
+        threat.kind = ModifierEffectKind::DragoonThreat; threat.causerId = actor->id;
+        threat.areaDamage = definition.amount; threat.areaDamageType = definition.damageType;
+        threat.areaFollowsCauser = true;
+        threat.defenseIgnoreAdd = definition.defenseIgnore; threat.areaRadius = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "ThreatRangeAdd")));
+        threat.initiativeLossOnMove = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnTrigger")));
+        threat.incomingDamageMultiplierBasisPoints = std::max(0, static_cast<std::int32_t>((1.0 + AbilityValue(definition, "IncomingDamageMultiplierAdd")) * 10000.0 + 0.5));
+        threat.counterA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "MaxTriggers"))); addEffect(*actor, threat);
+        actor->initiative = 0;
+    }
+    else if (definition.operation == AbilityOperation::DragoonRepel)
+    {
+        applyDamage(*actor, *target, definition.amount, definition.defenseIgnore, {});
+        if (target->health > 0)
+        {
+            const std::int32_t requested = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "PushDistance")));
+            std::int32_t pushed = 0;
+            for (; pushed < requested; ++pushed)
+            {
+                TileState* current = FindTile(target->tileId); const TileState* source = FindTile(actor->tileId); TileState* best = nullptr;
+                std::int32_t farthest = current && source ? HexDistance(source->coord, current->coord) : 0;
+                for (TileState& tile : state_.tiles) { const auto terrain = definitions_.terrains.find(tile.terrainId);
+                    if (current && source && tile.occupantId == InvalidEntityId && !tile.blocksMovement && HexDistance(current->coord, tile.coord) == 1
+                        && HexDistance(source->coord, tile.coord) > farthest && terrain != definitions_.terrains.end() && terrain->second.walkable)
+                    { best = &tile; farthest = HexDistance(source->coord, tile.coord); } }
+                if (!best || !current) break; current->occupantId = InvalidEntityId; best->occupantId = target->id; target->tileId = best->id;
+                result.events.push_back(GameEvent{EventType::CharacterMoved, actor->id, target->id, best->id, action.abilityId, 0});
+            }
+            if (pushed < requested) applyDamage(*actor, *target, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "CollisionDamage"))), definition.defenseIgnore, action.abilityId + ":Collision");
+            applyDelay(*actor, *target, std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeLossOnHit"))), action.abilityId);
+        }
+        actor->initiative += std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfInitiativeGain")));
+        actor->resourceCurrent = std::min(actor->resourceMaximum, actor->resourceCurrent + std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "BonusMomentumOnHit"))));
+        finalizeDeath(*actor, *target);
+    }
+    else if (definition.operation == AbilityOperation::BearForm)
     {
         ModifierEffectState form; form.id = action.abilityId + ":BearForm";
         form.sourceAbilityId = action.abilityId; form.kind = ModifierEffectKind::BearForm;
@@ -4631,6 +4876,12 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
         if (CharacterState* endingCharacter = FindCharacter(action.actorId))
         {
             const CharacterDefinition& endingDefinition = definitions_.characters.at(endingCharacter->definitionId);
+            if (PassiveValue(endingDefinition, "CoreDragoonCharacter") > 0.0 && !endingCharacter->attackedThisTurn
+                && PassiveValue(endingDefinition, "KeepAllMomentumOnMiss") <= 0.0)
+            {
+                endingCharacter->resourceCurrent = std::min(endingCharacter->resourceCurrent,
+                    std::max(0, static_cast<std::int32_t>(PassiveValue(endingDefinition, "MomentumRetainedOnMiss"))));
+            }
             if (PassiveValue(endingDefinition, "CoreAmmoCharacter") > 0.0)
             {
                 endingCharacter->heldPositionFromPreviousTurn = !endingCharacter->movedSinceLastTurn;
@@ -4739,6 +4990,17 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
             result.message = "Selected character died before its turn.";
             ++state_.step;
             return result;
+        }
+        for (auto effect = selected->modifierEffects.begin(); effect != selected->modifierEffects.end();)
+        {
+            if (effect->kind == ModifierEffectKind::DragoonThreat)
+            {
+                const DefinitionId effectId = effect->id;
+                effect = selected->modifierEffects.erase(effect);
+                result.events.push_back(GameEvent{EventType::EffectRemoved, selected->id, selected->id,
+                    selected->tileId, effectId, 0});
+            }
+            else ++effect;
         }
         const std::int32_t delay = std::max(0, definition.stats.turnDelay);
         if (delay > 0)
@@ -4879,6 +5141,18 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 selected->health += applied;
                 if (applied > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
                     selected->id, selected->id, selected->tileId, "BearTurnStart", applied});
+            }
+        }
+        if (PassiveValue(definition, "CoreDragoonCharacter") > 0.0)
+        {
+            selected->attackedThisTurn = false;
+            if (selected->resourceMaximum > 0 && selected->resourceCurrent >= selected->resourceMaximum)
+            {
+                const std::int32_t gain = std::max(0, static_cast<std::int32_t>(
+                    PassiveValue(definition, "InitiativeGainAtMaxMomentumTurnStart")));
+                selected->initiative += gain;
+                if (gain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                    selected->id, selected->id, selected->tileId, "DragoonMaxMomentum", gain});
             }
         }
         if (PassiveValue(definition, "CoreChronomancerCharacter") > 0.0)

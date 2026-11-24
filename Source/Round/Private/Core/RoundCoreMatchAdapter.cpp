@@ -8,6 +8,7 @@
 #include "Actors/RoundCharacterEngineer.h"
 #include "Actors/RoundCharacterChronomancer.h"
 #include "Actors/RoundCharacterDruid.h"
+#include "Actors/RoundCharacterDragoon.h"
 #include "Actors/RoundTurretDeviceActor.h"
 #include "Actors/RoundMineDeviceActor.h"
 #include "Actors/RoundShieldEmitterDeviceActor.h"
@@ -471,6 +472,20 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 Definition.passiveValues.emplace(ToCoreString(Key), Druid->GetPassiveValueFromKey(Key));
             Definition.passiveValues.emplace("CoreDruidCharacter", 1.0);
         }
+        if (const ARoundCharacterDragoon* Dragoon = Cast<ARoundCharacterDragoon>(Character))
+        {
+            static const TCHAR* PassiveKeys[] = {
+                TEXT("MomentumMaxStacks"), TEXT("DamagePerStack"), TEXT("MomentumDamagePerStack"),
+                TEXT("MomentumRetainedOnMiss"), TEXT("KeepAllMomentumOnMiss"),
+                TEXT("DefensePerMomentum"), TEXT("BonusMomentumOnFirstHit"),
+                TEXT("InitiativeGainAtMaxMomentumTurnStart"), TEXT("DefenseIgnorePerMomentum"),
+                TEXT("HealOnHitAtMaxMomentum"), TEXT("DamageMultiplierAddAtMaxMomentum")};
+            for (const TCHAR* Key : PassiveKeys)
+                Definition.passiveValues.emplace(ToCoreString(Key), Dragoon->GetPassiveValueFromKey(Key));
+            Definition.passiveValues.emplace("CoreDragoonCharacter", 1.0);
+            Definition.passiveValues.emplace("BaseMomentumMaximum", Dragoon->GetValueFromKey(TEXT("MomentumMaxStacks")));
+            Definition.passiveValues.emplace("BaseMomentumDamagePerStack", Dragoon->GetValueFromKey(TEXT("DamagePerStack")));
+        }
         roundcore::CharacterState CharacterState;
         CharacterState.id = CharacterId;
         CharacterState.definitionId = DefinitionId;
@@ -479,6 +494,12 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
         CharacterState.health = Character->Attributes->CurrentHealth;
         CharacterState.initiative = Character->Attributes->CurrentInitiative;
         CharacterState.alive = Character->IsAlive();
+        if (const ARoundCharacterDragoon* Dragoon = Cast<ARoundCharacterDragoon>(Character))
+        {
+            CharacterState.resourceCurrent = Dragoon->GetMomentumStacks();
+            CharacterState.resourceMaximum = Dragoon->GetMomentumMaxStacks();
+            CharacterState.attackedThisTurn = Dragoon->HasHitEnemyThisTurn();
+        }
         // Migrated blockers are represented by modifierEffects so the Core can
         // expire them authoritatively. Preserve the snapshot flag only for
         // blockers whose complete behavior has not moved to Core yet.
@@ -595,7 +616,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 46
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 51
                 ? static_cast<roundcore::AbilityOperation>(CoreOperation)
                 : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
@@ -613,7 +634,8 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
             AbilityDefinition.range = Ability->GetAbilityRange();
             AbilityDefinition.amount = (AbilityDefinition.operation == roundcore::AbilityOperation::DirectDamage
                 || AbilityDefinition.operation == roundcore::AbilityOperation::GroundAura
-                || (CoreOperation >= 6 && CoreOperation <= 34))
+                || (CoreOperation >= 6 && CoreOperation <= 34)
+                || (CoreOperation >= 47 && CoreOperation <= 51))
                 ? Ability->GetAbilityDamage()
                 : FMath::Max(0, FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("Heal"))));
             AbilityDefinition.defenseIgnore = FMath::Max(
@@ -1074,7 +1096,8 @@ bool FRoundCoreMatchAdapter::IsAbilityLegal(
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
     const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
         || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25
-        || (CoreOperation >= 31 && CoreOperation <= 34) || CoreOperation == 41 || CoreOperation == 42;
+        || (CoreOperation >= 31 && CoreOperation <= 34) || CoreOperation == 41 || CoreOperation == 42
+        || CoreOperation == 47 || CoreOperation == 48;
     if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");
@@ -1318,7 +1341,8 @@ bool FRoundCoreMatchAdapter::ExecuteAbility(
     const int32 CoreOperation = FMath::RoundToInt(Ability ? Ability->GetAbilityValueFromKey(TEXT("CoreOperation")) : 0.0);
     const bool bTileTargeted = CoreOperation == 5 || CoreOperation == 13 || CoreOperation == 19
         || CoreOperation == 21 || CoreOperation == 23 || CoreOperation == 24 || CoreOperation == 25
-        || (CoreOperation >= 31 && CoreOperation <= 34) || CoreOperation == 41 || CoreOperation == 42;
+        || (CoreOperation >= 31 && CoreOperation <= 34) || CoreOperation == 41 || CoreOperation == 42
+        || CoreOperation == 47 || CoreOperation == 48;
     if (!CharacterId || AbilityKey.IsEmpty() || (bTileTargeted ? !TargetTileId : !TargetId))
     {
         OutReason = TEXT("Ability actor or target is not part of the Core snapshot.");

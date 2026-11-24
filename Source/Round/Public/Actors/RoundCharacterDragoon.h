@@ -34,6 +34,10 @@ public:
     UFUNCTION(BlueprintPure, Category = "Round|Dragoon")
     int32 GetDamagePerStack() const;
 
+    bool HasHitEnemyThisTurn() const { return bHitEnemyThisTurn; }
+
+    void ApplyCoreDragoonState(int32 InMomentumStacks, bool bInHitEnemyThisTurn);
+
 protected:
     virtual int32 GetIncomingBonusDefense(ERoundDamageType DamageType) const override;
 
