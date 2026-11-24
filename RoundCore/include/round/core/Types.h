@@ -67,7 +67,10 @@ enum class AbilityOperation : std::uint8_t
     BuildSpotterBeacon,
     OverloadDevices,
     Accelerate,
-    TimeSiphon
+    TimeSiphon,
+    BorrowedTime,
+    Stasis,
+    TemporalAnchor
 };
 
 enum class DeviceType : std::uint8_t
@@ -108,7 +111,10 @@ enum class ModifierEffectKind : std::uint8_t
     SpinEcho,
     RendBleed,
     EngineerShield,
-    EngineerSpotted
+    EngineerSpotted,
+    BorrowedTime,
+    Stasis,
+    TemporalAnchor
 };
 
 enum class AbilityTargetRelation : std::uint8_t

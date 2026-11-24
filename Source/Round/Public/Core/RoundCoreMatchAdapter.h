@@ -163,6 +163,7 @@ struct FRoundCoreTurnExecution
     TArray<FRoundCoreCharacterRuntimeUpdate> CharacterUpdates;
     TArray<FRoundCoreAbilityRuntimeUpdate> AbilityUpdates;
     TArray<FRoundCoreEffectRemoval> RemovedEffects;
+    TArray<FRoundCoreHealingEvent> HealingEvents;
     TArray<FRoundCoreDamageEvent> DamageEvents;
     TArray<FRoundCoreModifierEffectAddition> AddedModifierEffects;
     TArray<TPair<ARoundCharacter*, int32>> AppliedDelays;

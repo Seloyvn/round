@@ -4,6 +4,9 @@ import unreal
 ABILITIES = {
     "Accelerate": (36.0, 1.0),
     "TimeSiphon": (37.0, 2.0),
+    "BorrowedTime": (38.0, 1.0),
+    "Stasis": (39.0, 1.0),
+    "TemporalAnchor": (40.0, 1.0),
 }
 
 registry = None
@@ -31,4 +34,4 @@ for name, (operation, relation) in ABILITIES.items():
 if not unreal.EditorAssetLibrary.save_loaded_asset(registry, only_if_is_dirty=False):
     raise RuntimeError("Could not save ability registry")
 
-unreal.log("[migrate_chronomancer_core_abilities] Accelerate and Time Siphon enabled for RoundCore")
+unreal.log("[migrate_chronomancer_core_abilities] All Chronomancer abilities enabled for RoundCore")

@@ -1,7 +1,8 @@
 import unreal
 
 
-ABILITIES = {"Accelerate": 36.0, "TimeSiphon": 37.0}
+ABILITIES = {"Accelerate": 36.0, "TimeSiphon": 37.0, "BorrowedTime": 38.0,
+             "Stasis": 39.0, "TemporalAnchor": 40.0}
 for name, operation in ABILITIES.items():
     ability = unreal.EditorAssetLibrary.load_asset(f"/Game/TopDown/Data/Abilities/DA_Ability_{name}")
     progression = unreal.EditorAssetLibrary.load_asset(f"/Game/TopDown/Data/SkillProgression/DA_SkillProgression_{name}")
@@ -17,4 +18,4 @@ for name, operation in ABILITIES.items():
     if not linked or linked.get_path_name() != progression.get_path_name():
         raise RuntimeError(f"{name} does not reference its progression asset")
 
-unreal.log("[validate_chronomancer_core_abilities] OK: 2 Core abilities and 24 skillpoints")
+unreal.log("[validate_chronomancer_core_abilities] OK: 5 Core abilities and 60 skillpoints")

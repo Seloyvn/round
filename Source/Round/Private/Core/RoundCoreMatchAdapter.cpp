@@ -585,7 +585,7 @@ bool FRoundCoreMatchAdapter::Rebuild(const ARoundGameState& GameState, FString& 
                 AbilityDefinition.values.emplace(ToCoreString(Value.Key), Value.Value);
             }
             const int32 CoreOperation = FMath::RoundToInt(Ability->GetAbilityValueFromKey(TEXT("CoreOperation")));
-            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 37
+            AbilityDefinition.operation = CoreOperation >= 1 && CoreOperation <= 40
                 ? static_cast<roundcore::AbilityOperation>(CoreOperation)
                 : roundcore::AbilityOperation::Unsupported;
             AbilityDefinition.targetRelation = AbilityDefinition.operation == roundcore::AbilityOperation::SelfModifier
@@ -1559,6 +1559,10 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
         else if (Event.type == roundcore::EventType::DamageApplied)
         {
             roundcore::DamageType CoreDamageType = roundcore::DamageType::Physical;
+            if (Event.definitionId.find(":BorrowedTime") != std::string::npos)
+            {
+                CoreDamageType = roundcore::DamageType::TrueDamage;
+            }
             const auto SourceState = std::find_if(CoreGame.State().characters.begin(), CoreGame.State().characters.end(),
                 [&Event](const roundcore::CharacterState& State) { return State.id == Event.sourceId; });
             if (SourceState != CoreGame.State().characters.end())
@@ -1570,6 +1574,14 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
             OutExecution.DamageEvents.Add({CharacterActors.FindRef(Event.sourceId),
                 CharacterActors.FindRef(Event.targetId), FMath::Max(0, static_cast<int32>(Event.amount)),
                 false, ToRoundDamageType(CoreDamageType)});
+        }
+        else if (Event.type == roundcore::EventType::HealingApplied)
+        {
+            if (ARoundCharacter* const* HealedCharacter = CharacterActors.Find(Event.targetId))
+            {
+                OutExecution.HealingEvents.Add({*HealedCharacter,
+                    FMath::Max(0, static_cast<int32>(Event.amount))});
+            }
         }
         else if (Event.type == roundcore::EventType::CharacterDied)
         {
@@ -1622,7 +1634,8 @@ bool FRoundCoreMatchAdapter::ExecuteTurnStep(
         if (ARoundCharacter* const* Character = CharacterActors.Find(State.id))
         {
             FRoundCoreCharacterRuntimeUpdate& Update = OutExecution.CharacterUpdates.AddDefaulted_GetRef();
-            Update.Character = *Character; Update.Health = State.health; Update.Initiative = State.initiative;
+            Update.Character = *Character; Update.Tile = TileActors.FindRef(State.tileId);
+            Update.Health = State.health; Update.Initiative = State.initiative;
             Update.bAlive = State.alive; Update.ResourceCurrent = State.resourceCurrent;
             Update.ResourceRechargeProgress = State.resourceRechargeProgress;
             Update.SpecialCooldownRemaining = State.specialCooldownRemaining;

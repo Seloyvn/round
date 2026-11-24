@@ -1335,6 +1335,115 @@ int main()
             && siphonGame.State().characters[1].initiative == 65,
         "Time Siphon should drain initiative and resolve fragment overflow rewards in Core");
 
+    AbilityDefinition borrowedTime; borrowedTime.id = "BorrowedTime";
+    borrowedTime.operation = AbilityOperation::BorrowedTime;
+    borrowedTime.targetRelation = AbilityTargetRelation::Ally; borrowedTime.range = 4;
+    borrowedTime.values = {{"FragmentCost", 2.0}, {"DurationInitiative", 80.0},
+        {"DeferredDamageFraction", 0.5}, {"DeferredDamageForgivenFraction", 0.25},
+        {"HealOnResolve", 6.0}, {"InitiativeGainOnResolve", 7.0}};
+    Game borrowedGame; Require(borrowedGame.Reset(chronomancerAbilitySetup(borrowedTime)).success,
+        "Borrowed Time setup should reset");
+    chronoCast.targetEntityId = 10; chronoCast.abilityId = borrowedTime.id;
+    Require(borrowedGame.ApplyAction(chronoCast).success
+            && borrowedGame.State().characters[0].resourceCurrent == 2
+            && borrowedGame.State().characters[0].modifierEffects.size() == 1
+            && borrowedGame.State().characters[0].modifierEffects[0].kind == ModifierEffectKind::BorrowedTime
+            && borrowedGame.State().characters[0].modifierEffects[0].counterB == 5000
+            && borrowedGame.State().characters[0].modifierEffects[0].valueA == 2500,
+        "Borrowed Time should spend fragments and author its deferred-damage contract in Core");
+
+    MatchSetup borrowedDamageSetup = ValidSetup();
+    ModifierEffectState activeBorrowed; activeBorrowed.id = "BorrowedTime:BorrowedTime";
+    activeBorrowed.kind = ModifierEffectKind::BorrowedTime; activeBorrowed.causerId = 10;
+    activeBorrowed.remainingInitiative = 50; activeBorrowed.counterB = 5000;
+    borrowedDamageSetup.initialState.characters[1].modifierEffects.push_back(activeBorrowed);
+    Game borrowedDamageGame; Require(borrowedDamageGame.Reset(std::move(borrowedDamageSetup)).success,
+        "Borrowed Time damage setup should reset");
+    GameAction borrowedAttack{ActionType::BasicAttack, 10, 20};
+    Game baselineDamageGame; Require(baselineDamageGame.Reset(ValidSetup()).success
+            && baselineDamageGame.ApplyAction(borrowedAttack).success,
+        "Borrowed Time baseline damage should resolve");
+    Require(borrowedDamageGame.ApplyAction(borrowedAttack).success
+            && borrowedDamageGame.State().characters[1].health > baselineDamageGame.State().characters[1].health
+            && borrowedDamageGame.State().characters[1].modifierEffects[0].counterA > 0,
+        "Borrowed Time should defer configured incoming damage instead of losing it");
+
+    AbilityDefinition stasis; stasis.id = "Stasis"; stasis.operation = AbilityOperation::Stasis;
+    stasis.targetRelation = AbilityTargetRelation::Ally; stasis.range = 4;
+    stasis.values = {{"FragmentCost", 1.0}, {"DurationInitiative", 60.0},
+        {"HealOnRelease", 12.0}, {"InitiativeGainOnRelease", 8.0}};
+    Game stasisGame; Require(stasisGame.Reset(chronomancerAbilitySetup(stasis)).success,
+        "Stasis setup should reset");
+    chronoCast.abilityId = stasis.id;
+    Require(stasisGame.ApplyAction(chronoCast).success
+            && stasisGame.State().characters[0].modifierEffects[0].kind == ModifierEffectKind::Stasis,
+        "Stasis should create its authoritative immunity state");
+    GameAction blockedAttack{ActionType::BasicAttack, 10, 20};
+    Require(!stasisGame.ValidateAction(blockedAttack).success,
+        "A character in Stasis must not be able to attack");
+    MatchSetup stasisImmunitySetup = ValidSetup();
+    ModifierEffectState activeStasis; activeStasis.id = "Stasis:Stasis";
+    activeStasis.kind = ModifierEffectKind::Stasis; activeStasis.causerId = 20;
+    activeStasis.remainingInitiative = 50;
+    stasisImmunitySetup.initialState.characters[1].modifierEffects.push_back(activeStasis);
+    Game stasisImmunityGame; Require(stasisImmunityGame.Reset(std::move(stasisImmunitySetup)).success,
+        "Stasis immunity setup should reset");
+    Require(stasisImmunityGame.ApplyAction(blockedAttack).success
+            && stasisImmunityGame.State().characters[1].health == 100,
+        "Stasis should prevent incoming damage while its target is removed from play");
+
+    AbilityDefinition anchor; anchor.id = "TemporalAnchor";
+    anchor.operation = AbilityOperation::TemporalAnchor;
+    anchor.targetRelation = AbilityTargetRelation::Ally; anchor.range = 4;
+    anchor.values = {{"FragmentCost", 2.0}, {"DurationInitiative", 90.0},
+        {"HealOnReturn", 10.0}, {"InitiativeGainOnReturn", 5.0},
+        {"NearbyEnemyInitiativeLossOnReturn", 9.0}};
+    Game anchorGame; Require(anchorGame.Reset(chronomancerAbilitySetup(anchor)).success,
+        "Temporal Anchor setup should reset");
+    chronoCast.abilityId = anchor.id;
+    Require(anchorGame.ApplyAction(chronoCast).success
+            && anchorGame.State().characters[0].modifierEffects[0].kind == ModifierEffectKind::TemporalAnchor
+            && anchorGame.State().characters[0].modifierEffects[0].areaCenterTileId == 1,
+        "Temporal Anchor should preserve the target's original tile in Core");
+
+    MatchSetup expirySetup = ValidSetup();
+    expirySetup.initialState.activeCharacterId = InvalidEntityId;
+    expirySetup.initialState.characters[0].tileId = 4;
+    expirySetup.initialState.characters[0].health = 80;
+    expirySetup.initialState.characters[0].initiative = 0;
+    expirySetup.initialState.characters[1].initiative = 0;
+    ModifierEffectState expiringAnchor; expiringAnchor.id = "TemporalAnchor:TemporalAnchor";
+    expiringAnchor.kind = ModifierEffectKind::TemporalAnchor; expiringAnchor.causerId = 10;
+    expiringAnchor.remainingInitiative = 1; expiringAnchor.areaCenterTileId = 1;
+    expiringAnchor.valueA = 10; expiringAnchor.valueB = 5; expiringAnchor.valueC = 9;
+    expirySetup.initialState.characters[0].modifierEffects.push_back(expiringAnchor);
+    Game expiryGame; Require(expiryGame.Reset(std::move(expirySetup)).success,
+        "Temporal Anchor expiry setup should reset");
+    GameAction continueTurn{ActionType::EndTurn, InvalidEntityId};
+    const ActionResult expiryResult = expiryGame.ApplyAction(continueTurn);
+    Require(expiryResult.success && expiryGame.State().characters[0].tileId == 1
+            && expiryGame.State().tiles[0].occupantId == 10
+            && expiryGame.State().tiles[3].occupantId == InvalidEntityId
+            && expiryGame.State().characters[0].health == 90,
+        "Temporal Anchor expiry should return the target collision-safely and apply its release rewards");
+
+    MatchSetup borrowedExpirySetup = ValidSetup();
+    borrowedExpirySetup.initialState.activeCharacterId = InvalidEntityId;
+    borrowedExpirySetup.initialState.characters[0].health = 80;
+    borrowedExpirySetup.initialState.characters[0].initiative = 0;
+    borrowedExpirySetup.initialState.characters[1].initiative = 0;
+    ModifierEffectState expiringBorrowed; expiringBorrowed.id = "BorrowedTime:BorrowedTime";
+    expiringBorrowed.kind = ModifierEffectKind::BorrowedTime; expiringBorrowed.causerId = 10;
+    expiringBorrowed.remainingInitiative = 1; expiringBorrowed.counterA = 20;
+    expiringBorrowed.valueA = 2500; expiringBorrowed.valueB = 5; expiringBorrowed.valueC = 3;
+    borrowedExpirySetup.initialState.characters[0].modifierEffects.push_back(expiringBorrowed);
+    Game borrowedExpiryGame; Require(borrowedExpiryGame.Reset(std::move(borrowedExpirySetup)).success,
+        "Borrowed Time expiry setup should reset");
+    Require(borrowedExpiryGame.ApplyAction(continueTurn).success
+            && borrowedExpiryGame.State().characters[0].health == 70
+            && borrowedExpiryGame.State().characters[0].modifierEffects.empty(),
+        "Borrowed Time expiry should forgive its configured share, apply deferred damage, and then heal");
+
     MatchSetup overlapping = ValidSetup();
     overlapping.initialState.characters[1].tileId = 1;
     Game invalid;

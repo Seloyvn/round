@@ -87,7 +87,7 @@ ActionResult Game::Reset(MatchSetup setup)
         {
             return Failure("invalid_ability_definition_id", "Ability definition keys and IDs must be equal and non-empty.");
         }
-        if (ability.operation > AbilityOperation::TimeSiphon
+        if (ability.operation > AbilityOperation::TemporalAnchor
             || ability.targetRelation > AbilityTargetRelation::AnyCharacter)
         {
             return Failure("invalid_ability_contract", "Ability operation and target relation must be recognized.");
@@ -869,6 +869,9 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
     std::int32_t defenseIgnore, std::vector<GameEvent>& auraEvents,
     std::vector<GameEvent>& modifierEvents)
 {
+    if (std::any_of(target.modifierEffects.begin(), target.modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::Stasis; }))
+        return 0;
     const CharacterDefinition& sourceDefinition = definitions_.characters.at(source.definitionId);
     const CharacterDefinition& targetDefinition = definitions_.characters.at(target.definitionId);
     const TileState* initialSourceTile = FindTile(source.tileId);
@@ -1181,6 +1184,14 @@ std::int32_t Game::ResolveDamage(CharacterState& source, CharacterState& target,
             target.tileId, effectId, 0});
     }
 
+    for (ModifierEffectState& effect : target.modifierEffects)
+    {
+        if (effect.kind != ModifierEffectKind::BorrowedTime || effect.counterB <= 0 || damage <= 0) continue;
+        const std::int32_t deferred = std::clamp(static_cast<std::int32_t>(
+            damage * (effect.counterB / 10000.0) + 0.5), 0, static_cast<std::int32_t>(damage));
+        effect.counterA += deferred;
+        damage -= deferred;
+    }
     const std::int32_t resourceDefense = target.resourceCurrent <= 0
         ? std::max(0, static_cast<std::int32_t>(PassiveValue(targetDefinition, "DefenseWhileNoChain")))
         : 0;
@@ -1937,6 +1948,9 @@ ActionResult Game::ValidateBasicAttack(const GameAction& action) const
     {
         return Failure("not_active_character", "Only the active character can attack.");
     }
+    if (std::any_of(attacker->modifierEffects.begin(), attacker->modifierEffects.end(),
+            [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::Stasis; }))
+        return Failure("attack_blocked", "A character in Stasis cannot attack.");
     if (attacker->team == Team::Neutral || attacker->team == target->team)
     {
         return Failure("target_not_enemy", "A basic attack requires an enemy character.");
@@ -2192,7 +2206,11 @@ ActionResult Game::ValidateAbility(const GameAction& action) const
     }
     std::int32_t resourceCost = std::max(0,
         static_cast<std::int32_t>(AbilityValue(definition, "ChainCost")));
-    if (definition.operation == AbilityOperation::Accelerate)
+    const bool fragmentSpend = definition.operation == AbilityOperation::Accelerate
+        || definition.operation == AbilityOperation::BorrowedTime
+        || definition.operation == AbilityOperation::Stasis
+        || definition.operation == AbilityOperation::TemporalAnchor;
+    if (fragmentSpend)
     {
         resourceCost = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "FragmentCost")));
         const CharacterDefinition& chronoDefinition = definitions_.characters.at(actor->definitionId);
@@ -2280,7 +2298,11 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, -cost});
     std::int32_t resourceCost = std::max(0,
         static_cast<std::int32_t>(AbilityValue(definition, "ChainCost")));
-    if (definition.operation == AbilityOperation::Accelerate)
+    const bool fragmentSpend = definition.operation == AbilityOperation::Accelerate
+        || definition.operation == AbilityOperation::BorrowedTime
+        || definition.operation == AbilityOperation::Stasis
+        || definition.operation == AbilityOperation::TemporalAnchor;
+    if (fragmentSpend)
     {
         const std::int32_t configuredCost = std::max(0, static_cast<std::int32_t>(
             AbilityValue(definition, "FragmentCost")));
@@ -2299,7 +2321,7 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         {
             actor->firstResourceSpendRefundAvailable = false;
             const CharacterDefinition& actorDefinition = definitions_.characters.at(actor->definitionId);
-            const char* refundKey = definition.operation == AbilityOperation::Accelerate
+            const char* refundKey = fragmentSpend
                 ? "InitiativeGainOnFirstFragmentSpend" : "FirstChainSpendInitiativeRefund";
             const std::int32_t refund = std::max(0, static_cast<std::int32_t>(
                 PassiveValue(actorDefinition, refundKey)));
@@ -2310,7 +2332,7 @@ ActionResult Game::ApplyAbility(const GameAction& action)
                     actor->tileId, action.abilityId, refund});
             }
         }
-        if (definition.operation == AbilityOperation::Accelerate)
+        if (fragmentSpend)
         {
             const std::int32_t reduction = resourceCost * std::max(0, static_cast<std::int32_t>(
                 PassiveValue(castingDefinition, "TimeSiphonCooldownReductionPerFragmentSpent")));
@@ -2491,6 +2513,38 @@ ActionResult Game::ApplyAbility(const GameAction& action)
         const std::int32_t selfGain = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "SelfInitiativeGain")));
         actor->initiative += selfGain;
         if (selfGain > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged, actor->id, actor->id, actor->tileId, action.abilityId, selfGain});
+    }
+    else if (definition.operation == AbilityOperation::BorrowedTime)
+    {
+        ModifierEffectState effect; effect.id = action.abilityId + ":BorrowedTime";
+        effect.kind = ModifierEffectKind::BorrowedTime; effect.causerId = actor->id; effect.sourceAbilityId = action.abilityId;
+        effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        effect.counterB = std::clamp(static_cast<std::int32_t>(AbilityValue(definition, "DeferredDamageFraction") * 10000.0 + 0.5), 0, 10000);
+        effect.valueA = std::clamp(static_cast<std::int32_t>(AbilityValue(definition, "DeferredDamageForgivenFraction") * 10000.0 + 0.5), 0, 10000);
+        effect.valueB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "HealOnResolve")));
+        effect.valueC = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnResolve")));
+        addEffect(*target, effect);
+    }
+    else if (definition.operation == AbilityOperation::Stasis)
+    {
+        ModifierEffectState effect; effect.id = action.abilityId + ":Stasis";
+        effect.kind = ModifierEffectKind::Stasis; effect.causerId = actor->id; effect.sourceAbilityId = action.abilityId;
+        effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        effect.preventsAbilityUse = true; effect.preventsMovement = true;
+        effect.valueA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "HealOnRelease")));
+        effect.valueB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnRelease")));
+        addEffect(*target, effect);
+    }
+    else if (definition.operation == AbilityOperation::TemporalAnchor)
+    {
+        ModifierEffectState effect; effect.id = action.abilityId + ":TemporalAnchor";
+        effect.kind = ModifierEffectKind::TemporalAnchor; effect.causerId = actor->id; effect.sourceAbilityId = action.abilityId;
+        effect.remainingInitiative = std::max(1, static_cast<std::int32_t>(AbilityValue(definition, "DurationInitiative")));
+        effect.areaCenterTileId = target->tileId;
+        effect.valueA = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "HealOnReturn")));
+        effect.valueB = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "InitiativeGainOnReturn")));
+        effect.valueC = std::max(0, static_cast<std::int32_t>(AbilityValue(definition, "NearbyEnemyInitiativeLossOnReturn")));
+        addEffect(*target, effect);
     }
     else if (definition.operation == AbilityOperation::GroundAura)
     {
@@ -4365,7 +4419,9 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
     std::int32_t highestInitiative = std::numeric_limits<std::int32_t>::min();
     for (CharacterState& character : state_.characters)
     {
-        if (!character.alive || !character.canTakeTurn)
+        if (!character.alive || !character.canTakeTurn
+            || std::any_of(character.modifierEffects.begin(), character.modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::Stasis; }))
         {
             continue;
         }
@@ -4667,7 +4723,9 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                     }
                 }
             }
-            const std::int32_t gain = std::max(0, character.initiativeGainPerTick);
+            const bool inStasis = std::any_of(character.modifierEffects.begin(), character.modifierEffects.end(),
+                [](const ModifierEffectState& effect) { return effect.kind == ModifierEffectKind::Stasis; });
+            const std::int32_t gain = inStasis ? 0 : std::max(0, character.initiativeGainPerTick);
             character.initiative += gain;
             if (gain > 0)
             {
@@ -4744,6 +4802,89 @@ ActionResult Game::ApplyEndTurn(const GameAction& action)
                 }
                 if (effect->remainingInitiative <= 0 && effect->remainingTurns <= 0)
                 {
+                    if (effect->kind == ModifierEffectKind::BorrowedTime && effect->counterA > 0 && character.alive)
+                    {
+                        const std::int32_t resolved = std::max(0, static_cast<std::int32_t>(
+                            effect->counterA * ((10000 - std::clamp(effect->valueA, 0, 10000)) / 10000.0) + 0.5));
+                        const std::int32_t applied = std::min(character.health, resolved);
+                        character.health -= applied;
+                        result.events.push_back(GameEvent{EventType::DamageApplied, effect->causerId, character.id,
+                            character.tileId, effect->id, applied});
+                        if (character.health <= 0)
+                        {
+                            character.health = 0; character.alive = false;
+                            if (TileState* tile = FindTile(character.tileId)) tile->occupantId = InvalidEntityId;
+                            result.events.push_back(GameEvent{EventType::CharacterDied, effect->causerId, character.id,
+                                character.tileId, effect->id, 0});
+                        }
+                        else
+                        {
+                            const CharacterDefinition& definition = definitions_.characters.at(character.definitionId);
+                            const std::int32_t healing = std::min(std::max(0, effect->valueB),
+                                std::max(0, definition.stats.maxHealth - character.health));
+                            character.health += healing; character.initiative += std::max(0, effect->valueC);
+                            if (healing > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                                effect->causerId, character.id, character.tileId, effect->id, healing});
+                            if (effect->valueC > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                                effect->causerId, character.id, character.tileId, effect->id, effect->valueC});
+                        }
+                    }
+                    else if (effect->kind == ModifierEffectKind::Stasis && character.alive)
+                    {
+                        const CharacterDefinition& definition = definitions_.characters.at(character.definitionId);
+                        const std::int32_t healing = std::min(std::max(0, effect->valueA),
+                            std::max(0, definition.stats.maxHealth - character.health));
+                        character.health += healing; character.initiative += std::max(0, effect->valueB);
+                        if (healing > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                            effect->causerId, character.id, character.tileId, effect->id, healing});
+                        if (effect->valueB > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                            effect->causerId, character.id, character.tileId, effect->id, effect->valueB});
+                    }
+                    else if (effect->kind == ModifierEffectKind::TemporalAnchor && character.alive)
+                    {
+                        TileState* destination = FindTile(effect->areaCenterTileId);
+                        const auto usable = [this, &character](const TileState* tile)
+                        {
+                            if (!tile || tile->blocksMovement || (tile->occupantId != InvalidEntityId && tile->occupantId != character.id)) return false;
+                            const auto terrain = definitions_.terrains.find(tile->terrainId);
+                            return terrain != definitions_.terrains.end() && terrain->second.walkable;
+                        };
+                        if (!usable(destination))
+                        {
+                            destination = nullptr;
+                            const TileState* anchor = FindTile(effect->areaCenterTileId);
+                            for (TileState& candidate : state_.tiles)
+                                if (anchor && HexDistance(anchor->coord, candidate.coord) == 1 && usable(&candidate)
+                                    && (!destination || candidate.id < destination->id)) destination = &candidate;
+                        }
+                        if (destination && destination->id != character.tileId)
+                        {
+                            if (TileState* origin = FindTile(character.tileId)) origin->occupantId = InvalidEntityId;
+                            destination->occupantId = character.id; character.tileId = destination->id;
+                            result.events.push_back(GameEvent{EventType::CharacterMoved, effect->causerId, character.id,
+                                destination->id, effect->id, 0});
+                        }
+                        const CharacterDefinition& definition = definitions_.characters.at(character.definitionId);
+                        const std::int32_t healing = std::min(std::max(0, effect->valueA),
+                            std::max(0, definition.stats.maxHealth - character.health));
+                        character.health += healing; character.initiative += std::max(0, effect->valueB);
+                        if (healing > 0) result.events.push_back(GameEvent{EventType::HealingApplied,
+                            effect->causerId, character.id, character.tileId, effect->id, healing});
+                        if (effect->valueB > 0) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                            effect->causerId, character.id, character.tileId, effect->id, effect->valueB});
+                        const TileState* center = FindTile(character.tileId);
+                        CharacterState* causer = FindCharacter(effect->causerId);
+                        if (center && causer && effect->valueC > 0) for (CharacterState& enemy : state_.characters)
+                        {
+                            const TileState* tile = FindTile(enemy.tileId);
+                            if (!enemy.alive || enemy.team == causer->team || enemy.team == Team::Neutral || !tile
+                                || HexDistance(center->coord, tile->coord) != 1) continue;
+                            const std::int32_t before = enemy.initiative;
+                            enemy.initiative = std::max(0, before - effect->valueC);
+                            if (enemy.initiative != before) result.events.push_back(GameEvent{EventType::InitiativeChanged,
+                                causer->id, enemy.id, enemy.tileId, effect->id, enemy.initiative - before});
+                        }
+                    }
                     if (effect->kind == ModifierEffectKind::DelayedArea && effect->valueA > 0)
                     {
                         CharacterState* causer = FindCharacter(effect->causerId);

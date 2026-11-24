@@ -4698,6 +4698,12 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
         CurrentTurnCharacter = nullptr;
         for (const FRoundCoreCharacterRuntimeUpdate& Update : Execution.CharacterUpdates)
         {
+            if (Update.Character && Update.Tile && Update.Character->CurrentTile != Update.Tile)
+            {
+                bApplyingCoreMovementCallbacks = true;
+                Update.Character->SetField(Update.Tile, false);
+                bApplyingCoreMovementCallbacks = false;
+            }
             if (Update.Character && Update.Character->Attributes)
             {
                 Update.Character->Attributes->SetCurrentHealthValue(Update.Health);
@@ -4739,6 +4745,13 @@ ARoundCharacter* ARoundGameState::AdvanceCoreTurn(ARoundCharacter* EndingCharact
                     Damage.Amount,
                     Damage.DamageType,
                     Damage.bTargetDied);
+            }
+        }
+        for (const FRoundCoreHealingEvent& Healing : Execution.HealingEvents)
+        {
+            if (Healing.Character && Healing.Amount > 0)
+            {
+                RecordHeal(Healing.Character, Healing.Amount);
             }
         }
         for (const TPair<ARoundCharacter*, int32>& Delay : Execution.AppliedDelays)
